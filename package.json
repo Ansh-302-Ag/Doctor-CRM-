@@ -1,0 +1,36 @@
+{
+  "name": "clinic-receptionist",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "./scripts/pgdev.sh && next dev --webpack",
+    "build": "next build --webpack",
+    "start": "next start",
+    "lint": "eslint",
+    "migrate": "./scripts/pgdev.sh && node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/migrate.ts",
+    "test": "./scripts/pgdev.sh && node --env-file=.env.local node_modules/tsx/dist/cli.mjs --test tests/*.test.ts",
+    "seed": "./scripts/pgdev.sh && node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/seed.ts",
+    "sim": "./scripts/pgdev.sh && node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/sim.ts",
+    "db": "./scripts/pgdev.sh",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "iron-session": "^9.0.1",
+    "next": "16.3.4",
+    "postgres": "^3.4.9",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.4",
+    "tailwindcss": "^4",
+    "tsx": "^4.20.0",
+    "typescript": "^5"
+  }
+}
