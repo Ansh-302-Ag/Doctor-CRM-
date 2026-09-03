@@ -47,11 +47,35 @@ everything except Meta. Try "I need an appointment with Dr. Rao", then
 "tomorrow", then a time. Then try "can I take paracetamol with it" and watch
 it escalate instead of answering.
 
+## The agent
+
+`src/lib/agent/screen.ts` is deterministic keyword matching and runs first. If
+it says emergency or clinical, the message escalates and no model is called.
+
+Everything after that is one Anthropic Messages API call
+(`src/lib/agent/intent.ts`, Haiku tier, forced tool use) returning the intent,
+the doctor, the day, and which offered slot the patient picked. Set
+`ANTHROPIC_API_KEY` in `.env.local`. Without it — or if the API errors or times
+out — every message escalates to a human. There is no fallback parser, on
+purpose: quietly degrading to worse parsing is how you book the wrong slot.
+
+The model is sent the message, the clinic's doctor names, the times just
+offered, and today's date. Never appointment history, never prescriptions
+(`docs/02`).
+
 ## Tests
 
 ```bash
-npm test          # 58 tests against TEST_DATABASE_URL
+npm test          # 57 tests against TEST_DATABASE_URL, no network needed
 npm run typecheck
+```
+
+The suite drives the agent with a scripted stand-in for the model, so it stays
+offline and deterministic. `tests/intent.live.test.ts` hits the real API and is
+skipped unless a key is present:
+
+```bash
+ANTHROPIC_API_KEY=sk-... npm test
 ```
 
 Run `npm run migrate` against the test database once before the first `npm test`:

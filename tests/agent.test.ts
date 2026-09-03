@@ -7,6 +7,8 @@ import assert from "node:assert/strict";
 import { db, reset, seed, closeAll, type Fixture } from "./helpers";
 import { handleInbound } from "../src/lib/agent";
 import { CONSENT_NOTICE } from "../src/lib/consent";
+import { scripted } from "./stub-classifier";
+import { ClassifierUnavailable } from "../src/lib/agent/intent";
 
 let f: Fixture;
 let seq = 0;
@@ -21,7 +23,7 @@ const say = (body: string, opts: { phone?: string; id?: string } = {}) =>
     phone: opts.phone ?? "+919000000001",
     body,
     providerMessageId: opts.id ?? `wamid.${++seq}`,
-  });
+  }, new Date(), scripted);
 
 const escalations = () =>
   db<{ reason: string; priority: string; status: string }[]>`
@@ -31,7 +33,7 @@ test("happy path: book an appointment end to end", async () => {
   const a = await say("Hi, I need an appointment with Dr. Rao");
   assert.match(a!.text, /what day/i);
 
-  const b = await say("this Friday if possible");
+  const b = await say("tomorrow");
   assert.match(b!.text, /these times are free/i);
 
   const offered = b!.text.match(/• ([^\n]+)/g)!;
@@ -213,7 +215,7 @@ test("the whole loop works while connected as the restricted agent role", async 
   const asAgent = (body: string, id: string) =>
     handleInbound(agentDb, {
       clinicId: f.clinicId, phone: "+919000000077", body, providerMessageId: id,
-    });
+    }, new Date(), scripted);
 
   assert.match((await asAgent("I want an appointment", "a1"))!.text, /store your name/i);
   assert.match((await asAgent("yes", "a2"))!.text, /thank you/i);
@@ -232,7 +234,7 @@ test("a clinical question escalates correctly as the restricted agent role", asy
   const r = await handleInbound(agentDb, {
     clinicId: f.clinicId, phone: "+919000000001",
     body: "can I take this with my BP medicine", providerMessageId: "b1",
-  });
+  }, new Date(), scripted);
   assert.equal(r!.escalated, true);
   assert.equal((await db`select id from escalations`).length, 1);
 });
@@ -242,12 +244,12 @@ test("consenting resumes the original request instead of dropping it", async () 
   const a = await handleInbound(db, {
     clinicId: f.clinicId, phone: p, body: "when is my next appointment",
     providerMessageId: "c1",
-  });
+  }, new Date(), scripted);
   assert.equal(a!.text, CONSENT_NOTICE);
 
   const b = await handleInbound(db, {
     clinicId: f.clinicId, phone: p, body: "yes", providerMessageId: "c2",
-  });
+  }, new Date(), scripted);
   // The answer to the original question, not a fresh "what day?" prompt.
   assert.match(b!.text, /no upcoming appointments/i);
 });
@@ -256,7 +258,7 @@ test("a clinical question asked before consent still escalates", async () => {
   const r = await handleInbound(db, {
     clinicId: f.clinicId, phone: "+919000000056",
     body: "what are the side effects of this medicine", providerMessageId: "d1",
-  });
+  }, new Date(), scripted);
   assert.equal(r!.escalated, true);
   assert.equal((await db`select id from escalations`).length, 1);
 });
@@ -293,4 +295,51 @@ test("naming the doctor resumes the booking with the right one", async () => {
     select doctor_id from appointments where status = 'booked'`;
   assert.equal(rows.length, 1);
   assert.equal(rows[0].doctor_id, iyer.id);
+});
+
+test("when the classifier is unavailable, the message escalates rather than vanishing", async () => {
+  const broken = async () => { throw new ClassifierUnavailable("503 upstream"); };
+  const r = await handleInbound(db, {
+    clinicId: f.clinicId, phone: "+919000000001",
+    body: "I need an appointment", providerMessageId: "e1",
+  }, new Date(), broken);
+
+  assert.equal(r!.escalated, true);
+  assert.match(r!.text, /technical issue/i);
+
+  const [e] = await db<{ reason: string }[]>`select reason from escalations`;
+  assert.match(e.reason, /classifier unavailable/);
+  assert.equal((await db`select id from appointments`).length, 0);
+});
+
+test("a clinical question never reaches the classifier at all", async () => {
+  let called = false;
+  const spy = async () => { called = true; throw new Error("should not be reached"); };
+  const r = await handleInbound(db, {
+    clinicId: f.clinicId, phone: "+919000000001",
+    body: "can I take paracetamol with the antibiotics", providerMessageId: "e2",
+  }, new Date(), spy);
+
+  assert.equal(called, false, "the safety screen must decide before any model call");
+  assert.equal(r!.escalated, true);
+});
+
+test("the classifier is given only booking context, never patient history", async () => {
+  await db`insert into prescriptions (patient_id, doctor_id, drug_name, dosage, created_by)
+           values (${f.patientId}, ${f.doctorId}, 'Amoxicillin', '500mg', ${f.doctorUserId})`;
+
+  let seen: unknown;
+  const capture: typeof scripted = async (i) => {
+    seen = i;
+    return { intent: "book", doctor: null, day: null, slotIndex: null };
+  };
+  await handleInbound(db, {
+    clinicId: f.clinicId, phone: "+919000000001",
+    body: "I need an appointment", providerMessageId: "e3",
+  }, new Date(), capture);
+
+  // docs/02: minimise what any third-party API sees.
+  assert.deepEqual(Object.keys(seen as object).sort(),
+    ["body", "doctors", "offered", "today", "weekday"]);
+  assert.doesNotMatch(JSON.stringify(seen), /Amoxicillin|\+9190000/);
 });

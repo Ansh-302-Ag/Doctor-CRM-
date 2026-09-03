@@ -69,32 +69,3 @@ export const templates = {
     `Sorry, I did not follow that. I have passed it to the clinic team so someone ` +
     `can help you directly.`,
 } as const;
-
-/** Logistics intents the agent has tools for. Anything else escalates. */
-export type Intent =
-  | "book" | "reschedule" | "cancel"
-  | "check_appointment" | "check_prescription_record"
-  | "consent_yes" | "delete_my_data"
-  | "unclear";
-
-/**
- * Deterministic intent guess. Used as-is when no model is configured, and as the
- * prior the model has to beat. It only ever returns a logistics intent or
- * "unclear" — it has no way to express a clinical answer.
- */
-export function guessIntent(body: string): Intent {
-  const t = normalise(body);
-  if (/^(yes|y|yes please|ok|okay|agree|i agree|haan|ha)\b/.test(t)) return "consent_yes";
-  if (/\b(delete my data|delete my details|forget me|remove my data|withdraw consent)\b/.test(t))
-    return "delete_my_data";
-  if (/\b(cancel)\b/.test(t)) return "cancel";
-  if (/\b(reschedule|resched|move|change|shift|postpone)\b/.test(t) && /\b(appointment|booking|slot|visit)\b/.test(t))
-    return "reschedule";
-  // Checked before "book", since both mention "appointment".
-  if (/\b(when is|what time|my next|upcoming|do i have an)\b/.test(t) && /\b(appointment|visit|booking)\b/.test(t))
-    return "check_appointment";
-  if (/\b(book|appointment|schedule|slot|see the doctor|consult|visit)\b/.test(t)) return "book";
-  if (/\b(prescription|medicine|medication|tablet|what did the doctor give)\b/.test(t))
-    return "check_prescription_record";
-  return "unclear";
-}

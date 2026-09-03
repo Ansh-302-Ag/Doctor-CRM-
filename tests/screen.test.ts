@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { screen, guessIntent } from "../src/lib/agent/screen";
+import { screen } from "../src/lib/agent/screen";
 
 test("emergency phrasing is caught before anything else", () => {
   for (const m of [
@@ -34,15 +34,4 @@ test("the screen never returns an answer, only a routing verdict", () => {
   const s = screen("can I take this with my BP medicine");
   assert.equal(s.verdict, "clinical");
   assert.ok(!("reply" in s), "the screen must not be able to produce a clinical reply");
-});
-
-test("intent guessing covers the logistics set and falls back to unclear", () => {
-  assert.equal(guessIntent("I want to book an appointment"), "book");
-  assert.equal(guessIntent("can I reschedule my appointment"), "reschedule");
-  assert.equal(guessIntent("cancel please"), "cancel");
-  assert.equal(guessIntent("when is my next appointment"), "check_appointment");
-  assert.equal(guessIntent("what prescription am I on"), "check_prescription_record");
-  assert.equal(guessIntent("yes"), "consent_yes");
-  assert.equal(guessIntent("delete my data"), "delete_my_data");
-  assert.equal(guessIntent("hmm ok whatever asdf"), "unclear");
 });

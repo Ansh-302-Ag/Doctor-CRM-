@@ -51,13 +51,11 @@ export const tools = {
     return rows;
   },
 
-  escalate_to_human: async (
-    db: Db,
-    a: {
-      conversationId: string; patientId: string; reason: string;
-      priority?: "normal" | "emergency";
-    },
-  ) => {
+  escalate_to_human: async (a: {
+    db: Db; conversationId: string; patientId: string; reason: string;
+    priority?: "normal" | "emergency";
+  }) => {
+    const db = a.db;
     requirePermission(ROLE, "escalations:create");
     const [row] = await db<{ id: string }[]>`
       insert into escalations (conversation_id, patient_id, reason, priority)

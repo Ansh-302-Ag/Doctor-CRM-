@@ -46,7 +46,7 @@ src/lib/
   webhook.ts           signature verification and payload parsing
   agent/
     screen.ts          the deterministic safety screen + templated replies
-    dates.ts           "tomorrow" / "Friday" / "10/09" → a clinic-local day
+    intent.ts          Anthropic Messages API — intent + doctor + day + slot
     tools.ts           the entire tool set (docs/05) and nothing else
     index.ts           the conversation state machine
 
@@ -78,8 +78,16 @@ thing ORMs make harder to express and easier to lose in a migration.
 **The safety screen is deterministic and runs before any model.** `screen()`
 is keyword and regex matching, with no model in the path, and its verdict
 cannot be overridden downstream. The reason is in docs/01: the escalation rule
-has to hold on the day the model is having a bad day. The model hook exists
-for parsing ambiguous *logistics* phrasing only.
+has to hold on the day the model is having a bad day. A test asserts the
+classifier is never even called for a clinical message.
+
+**Everything after the screen is the model.** One call to the Anthropic
+Messages API (Haiku tier, forced tool use) returns intent, doctor, day and
+which offered slot the patient picked. Its output is range-checked before use:
+a doctor who does not work here, a malformed date, or an out-of-range slot
+index all become null, which costs one extra question instead of booking the
+wrong thing. Without `ANTHROPIC_API_KEY`, or if the API errors or times out,
+every message escalates to a human — there is no silent fallback path.
 
 **The agent connects to Postgres as its own role.** `AGENT_DATABASE_URL` uses
 `clinic_agent`, so the docs/08 grants bind at runtime rather than being a
@@ -133,8 +141,9 @@ Logged rather than built, per the docs/07 ponytail rule:
 - Per-doctor availability. Clinic hours are one shared 09:00–18:00, Mon–Sat
   range in `booking.ts`; the first clinic with differing doctor hours turns
   this into a table
-- A model-backed intent classifier. `guessIntent` is deterministic; the model
-  goes in when real conversations show where it actually falls short
+- Escalation to a stronger model tier for genuinely ambiguous phrasing
+  (docs/05). Haiku handles everything today; add the second tier when real
+  conversations show where it falls short
 - The breach runbook (docs/02) — a document, still owed before launch
 
 ---
@@ -179,3 +188,31 @@ reach; a session that needs a database uses its own local one via an env file
 outside the repo.
 
 Nothing in `src/` changed. 58 tests still pass.
+
+### 2026-09-03 — real model wired in, hand-rolled parsers deleted
+
+The agent was parsing patients' messages with regexes I wrote — `guessIntent`,
+`parseDay`, `pickOffered`. That was never the design (docs/05 and docs/06 both
+call for a model here); it was scaffolding that outstayed its welcome.
+
+Replaced all three with one call to the Anthropic Messages API in
+`src/lib/agent/intent.ts`: forced tool use, Haiku tier, returning intent,
+doctor, day and slot index in a single round trip. Net effect is less code, not
+more — `dates.ts` and `guessIntent` are gone.
+
+What did **not** change: `screen()` still runs first and still decides
+escalation with no model in the path. The model sees only the message, the
+clinic's doctor names, the times just offered, and today's date — never
+appointment history, never prescriptions (docs/02). A test asserts that
+payload shape, and another asserts a clinical message never reaches the
+classifier at all.
+
+Failure behaviour follows docs/08: no key, an API error, or a 10-second
+timeout all escalate to a human with the templated technical-failure message.
+There is deliberately no regex fallback — a silent downgrade to worse parsing
+is exactly the failure mode that ends with a wrongly booked appointment.
+
+Tests: 57 offline, plus 7 live tests in `tests/intent.live.test.ts` that hit
+the real API and are skipped unless `ANTHROPIC_API_KEY` is set. **The live
+tests have not been run yet** — no key available at the time of writing, so
+the default `ANTHROPIC_MODEL` value is unverified.

@@ -5,15 +5,22 @@
  *   1. dedupe on the provider's message id      (docs/08 — webhook redelivery)
  *   2. deterministic safety screen              (docs/01 — clinical always escalates)
  *   3. consent gate                             (docs/02 — no booking without consent)
- *   4. logistics tool call, or escalate
+ *   4. model classifies the logistics phrasing, then one tool call — or escalate
+ *
+ * The model sits at step 4, behind the screen, and only ever chooses among
+ * logistics intents. It cannot reach step 2's verdict and has no tool that
+ * could answer a clinical question.
  *
  * Conversation state lives in the database, never in agent memory, so any
  * instance can pick up any conversation (docs/03).
  */
 import type { Db } from "../db";
 import { tools } from "./tools";
-import { screen, templates, guessIntent, type Intent } from "./screen";
-import { parseDay } from "./dates";
+import { screen, templates } from "./screen";
+import {
+  classifyWithClaude, ClassifierUnavailable,
+  type Classifier, type Classification,
+} from "./intent";
 import { CONSENT_NOTICE, recordConsent, withdrawAndDelete, ConsentRequired } from "../consent";
 import { BookingError } from "../booking";
 
@@ -41,6 +48,12 @@ const fmtTime = (at: Date, tz: string) =>
     hour: "numeric", minute: "2-digit", hour12: true,
   }).format(at);
 
+const dayIn = (at: Date, tz: string) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(at);
+
+const weekdayIn = (at: Date, tz: string) =>
+  new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "long" }).format(at);
+
 export type InboundMessage = {
   clinicId: string;
   phone: string;
@@ -51,9 +64,15 @@ export type InboundMessage = {
 /**
  * Handle one inbound message. Returns the reply to send, or null when the
  * message was a duplicate delivery and must be a no-op.
+ *
+ * `classify` is the model call; it is a parameter so tests can drive the state
+ * machine deterministically without a network round trip per assertion.
  */
 export async function handleInbound(
-  db: Db, msg: InboundMessage, now = new Date(),
+  db: Db,
+  msg: InboundMessage,
+  now = new Date(),
+  classify: Classifier = classifyWithClaude,
 ): Promise<Reply | null> {
   // 1. Dedupe. The unique index on provider_message_id is the real guard;
   //    this check just avoids doing the work twice in the common case.
@@ -61,21 +80,21 @@ export async function handleInbound(
                            where provider_message_id = ${msg.providerMessageId}`;
   if (seen) return null;
 
-  const { clinic, patient, conversation } = await context(db, msg);
+  const ctx = await context(db, msg);
 
   try {
     await db`insert into messages (conversation_id, direction, body, provider_message_id)
-             values (${conversation.id}, 'inbound', ${msg.body}, ${msg.providerMessageId})`;
+             values (${ctx.conversation.id}, 'inbound', ${msg.body}, ${msg.providerMessageId})`;
   } catch (e) {
     if ((e as { code?: string }).code === "23505") return null;   // raced duplicate
     throw e;
   }
-  await db`update conversations set last_message_at = now() where id = ${conversation.id}`;
+  await db`update conversations set last_message_at = now() where id = ${ctx.conversation.id}`;
 
-  const reply = await route(db, msg, { clinic, patient, conversation }, now);
+  const reply = await route(db, msg, ctx, now, classify);
 
   await db`insert into messages (conversation_id, direction, body, intent_classified)
-           values (${conversation.id}, 'outbound', ${reply.text}, ${reply.intent ?? null})`;
+           values (${ctx.conversation.id}, 'outbound', ${reply.text}, ${reply.intent ?? null})`;
   return { text: reply.text, escalated: reply.escalated };
 }
 
@@ -84,56 +103,77 @@ type Ctx = {
   patient: { id: string; consent_status: string };
   conversation: { id: string; state: ConversationState };
 };
+type Routed = { text: string; escalated: boolean; intent?: string };
 
 async function route(
-  db: Db, msg: InboundMessage, ctx: Ctx, now: Date,
-): Promise<{ text: string; escalated: boolean; intent?: string }> {
-  const escalate = async (reason: string, priority: "normal" | "emergency", text: string) => {
-    await tools.escalate_to_human(db, {
-      conversationId: ctx.conversation.id, patientId: ctx.patient.id, reason, priority,
+  db: Db, msg: InboundMessage, ctx: Ctx, now: Date, classify: Classifier,
+): Promise<Routed> {
+  const escalate = async (
+    reason: string, priority: "normal" | "emergency", text: string, intent?: string,
+  ): Promise<Routed> => {
+    await tools.escalate_to_human({
+      db, conversationId: ctx.conversation.id, patientId: ctx.patient.id, reason, priority,
     });
     await clearState(db, ctx.conversation.id);
-    return { text, escalated: true, intent: priority === "emergency" ? "emergency_signal" : "clinical_question" };
+    return { text, escalated: true, intent };
   };
 
-  // 2. The safety screen runs before any classification and cannot be overridden.
+  // 2. The safety screen runs before the model and cannot be overridden.
   const verdict = screen(msg.body);
   if (verdict.verdict === "emergency") {
     return escalate(`emergency signal: matched "${verdict.matched}"`, "emergency",
-      templates.emergency(ctx.clinic.phone));
+      templates.emergency(ctx.clinic.phone), "emergency_signal");
   }
   if (verdict.verdict === "clinical") {
     return escalate(`clinical question: matched "${verdict.matched}"`, "normal",
-      templates.clinical(ctx.clinic.phone));
+      templates.clinical(ctx.clinic.phone), "clinical_question");
   }
 
-  const intent: Intent = guessIntent(msg.body);
+  const state = ctx.conversation.state;
+  const doctors = await db<{ id: string; name: string }[]>`
+    select id, name from doctors where clinic_id = ${ctx.clinic.id} order by name`;
+  const offeredIso = (isBooking(state) && state.offered) || [];
+
+  let c: Classification;
+  try {
+    c = await classify({
+      body: msg.body,
+      doctors: doctors.map(d => d.name),
+      offered: offeredIso.map(iso => fmtTime(new Date(iso), ctx.clinic.timezone)),
+      today: dayIn(now, ctx.clinic.timezone),
+      weekday: weekdayIn(now, ctx.clinic.timezone),
+    });
+  } catch (e) {
+    // docs/08: the model being down never drops a message silently.
+    if (!(e instanceof ClassifierUnavailable)) throw e;
+    return escalate(`classifier unavailable: ${e.message}`, "normal",
+      templates.technicalFailure(), "classifier_unavailable");
+  }
 
   // 3. Consent gate. Nothing proceeds past here without a recorded 'granted'.
-  if (intent === "delete_my_data") {
+  if (c.intent === "delete_my_data") {
     await withdrawAndDelete(db, { kind: "agent" }, ctx.patient.id);
     return {
       text: "Your consent has been withdrawn and your details are scheduled for deletion. " +
             "Any upcoming appointments have been cancelled.",
-      escalated: false, intent: "delete_my_data",
+      escalated: false, intent: c.intent,
     };
   }
   if (ctx.patient.consent_status !== "granted") {
-    const stashed = ctx.conversation.state;
-    if (intent === "consent_yes") {
+    if (c.intent === "consent_yes") {
       await recordConsent(db, { kind: "agent" }, ctx.patient.id, "granted");
       await clearState(db, ctx.conversation.id);
-      const pending = isPending(stashed) ? stashed.pending : null;
+      const pending = isPending(state) ? state.pending : null;
       if (!pending) {
         return { text: "Thank you. What day would you like to come in?",
-                 escalated: false, intent: "consent_yes" };
+                 escalated: false, intent: c.intent };
       }
       // Honour what they originally asked for instead of making them repeat it.
       const resumed = await route(
         db, { ...msg, body: pending },
         { ...ctx, patient: { ...ctx.patient, consent_status: "granted" },
           conversation: { ...ctx.conversation, state: {} } },
-        now,
+        now, classify,
       );
       return { ...resumed, text: `Thank you. ${resumed.text}` };
     }
@@ -142,28 +182,30 @@ async function route(
   }
 
   // 4. Logistics.
-  const state = ctx.conversation.state as ConversationState;
-  if (isBooking(state) && intent !== "cancel") {
-    return continueBooking(db, msg, ctx, state, now, escalate);
+  if (isBooking(state) && c.intent !== "cancel") {
+    return continueBooking(db, ctx, state, c, doctors, now, escalate);
   }
 
-  switch (intent) {
+  switch (c.intent) {
     case "book":
-      return startBooking(db, msg, ctx, now, escalate);
+      return startBooking(db, msg, ctx, c, doctors, now, escalate);
 
     case "check_appointment": {
       const rows = await tools.get_upcoming_appointments(db, ctx.patient.id);
       if (rows.length === 0) {
-        return { text: "You have no upcoming appointments booked.", escalated: false, intent };
+        return { text: "You have no upcoming appointments booked.",
+                 escalated: false, intent: c.intent };
       }
       const list = rows.map(r => `• ${r.doctor_name} — ${fmtTime(r.starts_at, ctx.clinic.timezone)}`);
-      return { text: `Your upcoming appointments:\n${list.join("\n")}`, escalated: false, intent };
+      return { text: `Your upcoming appointments:\n${list.join("\n")}`,
+               escalated: false, intent: c.intent };
     }
 
     case "check_prescription_record": {
       const rows = await tools.get_prescription_summary(db, ctx.patient.id);
       if (rows.length === 0) {
-        return { text: "There are no active prescriptions on your record.", escalated: false, intent };
+        return { text: "There are no active prescriptions on your record.",
+                 escalated: false, intent: c.intent };
       }
       // Read back verbatim. No interpretation, no advice (docs/01).
       const list = rows.map(r =>
@@ -173,7 +215,7 @@ async function route(
       return {
         text: `Your record shows:\n${list.join("\n")}\n\nFor any question about these, ` +
               `please speak to the clinic team.`,
-        escalated: false, intent,
+        escalated: false, intent: c.intent,
       };
     }
 
@@ -181,18 +223,19 @@ async function route(
       const rows = await tools.get_upcoming_appointments(db, ctx.patient.id);
       if (rows.length === 0) {
         await clearState(db, ctx.conversation.id);
-        return { text: "You have no upcoming appointments to cancel.", escalated: false, intent };
+        return { text: "You have no upcoming appointments to cancel.",
+                 escalated: false, intent: c.intent };
       }
       if (rows.length > 1) {
         return escalate("cancel request with several upcoming appointments", "normal",
           "You have more than one upcoming appointment, so I have asked the clinic team " +
-          "to help you cancel the right one.");
+          "to help you cancel the right one.", c.intent);
       }
       await tools.cancel_appointment(db, { appointmentId: rows[0].id, patientId: ctx.patient.id });
       await clearState(db, ctx.conversation.id);
       return {
         text: `Cancelled: ${rows[0].doctor_name} on ${fmtTime(rows[0].starts_at, ctx.clinic.timezone)}.`,
-        escalated: false, intent,
+        escalated: false, intent: c.intent,
       };
     }
 
@@ -200,32 +243,40 @@ async function route(
       const rows = await tools.get_upcoming_appointments(db, ctx.patient.id);
       if (rows.length !== 1) {
         return escalate(`reschedule request with ${rows.length} upcoming appointments`, "normal",
-          "I have asked the clinic team to help you move your appointment.");
+          "I have asked the clinic team to help you move your appointment.", c.intent);
       }
-      const [doctor] = await db<{ id: string }[]>`
-        select doctor_id as id from appointments where id = ${rows[0].id}`;
-      await setState(db, ctx.conversation.id,
-        { flow: "booking", step: "awaiting_day", doctorId: doctor.id, reason: "reschedule" });
-      return { text: "Sure — what day would you like to move it to?", escalated: false, intent };
+      const [appt] = await db<{ doctor_id: string }[]>`
+        select doctor_id from appointments where id = ${rows[0].id}`;
+      const next: BookingState = {
+        flow: "booking", step: "awaiting_day", doctorId: appt.doctor_id, reason: "reschedule",
+      };
+      if (c.day) return offerSlots(db, ctx, next, c.day, now);
+      await setState(db, ctx.conversation.id, next);
+      return { text: "Sure — what day would you like to move it to?",
+               escalated: false, intent: c.intent };
     }
 
     default:
       // 5. No tool fits. The only remaining path is a human (docs/05).
-      return escalate("intent unclear", "normal", templates.unclear());
+      return escalate("intent unclear", "normal", templates.unclear(), "unclear");
   }
 }
 
+type Escalate = (r: string, p: "normal" | "emergency", t: string, i?: string) => Promise<Routed>;
+type Doctor = { id: string; name: string };
+
 async function startBooking(
-  db: Db, msg: InboundMessage, ctx: Ctx, now: Date,
-  escalate: (r: string, p: "normal" | "emergency", t: string) => Promise<{ text: string; escalated: boolean; intent?: string }>,
-) {
-  const doctors = await db<{ id: string; name: string }[]>`
-    select id, name from doctors where clinic_id = ${ctx.clinic.id} order by name`;
+  db: Db, msg: InboundMessage, ctx: Ctx, c: Classification,
+  doctors: Doctor[], now: Date, escalate: Escalate,
+): Promise<Routed> {
   if (doctors.length === 0) {
-    return escalate("no doctors configured for this clinic", "normal", templates.technicalFailure());
+    return escalate("no doctors configured for this clinic", "normal",
+      templates.technicalFailure());
   }
 
-  const doctor = matchDoctor(msg.body, doctors) ?? (doctors.length === 1 ? doctors[0] : null);
+  const doctor = doctors.find(d => d.name === c.doctor)
+    ?? (doctors.length === 1 ? doctors[0] : null);
+
   if (!doctor) {
     // Never assume which doctor they meant — an appointment with the wrong one
     // is worse than an extra question (docs/08: no tool call on guessed data).
@@ -237,48 +288,49 @@ async function startBooking(
     };
   }
 
-  await setState(db, ctx.conversation.id,
-    { flow: "booking", step: "awaiting_day", doctorId: doctor.id, reason: msg.body });
-  return { text: `Sure. What day works for you to see ${doctor.name}?`, escalated: false, intent: "book" };
-}
+  const state: BookingState = {
+    flow: "booking", step: "awaiting_day", doctorId: doctor.id, reason: msg.body,
+  };
+  if (c.day) return offerSlots(db, ctx, state, c.day, now);
 
-/** Match on the surname, so "Rao", "dr rao" and "Dr. Rao" all land. */
-function matchDoctor(body: string, doctors: { id: string; name: string }[]) {
-  const t = body.toLowerCase();
-  const hits = doctors.filter(d =>
-    t.includes(d.name.toLowerCase().replace(/^dr\.?\s*/i, "")));
-  return hits.length === 1 ? hits[0] : null;
+  await setState(db, ctx.conversation.id, state);
+  return { text: `Sure. What day works for you to see ${doctor.name}?`,
+           escalated: false, intent: "book" };
 }
 
 async function continueBooking(
-  db: Db, msg: InboundMessage, ctx: Ctx, state: BookingState, now: Date,
-  escalate: (r: string, p: "normal" | "emergency", t: string) => Promise<{ text: string; escalated: boolean; intent?: string }>,
-) {
+  db: Db, ctx: Ctx, state: BookingState, c: Classification,
+  doctors: Doctor[], now: Date, escalate: Escalate,
+): Promise<Routed> {
   if (state.step === "awaiting_doctor" || !state.doctorId) {
-    const doctors = await db<{ id: string; name: string }[]>`
-      select id, name from doctors where clinic_id = ${ctx.clinic.id} order by name`;
-    const doctor = matchDoctor(msg.body, doctors);
+    const doctor = doctors.find(d => d.name === c.doctor);
     if (!doctor) {
       return escalate("patient did not identify which doctor they wanted", "normal",
         "Sorry, I could not tell which doctor you meant. I have asked the clinic " +
-        "team to help you book.");
+        "team to help you book.", "book");
     }
-    await setState(db, ctx.conversation.id,
-      { ...state, step: "awaiting_day", doctorId: doctor.id });
-    return { text: `What day works for you to see ${doctor.name}?`, escalated: false, intent: "book" };
+    const next: BookingState = { ...state, step: "awaiting_day", doctorId: doctor.id };
+    if (c.day) return offerSlots(db, ctx, next, c.day, now);
+    await setState(db, ctx.conversation.id, next);
+    return { text: `What day works for you to see ${doctor.name}?`,
+             escalated: false, intent: "book" };
   }
 
   if (state.step === "awaiting_slot" && state.offered?.length) {
-    const picked = pickOffered(msg.body, state.offered, ctx.clinic.timezone);
-    if (!picked) {
+    if (c.slotIndex === null) {
+      // The classifier is instructed to return null rather than guess; a day
+      // given here means they changed their mind about the day.
+      if (c.day) return offerSlots(db, ctx, state, c.day, now);
       return escalate("could not tell which offered slot the patient chose", "normal",
-        "Sorry, I could not tell which time you meant. I have asked the clinic team to help.");
+        "Sorry, I could not tell which time you meant. I have asked the clinic team to help.",
+        "book");
     }
+    const picked = new Date(state.offered[c.slotIndex]);
     try {
       const appt = state.reason === "reschedule"
         ? await rescheduleTo(db, ctx, picked, now)
         : await tools.book_appointment(db, {
-            patientId: ctx.patient.id, doctorId: state.doctorId!,
+            patientId: ctx.patient.id, doctorId: state.doctorId,
             startsAt: picked, reasonText: state.reason,
           }, now);
       await clearState(db, ctx.conversation.id);
@@ -290,28 +342,28 @@ async function continueBooking(
     } catch (e) {
       if (e instanceof BookingError && e.code === "slot_taken") {
         // Someone took it between offering and confirming. Re-offer, don't fail.
-        return offerSlots(db, ctx, state, dayOf(picked, ctx.clinic.timezone), now,
+        return offerSlots(db, ctx, state, dayIn(picked, ctx.clinic.timezone), now,
           "Sorry, that slot was just taken.");
       }
       if (e instanceof ConsentRequired) throw e;
-      return escalate(`booking failed: ${(e as Error).message}`, "normal", templates.technicalFailure());
+      return escalate(`booking failed: ${(e as Error).message}`, "normal",
+        templates.technicalFailure(), "book");
     }
   }
 
-  const day = parseDay(msg.body, ctx.clinic.timezone, now);
-  if (!day) {
+  if (!c.day) {
     return { text: "Which day would suit you? You can say a date, or something like " +
                    "\"tomorrow\" or \"Friday\".", escalated: false, intent: "book" };
   }
-  return offerSlots(db, ctx, state, day, now);
+  return offerSlots(db, ctx, state, c.day, now);
 }
 
 async function offerSlots(
   db: Db, ctx: Ctx, state: BookingState, day: string, now: Date, prefix = "",
-) {
+): Promise<Routed> {
   const slots = (await tools.check_availability(db, state.doctorId!, day, now)).slice(0, 4);
   if (slots.length === 0) {
-    await setState(db, ctx.conversation.id, { ...state, step: "awaiting_day" });
+    await setState(db, ctx.conversation.id, { ...state, step: "awaiting_day", offered: [] });
     return {
       text: `${prefix} There is nothing free that day. What other day would work?`.trim(),
       escalated: false, intent: "book",
@@ -335,34 +387,6 @@ async function rescheduleTo(db: Db, ctx: Ctx, startsAt: Date, now: Date) {
   return tools.reschedule_appointment(db,
     { appointmentId: current.id, patientId: ctx.patient.id, startsAt }, now);
 }
-
-/** Match the patient's reply to one of the times we actually offered.
- *  Never invents a slot — an unmatched reply escalates rather than guessing. */
-function pickOffered(body: string, offered: string[], tz: string): Date | null {
-  const t = body.toLowerCase().replace(/\s+/g, " ").trim();
-
-  const ordinal = t.match(/\b(first|1st|second|2nd|third|3rd|fourth|4th|last)\b/);
-  if (ordinal) {
-    const idx = { first: 0, "1st": 0, second: 1, "2nd": 1, third: 2, "3rd": 2,
-                  fourth: 3, "4th": 3, last: offered.length - 1 }[ordinal[1]]!;
-    return offered[idx] ? new Date(offered[idx]) : null;
-  }
-
-  const matches = offered.filter(iso => {
-    const at = new Date(iso);
-    const h24 = new Intl.DateTimeFormat("en-GB",
-      { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false }).format(at);
-    const [hh, mm] = h24.split(":");
-    const h12 = String(((Number(hh) + 11) % 12) + 1);
-    const forms = [`${h12}:${mm}`, `${h12}.${mm}`, `${hh}:${mm}`];
-    if (mm === "00") forms.push(`${h12} ${Number(hh) < 12 ? "am" : "pm"}`, `${h12}${Number(hh) < 12 ? "am" : "pm"}`);
-    return forms.some(f => t.includes(f));
-  });
-  return matches.length === 1 ? new Date(matches[0]) : null;
-}
-
-const dayOf = (at: Date, tz: string) =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(at);
 
 const setState = (db: Db, id: string, state: ConversationState) =>
   db`update conversations set state = ${db.json(state)} where id = ${id}`;
