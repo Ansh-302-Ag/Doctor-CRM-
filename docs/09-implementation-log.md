@@ -56,7 +56,6 @@ src/app/
   api/webhook/whatsapp route handler: verify, parse, handle, reply, notify
 
 scripts/
-  pgdev.sh             local Postgres, see "Environment notes"
   migrate.ts           applies pending db/*.sql, one transaction each
   seed.ts              a clinic, two doctors, three staff logins
   sim.ts               terminal WhatsApp simulator against the real agent
@@ -108,22 +107,20 @@ the CRM entry form and refill reminders are Phase 2 and are not built.
 
 ## Environment notes
 
-These are properties of the machine this was built on, not of the product.
+The npm scripts are plain and cross-platform: `next dev`, `tsx scripts/...`.
+Nothing in them assumes a shell, a platform, or a particular database host.
 
-- **Neon is unreachable from this environment.** Both the cloud sandbox and the
-  local VM are refused at `*.neon.tech` by the organisation's network policy
-  (`connect_rejected`). Development therefore runs against a local Postgres 18
-  started by `scripts/pgdev.sh`, using the binaries that ship with the
-  `embedded-postgres` dev dependency. To use Neon, allowlist `*.neon.tech` in
-  Admin settings → Capabilities, then point `DATABASE_URL` at it — nothing in
-  the code changes.
-- **`next build` and `next dev` are slow through the file bridge**, because
-  every module resolution crosses it: a page compile that takes ~5s on local
-  disk takes minutes here. Run the app natively (`npm install && npm run dev`)
-  rather than through the bridge. Tests, typecheck and the simulator are
-  unaffected.
-- **Webpack, not Turbopack.** `next build --webpack`; Turbopack rejects the
-  out-of-tree `node_modules` symlink this environment needs.
+One constraint worth knowing when a Claude session is doing the work: **Neon is
+unreachable from Claude's sandbox and from the local VM** — `*.neon.tech` is
+refused by the organisation's network policy (`connect_rejected`). A session
+therefore cannot run migrations or tests against Neon; it runs them against a
+local Postgres of its own. To let a session use Neon directly, allowlist
+`*.neon.tech` in Admin settings → Capabilities. Nothing in the code changes
+either way.
+
+Compiling the Next app through the desktop file bridge is also impractically
+slow (~5s per page on local disk versus minutes across the bridge), so
+`npm run dev` belongs on the developer's own machine, not in a session.
 
 ## Not built yet, on purpose
 
@@ -166,3 +163,19 @@ simulator standing in for Meta.
 
 Still owed at the end of this session: a hosted database the environment can
 actually reach, and Phase 2.
+
+### 2026-09-03 — npm scripts made cross-platform
+
+`npm run dev` failed on Windows: `'.' is not recognized`. The scripts had a
+`./scripts/pgdev.sh &&` prefix — a bash-only helper that started a local
+Postgres, which existed only because Claude's sandbox cannot reach Neon.
+
+Fixed at the root rather than per-script: the helper is gone from the repo and
+every script is now a plain cross-platform command (`next dev`,
+`tsx scripts/...`). `--webpack` was dropped too — it was only needed for a
+`node_modules` symlink that no longer exists, and Turbopack is the faster
+default. `.env.local` now points at Neon, which the developer's machine can
+reach; a session that needs a database uses its own local one via an env file
+outside the repo.
+
+Nothing in `src/` changed. 58 tests still pass.

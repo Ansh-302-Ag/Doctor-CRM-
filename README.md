@@ -13,13 +13,28 @@ agent's own Postgres grants. See `docs/01` and `docs/08`.
 
 ```bash
 npm install
-cp .env.example .env.local     # then fill in DATABASE_URL and SESSION_SECRET
+```
+
+Then, in `.env.local`:
+
+1. Replace both `CHANGE-ME` values with one password of your choosing — that is
+   the password for `clinic_agent`, the restricted role the agent connects as.
+2. Create a second database on the same Postgres for the test suite (the suite
+   truncates every table it touches, so it must not share with development) and
+   point `TEST_DATABASE_URL` at it. On Neon: **Databases → New database**,
+   name it `neondb_test`.
+
+```bash
 npm run migrate
-npm run seed                   # prints the CLINIC_ID to add to .env.local
-npm run dev                    # http://localhost:3000
+npm run seed     # prints a CLINIC_ID — paste it into .env.local
+npm run dev      # http://localhost:3000
 ```
 
 Sign in with `desk@sunrise.clinic` / `password123` (development seed only).
+
+If `npm run migrate` fails on `db/002_agent_role.sql` with a permission error,
+your database user cannot create roles. Create `clinic_agent` from the provider
+console, then re-run — the rest of that migration only grants privileges.
 
 ## Talking to the agent without a WhatsApp account
 
@@ -35,8 +50,14 @@ it escalate instead of answering.
 ## Tests
 
 ```bash
-npm test          # 58 tests against a real Postgres
+npm test          # 58 tests against TEST_DATABASE_URL
 npm run typecheck
+```
+
+Run `npm run migrate` against the test database once before the first `npm test`:
+
+```bash
+npx tsx scripts/migrate.ts "<your TEST_DATABASE_URL>"
 ```
 
 The suite is the docs/08 bar, not a smoke test: concurrent bookings of one
@@ -66,5 +87,5 @@ delivery, a clinical question mid-booking, consent not yet granted.
   which is what makes the simulator work. Setting them switches to the real
   Cloud API with no code change.
 
-`docs/09-implementation-log.md` covers the quirks of the machine this was
-built on, including why development runs against a local Postgres.
+`docs/09-implementation-log.md` records what is built, what was decided while
+building it, and what is deliberately left for later.

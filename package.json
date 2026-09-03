@@ -3,15 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "./scripts/pgdev.sh && next dev --webpack",
-    "build": "next build --webpack",
+    "dev": "next dev",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "migrate": "./scripts/pgdev.sh && node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/migrate.ts",
-    "test": "./scripts/pgdev.sh && node --env-file=.env.local node_modules/tsx/dist/cli.mjs --test tests/*.test.ts",
-    "seed": "./scripts/pgdev.sh && node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/seed.ts",
-    "sim": "./scripts/pgdev.sh && node --env-file=.env.local node_modules/tsx/dist/cli.mjs scripts/sim.ts",
-    "db": "./scripts/pgdev.sh",
+    "migrate": "tsx --env-file=.env.local scripts/migrate.ts",
+    "test": "tsx --test --env-file=.env.local tests/*.test.ts",
+    "seed": "tsx --env-file=.env.local scripts/seed.ts",
+    "sim": "tsx --env-file=.env.local scripts/sim.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
