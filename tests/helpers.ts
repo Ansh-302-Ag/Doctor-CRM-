@@ -56,10 +56,31 @@ export async function seed(opts: { consent?: "granted" | "pending" } = {}) {
   const [conversation] = await db<{ id: string }[]>`
     insert into conversations (patient_id) values (${patient.id}) returning id`;
 
+  // A second clinic, so every isolation test has something to fail against.
+  const [otherClinic] = await db<{ id: string }[]>`
+    insert into clinics (name, timezone, phone)
+    values ('Rival Clinic', 'Asia/Kolkata', '+911140000099') returning id`;
+  const [otherDoctor] = await db<{ id: string }[]>`
+    insert into doctors (clinic_id, name, specialty, default_slot_minutes)
+    values (${otherClinic.id}, 'Dr. Khan', 'General', 30) returning id`;
+  const [otherStaff] = await db<{ id: string }[]>`
+    insert into staff_users (clinic_id, name, email, password_hash, role)
+    values (${otherClinic.id}, 'Rival Desk', 'desk@rival.clinic',
+            ${await hashPassword("correct horse")}, 'receptionist')
+    returning id`;
+  const [otherClinicPatient] = await db<{ id: string }[]>`
+    insert into patients (clinic_id, name, phone, consent_status, consent_recorded_at)
+    values (${otherClinic.id}, 'Chetan', '+919000000003', 'granted', now()) returning id`;
+  const [otherConversation] = await db<{ id: string }[]>`
+    insert into conversations (patient_id) values (${otherClinicPatient.id}) returning id`;
+
   return {
     clinicId: clinic.id, doctorId: doctor.id, doctorUserId: doctorUser.id,
     receptionistId: reception.id, patientId: patient.id, otherPatientId: other.id,
     conversationId: conversation.id,
+    otherClinicId: otherClinic.id, otherDoctorId: otherDoctor.id,
+    otherStaffId: otherStaff.id, otherClinicPatientId: otherClinicPatient.id,
+    otherConversationId: otherConversation.id,
   };
 }
 
