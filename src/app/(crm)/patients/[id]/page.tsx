@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { currentStaff } from "@/lib/session";
+import { audit } from "@/lib/audit";
 import { sql } from "@/lib/db";
 import { can } from "@/lib/rbac";
 import { getPatient } from "@/lib/patients";
@@ -32,6 +33,7 @@ export default async function PatientRecordPage({
     sql<{ id: string; name: string }[]>`
       select id, name from doctors where clinic_id = ${staff.clinicId} order by name`,
   ]);
+  await audit(sql, actor, "read_patient_appointments", "patients", id);
 
   async function addPrescription(form: FormData) {
     "use server";
