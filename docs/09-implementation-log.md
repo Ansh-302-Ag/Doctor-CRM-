@@ -19,8 +19,10 @@ an earlier entry — add a new one saying what changed and why.
 | Phase 3 — second clinic + hardening | Not started |
 | Phase 4 — voice | Not started, and deliberately so |
 
-**58 tests, all passing**, run against a real Postgres — including the
-concurrency, permission and escalation cases docs/08 names as the bar.
+**69 offline tests, all passing** against a real Postgres, plus 7 live tests
+that need an API key. Five of the six items on the docs/08 testing bar are
+covered; the sixth (a reminder for a discontinued prescription must not send)
+is unmet because no reminder sender exists yet — see "Not built yet".
 
 ---
 
@@ -66,10 +68,18 @@ tests/                 58 tests: booking, safety, agent, screen, dates, webhook
 ## Decisions made while building
 
 **One Next.js app, not three services.** Docs/03 describes agent, backend and
-CRM as separate layers. They are still separate *modules* — `src/lib/agent`
-never touches the database except through `src/lib/booking` — but they deploy
-as one app. At one clinic, three deploys buy nothing and cost operational
-attention. Splitting later is moving files, not rewriting logic.
+CRM as separate layers. They deploy as one app: at one clinic, three deploys
+buy nothing and cost operational attention.
+
+Be precise about what the boundary actually is, because an earlier version of
+this paragraph overclaimed. The *tool set* is the boundary: every booking,
+cancellation, escalation and prescription read the agent performs goes through
+`src/lib/agent/tools.ts`, which enforces the docs/08 role matrix and writes the
+audit trail. It is not a data-access boundary — `src/lib/agent/index.ts` reads
+and writes `messages`, `conversations` and `patients` with its own SQL, because
+conversation plumbing is the agent's own concern and has no tool. Splitting the
+agent into its own service later would mean moving that plumbing too, not just
+moving files.
 
 **No ORM.** Numbered SQL files and a 40-line runner. The schema's most
 important feature is a GiST exclusion constraint, which is exactly the kind of
@@ -216,3 +226,75 @@ Tests: 57 offline, plus 7 live tests in `tests/intent.live.test.ts` that hit
 the real API and are skipped unless `ANTHROPIC_API_KEY` is set. **The live
 tests have not been run yet** — no key available at the time of writing, so
 the default `ANTHROPIC_MODEL` value is unverified.
+
+### 2026-09-05 — full code review, and the fixes
+
+Three reviewers went over the whole tree against docs 00-08, each running the
+code rather than only reading it. They found the two central safety claims did
+not hold in the production configuration. Every fix below has a test that fails
+without it; the suite went from 57 offline tests to 69.
+
+**The agent could not do its job under its own database role.** `clinic_agent`
+had no `SELECT` on `reminders`, so cancel, reschedule and delete-my-data each
+raised `42501` partway through — after the appointment was already cancelled or
+moved. With no transaction, that state committed, no audit row was written, and
+the patient was told it had failed. This survived because the only agent-role
+end-to-end test exercised booking; every other flow was tested as the superuser.
+Migration 005 grants the select, and the agent-role tests now cover the write
+flows too.
+
+**Withdrawing consent and then re-consenting bricked the patient permanently.**
+`recordConsent` set `granted` but left `deleted_at`, and `assertConsent` filters
+soft-deleted rows, so the patient was walked through the entire booking flow and
+failed on the last step, every time, forever. Re-consent now clears `deleted_at`.
+Soft-deleted patients are also excluded from the calendar and the escalation
+inbox, which were still showing their name and number.
+
+**A lost slot race destroyed the appointment being rescheduled.** The old slot
+was released first, outside any transaction, and the caller deliberately catches
+`slot_taken` to re-offer — so the release committed and the appointment was gone
+with nothing in its place, invisible to staff because the calendar filters to
+`booked`. Booking now happens before the release, and `handleInbound` runs
+inside one transaction.
+
+**The emergency screen was English keyword matching, and missed most real
+phrasings of the emergencies docs/01 names.** Verified misses included "I have
+a lot of pain in my chest", "trouble breathing", "my wife is vomiting blood",
+"CHEST-PAIN!!", and every Hinglish phrasing — for a pilot clinic in India.
+Those messages fell through to a normal-priority "Sorry, I did not follow that",
+with no mention of emergency services. The patterns are broader now, punctuation
+is normalised, Hinglish terms are in, and the sixteen verified misses are a
+corpus test. The `unclear` template now carries the emergency route too, because
+the next miss will land there.
+
+**A first-time patient's emergency was swallowed by the consent gate.** Anything
+not understood from an unconsented patient returned the consent notice and
+created no escalation, so nobody was paged. Consent governs storing and acting
+on someone's data, not whether we are allowed to notice they need help; an
+unclear message now escalates before the gate.
+
+**Staff at one clinic could resolve another clinic's escalation.** Both writes
+took an id from a form field with no clinic scope. Now scoped, and reading the
+inbox writes an audit row.
+
+Smaller, same session: fail closed on an unsigned webhook rather than inferring
+permission from `NODE_ENV`; refuse to boot in production without
+`AGENT_DATABASE_URL` rather than silently falling back to full privileges; stop
+printing patient numbers and message bodies to stdout; store the scrypt cost in
+the hash and raise it to the OWASP floor; reject a syntactically valid but
+impossible date from the classifier (`2026-13-45` reached Postgres and threw);
+offer slots spread across the day rather than the first four, which sent every
+afternoon booking to a human; make the seed idempotent; refuse to substitute a
+default password for the cluster-global agent role.
+
+**A mutation test found the largest gap.** Replacing `verifyPassword` with
+`return true`, deleting the escalation permission checks, and disabling the
+session-secret guard left the suite entirely green. `tests/auth.test.ts` now
+covers login; it fails under all three mutations.
+
+**One test-infrastructure bug worth naming.** `npm test` was green only on
+machines with one or two cores. `node --test` runs each file in its own process
+by default, and all three database files truncate the same database in
+`beforeEach`, so on a normal laptop they wiped each other's fixtures — 38 of 57
+failing, with a misleading foreign-key error. The suite now runs with
+`--test-concurrency=1`.
