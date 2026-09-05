@@ -66,7 +66,7 @@ offered, and today's date. Never appointment history, never prescriptions
 ## Tests
 
 ```bash
-npm test          # 57 tests against TEST_DATABASE_URL, no network needed
+npm test          # 143 tests against TEST_DATABASE_URL, no network needed
 npm run typecheck
 ```
 
@@ -93,6 +93,8 @@ delivery, a clinical question mid-booking, consent not yet granted.
 | Path | What |
 |---|---|
 | `docs/` | The design. `00-README.md` first; `09-implementation-log.md` for current state |
+| `docs/runbooks/` | Operational runbooks — `breach.md` for a suspected DPDP breach |
+| `docs/10-whatsapp-templates.md` | The WhatsApp template text used for reminders |
 | `db/` | Numbered SQL migrations |
 | `src/lib/` | Business logic — booking, consent, RBAC, audit |
 | `src/lib/agent/` | The safety screen, the tool set, the conversation state machine |

@@ -25,7 +25,7 @@ of building them "just in case."
 - Goal: a real receptionist could stop manually booking for this one
   clinic and trust the system
 
-## Phase 2 — Prescription records + refill reminders
+## Phase 2 — Prescription records + refill reminders — **Done**
 - Doctor/staff can enter prescription records in the CRM
 - get_prescription_summary tool (read-only) added to the agent
 - Refill-followup reminders scheduled and sent
@@ -33,12 +33,17 @@ of building them "just in case."
   gets its first real test — write a test that asserts the agent's DB
   role literally cannot INSERT into `prescriptions`
 
-## Phase 3 — Second clinic + hardening
+See `docs/09-implementation-log.md` for the session this was built in.
+
+## Phase 3 — Second clinic + hardening — **Partly done**
 - Multi-clinic tested (schema already supports it — this is about
-  operational tooling, not a rebuild)
+  operational tooling, not a rebuild) — **done**, `tests/multi-clinic.test.ts`
 - Load-test the availability/booking path for concurrent requests
-  (this is where the exclusion constraint earns its keep)
-- Full breach runbook finalized, tabletop-tested once
+  (this is where the exclusion constraint earns its keep) — **done**,
+  `tests/load.test.ts`
+- Full breach runbook finalized, tabletop-tested once — runbook written
+  (`docs/runbooks/breach.md`); its contact table still needs filling in and
+  the tabletop rehearsal still needs to happen before launch
 
 ## Phase 4 (not before the above is solid) — Voice
 - Add voice as a second input channel into the same agent layer
