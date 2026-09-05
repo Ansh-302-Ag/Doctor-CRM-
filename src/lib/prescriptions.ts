@@ -74,7 +74,7 @@ export async function createPrescription(
 }
 
 export async function listPrescriptions(
-  db: Db, actor: Actor, role: Role, patientId: string,
+  db: Db, actor: Actor, role: Role, clinicId: string, patientId: string,
 ): Promise<Prescription[]> {
   requirePermission(role, "prescriptions:read");
   const rows = await db<Prescription[]>`
@@ -83,7 +83,8 @@ export async function listPrescriptions(
       from prescriptions p
       join doctors d     on d.id = p.doctor_id
       join staff_users s on s.id = p.created_by
-     where p.patient_id = ${patientId}
+      join patients pt   on pt.id = p.patient_id
+     where p.patient_id = ${patientId} and pt.clinic_id = ${clinicId}
      order by p.created_at desc`;
   await audit(db, actor, "read_prescriptions", "patients", patientId);
   return rows;

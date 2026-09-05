@@ -6,7 +6,7 @@ import test, { after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { db, reset, seed, closeAll, futureSlot, type Fixture } from "./helpers";
 import { searchPatients, getPatient } from "../src/lib/patients";
-import { createPrescription, discontinuePrescription } from "../src/lib/prescriptions";
+import { createPrescription, discontinuePrescription, listPrescriptions } from "../src/lib/prescriptions";
 import {
   listEscalations, acknowledgeEscalation, resolveEscalation, NotFound,
 } from "../src/lib/escalations";
@@ -67,6 +67,16 @@ test("a prescription cannot be written against another clinic's patient", async 
     }),
   );
   assert.equal((await db`select id from prescriptions`).length, 0);
+});
+
+test("prescriptions cannot be listed across a clinic boundary", async () => {
+  // The prescription genuinely exists, for clinic B's own doctor/patient pair.
+  await db`
+    insert into prescriptions (patient_id, doctor_id, drug_name, dosage, created_by)
+    values (${f.otherClinicPatientId}, ${f.otherDoctorId}, 'Amoxicillin', '500mg', ${f.otherStaffId})`;
+
+  const rows = await listPrescriptions(db, A(), "receptionist", f.clinicId, f.otherClinicPatientId);
+  assert.equal(rows.length, 0);
 });
 
 test("a prescription cannot be discontinued through another clinic's staff", async () => {

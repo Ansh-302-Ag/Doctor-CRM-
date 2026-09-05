@@ -29,7 +29,7 @@ export default async function PatientRecordPage({
        where a.patient_id = ${id} and a.clinic_id = ${staff.clinicId}
        order by a.starts_at desc
        limit 20`,
-    listPrescriptions(sql, actor, staff.role, id),
+    listPrescriptions(sql, actor, staff.role, staff.clinicId, id),
     sql<{ id: string; name: string }[]>`
       select id, name from doctors where clinic_id = ${staff.clinicId} order by name`,
   ]);
@@ -77,7 +77,7 @@ export default async function PatientRecordPage({
     // prescription actually belongs to that patient, before calling it (docs/08).
     const patient = await getPatient(sql, meActor, me.role, me.clinicId, patientId);
     if (!patient) notFound();
-    const existing = await listPrescriptions(sql, meActor, me.role, patientId);
+    const existing = await listPrescriptions(sql, meActor, me.role, me.clinicId, patientId);
     if (!existing.some(p => p.id === prescriptionId)) notFound();
 
     await discontinuePrescription(sql, meActor, me.role, me.clinicId, prescriptionId);

@@ -66,7 +66,7 @@ test("listing returns newest first with the prescribing doctor's name", async ()
   await createPrescription(db, DOCTOR(), "doctor",
     { ...input(), drugName: "Paracetamol", dosage: "650mg as needed" });
 
-  const rows = await listPrescriptions(db, DOCTOR(), "doctor", f.patientId);
+  const rows = await listPrescriptions(db, DOCTOR(), "doctor", f.clinicId, f.patientId);
   assert.equal(rows.length, 2);
   assert.equal(rows[0].drug_name, "Paracetamol");
   assert.equal(rows[0].doctor_name, "Dr. Rao");
@@ -84,7 +84,7 @@ test("discontinuing changes status and leaves the record intact", async () => {
 
 test("every prescription read and write is audited", async () => {
   await createPrescription(db, DOCTOR(), "doctor", input());
-  await listPrescriptions(db, { kind: "staff", id: f.receptionistId }, "receptionist", f.patientId);
+  await listPrescriptions(db, { kind: "staff", id: f.receptionistId }, "receptionist", f.clinicId, f.patientId);
 
   const rows = await db<{ actor: string; action: string }[]>`
     select actor, action from audit_log order by created_at`;
