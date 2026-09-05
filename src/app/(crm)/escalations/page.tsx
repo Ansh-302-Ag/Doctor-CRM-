@@ -7,20 +7,21 @@ import { listEscalations, acknowledgeEscalation, resolveEscalation } from "@/lib
 export default async function EscalationsPage() {
   const staff = await currentStaff();
   requirePermission(staff.role, "escalations:read");
-  const rows = await listEscalations(sql, staff.clinicId);
+  const rows = await listEscalations(sql, { kind: "staff", id: staff.id }, staff.clinicId);
 
   async function acknowledge(form: FormData) {
     "use server";
     const me = await currentStaff();
     await acknowledgeEscalation(sql, { kind: "staff", id: me.id }, me.role,
-      String(form.get("id")), me.id);
+      me.clinicId, String(form.get("id")), me.id);
     revalidatePath("/escalations");
   }
 
   async function resolve(form: FormData) {
     "use server";
     const me = await currentStaff();
-    await resolveEscalation(sql, { kind: "staff", id: me.id }, me.role, String(form.get("id")));
+    await resolveEscalation(sql, { kind: "staff", id: me.id }, me.role,
+      me.clinicId, String(form.get("id")));
     revalidatePath("/escalations");
   }
 

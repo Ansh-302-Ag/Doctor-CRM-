@@ -30,8 +30,17 @@ async function main() {
 
   for (const file of readdirSync(dir).filter(f => f.endsWith(".sql")).sort()) {
     if (applied.has(file)) continue;
-    const body = readFileSync(join(dir, file), "utf8")
-      .replaceAll(":AGENT_PASSWORD", quote(process.env.AGENT_DB_PASSWORD ?? "agent"))
+    const raw = readFileSync(join(dir, file), "utf8");
+    if (raw.includes(":AGENT_PASSWORD") && !process.env.AGENT_DB_PASSWORD) {
+      // Postgres roles are cluster-global. Substituting a default here would
+      // silently reset clinic_agent's password for every database on the
+      // cluster — including the one the running app is using.
+      throw new Error(
+        `${file} sets the clinic_agent password, but AGENT_DB_PASSWORD is not set. ` +
+        `Run with --env-file=.env.local, or export AGENT_DB_PASSWORD.`);
+    }
+    const body = raw
+      .replaceAll(":AGENT_PASSWORD", quote(process.env.AGENT_DB_PASSWORD ?? ""))
       .replaceAll("current_database_placeholder", `"${dbName}"`);
     await sql.begin(async tx => {
       await tx.unsafe(body);

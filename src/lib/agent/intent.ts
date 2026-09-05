@@ -13,11 +13,14 @@
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5";
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
 
-export type Intent =
-  | "book" | "reschedule" | "cancel"
-  | "check_appointment" | "check_prescription_record"
-  | "consent_yes" | "delete_my_data"
-  | "unclear";
+export const INTENTS = [
+  "book", "reschedule", "cancel",
+  "check_appointment", "check_prescription_record",
+  "consent_yes", "delete_my_data",
+  "unclear",
+] as const;
+
+export type Intent = (typeof INTENTS)[number];
 
 export type Classification = {
   intent: Intent;
@@ -132,9 +135,9 @@ export const classifyWithClaude: Classifier = async (input) => {
 
   if (!res.ok) throw new ClassifierUnavailable(`${res.status} ${await res.text()}`);
 
-  const body = await res.json() as {
-    content: { type: string; name?: string; input?: Record<string, unknown> }[];
-  };
+  const body = await res.json().catch(() => {
+    throw new ClassifierUnavailable("response body was not JSON");
+  }) as { content: { type: string; name?: string; input?: Record<string, unknown> }[] };
   const call = body.content?.find(c => c.type === "tool_use" && c.name === TOOL.name);
   if (!call?.input) throw new ClassifierUnavailable("no tool call in response");
 
@@ -144,13 +147,19 @@ export const classifyWithClaude: Classifier = async (input) => {
 
   // Trust the shape, verify the values: a hallucinated doctor or an out-of-range
   // index must become "we don't know", never a wrong booking.
+  const intent = (INTENTS as readonly string[]).includes(raw.intent)
+    ? raw.intent : "unclear";
   const doctor = typeof raw.doctor === "string" && input.doctors.includes(raw.doctor)
     ? raw.doctor : null;
-  const day = typeof raw.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.day)
+  // Shape AND validity: "2026-13-45" matches the pattern and is not a date.
+  // Letting it through reaches Postgres as an Invalid Date and throws.
+  const day = typeof raw.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.day) &&
+    !Number.isNaN(Date.parse(`${raw.day}T00:00:00Z`)) &&
+    new Date(`${raw.day}T00:00:00Z`).toISOString().startsWith(raw.day)
     ? raw.day : null;
   const slotIndex = Number.isInteger(raw.slot_index) &&
     (raw.slot_index as number) >= 0 && (raw.slot_index as number) < input.offered.length
     ? raw.slot_index as number : null;
 
-  return { intent: raw.intent, doctor, day, slotIndex };
+  return { intent, doctor, day, slotIndex };
 };

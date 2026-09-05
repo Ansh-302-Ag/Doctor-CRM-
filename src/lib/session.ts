@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { getIronSession, type SessionOptions } from "iron-session";
 import { redirect } from "next/navigation";
@@ -44,11 +45,15 @@ export async function signOut() {
 }
 
 /** Look up the staff account behind a session, so a deleted or changed account
- *  cannot keep acting on a stale cookie. */
-export async function currentStaff() {
+ *  cannot keep acting on a stale cookie.
+ *
+ *  `cache()` dedupes this within a single request — the layout and the page it
+ *  wraps both call this, and without memoizing it that was a second staff_users
+ *  round trip on every navigation. */
+export const currentStaff = cache(async () => {
   const user = await requireUser();
   const [row] = await sql<{ id: string; clinic_id: string; name: string; role: Role }[]>`
     select id, clinic_id, name, role from staff_users where id = ${user.id}`;
   if (!row) redirect("/login");
   return { id: row.id, clinicId: row.clinic_id, name: row.name, role: row.role };
-}
+});

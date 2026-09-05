@@ -14,7 +14,7 @@
  * Conversation state lives in the database, never in agent memory, so any
  * instance can pick up any conversation (docs/03).
  */
-import type { Db } from "../db";
+import type { Db, Pool } from "../db";
 import { tools } from "./tools";
 import { screen, templates } from "./screen";
 import {
@@ -32,6 +32,9 @@ type BookingState = {
   doctorId: string | null;
   reason?: string;
   offered?: string[];          // ISO instants, in the order shown to the patient
+  /** Set when this flow is moving an existing appointment. Carried rather than
+   *  re-derived, so a second booking made meanwhile cannot move the wrong one. */
+  reschedulingId?: string;
 };
 /** What the patient asked for before we stopped to collect consent, so the
  *  request can be honoured rather than dropped once they agree. */
@@ -65,14 +68,29 @@ export type InboundMessage = {
  * Handle one inbound message. Returns the reply to send, or null when the
  * message was a duplicate delivery and must be a no-op.
  *
+ * Everything one message does happens in a single transaction. A reschedule
+ * releases the old slot before taking the new one, and a DPDP deletion touches
+ * four tables; without a transaction a mid-flight failure leaves the patient's
+ * appointment released and unbooked, or their record half-deleted, while they
+ * are told it did not work.
+ *
  * `classify` is the model call; it is a parameter so tests can drive the state
  * machine deterministically without a network round trip per assertion.
  */
 export async function handleInbound(
-  db: Db,
+  pool: Pool,
   msg: InboundMessage,
   now = new Date(),
   classify: Classifier = classifyWithClaude,
+): Promise<Reply | null> {
+  return pool.begin(tx => inTransaction(tx, msg, now, classify)) as Promise<Reply | null>;
+}
+
+async function inTransaction(
+  db: Db,
+  msg: InboundMessage,
+  now: Date,
+  classify: Classifier,
 ): Promise<Reply | null> {
   // 1. Dedupe. The unique index on provider_message_id is the real guard;
   //    this check just avoids doing the work twice in the common case.
@@ -160,6 +178,13 @@ async function route(
     };
   }
   if (ctx.patient.consent_status !== "granted") {
+    // An un-understood message from someone we have never met still reaches a
+    // human. Consent governs storing and acting on their data, not whether we
+    // are allowed to notice they need help (docs/01).
+    if (c.intent === "unclear") {
+      return escalate("intent unclear, before consent", "normal",
+        templates.unclear(ctx.clinic.phone), "unclear");
+    }
     if (c.intent === "consent_yes") {
       await recordConsent(db, { kind: "agent" }, ctx.patient.id, "granted");
       await clearState(db, ctx.conversation.id);
@@ -211,7 +236,7 @@ async function route(
       const list = rows.map(r =>
         `• ${r.drug_name} — ${r.dosage}` +
         (r.duration_days ? `, ${r.duration_days} days` : "") +
-        `, recorded ${r.created_at.toISOString().slice(0, 10)}`);
+        `, recorded ${dayIn(r.created_at, ctx.clinic.timezone)}`);
       return {
         text: `Your record shows:\n${list.join("\n")}\n\nFor any question about these, ` +
               `please speak to the clinic team.`,
@@ -248,7 +273,8 @@ async function route(
       const [appt] = await db<{ doctor_id: string }[]>`
         select doctor_id from appointments where id = ${rows[0].id}`;
       const next: BookingState = {
-        flow: "booking", step: "awaiting_day", doctorId: appt.doctor_id, reason: "reschedule",
+        flow: "booking", step: "awaiting_day", doctorId: appt.doctor_id,
+        reason: "reschedule", reschedulingId: rows[0].id,
       };
       if (c.day) return offerSlots(db, ctx, next, c.day, now);
       await setState(db, ctx.conversation.id, next);
@@ -258,7 +284,8 @@ async function route(
 
     default:
       // 5. No tool fits. The only remaining path is a human (docs/05).
-      return escalate("intent unclear", "normal", templates.unclear(), "unclear");
+      return escalate("intent unclear", "normal",
+        templates.unclear(ctx.clinic.phone), "unclear");
   }
 }
 
@@ -327,16 +354,20 @@ async function continueBooking(
     }
     const picked = new Date(state.offered[c.slotIndex]);
     try {
-      const appt = state.reason === "reschedule"
-        ? await rescheduleTo(db, ctx, picked, now)
+      const appt = state.reschedulingId
+        ? await tools.reschedule_appointment(db, {
+            appointmentId: state.reschedulingId, patientId: ctx.patient.id, startsAt: picked,
+          }, now)
         : await tools.book_appointment(db, {
             patientId: ctx.patient.id, doctorId: state.doctorId,
             startsAt: picked, reasonText: state.reason,
           }, now);
       await clearState(db, ctx.conversation.id);
       return {
+        // No reminder is promised: nothing schedules or sends one yet (Phase 2).
+        // Promising one and not sending it is the failure docs/08 calls real harm.
         text: `You are booked for ${fmtTime(appt.startsAt, ctx.clinic.timezone)}. ` +
-              `We will send a reminder the day before. Reply CANCEL anytime to cancel.`,
+              `Reply CANCEL anytime to cancel.`,
         escalated: false, intent: "book",
       };
     } catch (e) {
@@ -361,7 +392,7 @@ async function continueBooking(
 async function offerSlots(
   db: Db, ctx: Ctx, state: BookingState, day: string, now: Date, prefix = "",
 ): Promise<Routed> {
-  const slots = (await tools.check_availability(db, state.doctorId!, day, now)).slice(0, 4);
+  const slots = spread(await tools.check_availability(db, state.doctorId!, day, now), 4);
   if (slots.length === 0) {
     await setState(db, ctx.conversation.id, { ...state, step: "awaiting_day", offered: [] });
     return {
@@ -379,13 +410,18 @@ async function offerSlots(
   };
 }
 
-async function rescheduleTo(db: Db, ctx: Ctx, startsAt: Date, now: Date) {
-  const [current] = await db<{ id: string }[]>`
-    select id from appointments
-     where patient_id = ${ctx.patient.id} and status = 'booked' and starts_at > now()
-     order by starts_at limit 1`;
-  return tools.reschedule_appointment(db,
-    { appointmentId: current.id, patientId: ctx.patient.id, startsAt }, now);
+/**
+ * Pick `n` times spread across the day rather than the first `n`.
+ *
+ * Offering the four earliest slots means a patient who wants an afternoon
+ * appointment sees four morning times, cannot pick any of them, and gets
+ * escalated to the human this system exists to spare — so the offer has to
+ * cover the shape of the day.
+ */
+function spread<T>(all: T[], n: number): T[] {
+  if (all.length <= n) return all;
+  const step = (all.length - 1) / (n - 1);
+  return Array.from({ length: n }, (_, i) => all[Math.round(i * step)]);
 }
 
 const setState = (db: Db, id: string, state: ConversationState) =>
@@ -410,12 +446,14 @@ async function context(db: Db, msg: InboundMessage): Promise<Ctx> {
     select id, consent_status from patients
      where clinic_id = ${msg.clinicId} and phone = ${msg.phone}`;
 
-  const [existing] = await db<{ id: string; state: ConversationState }[]>`
+  // One conversation per patient per channel, enforced by a unique index — two
+  // webhook deliveries racing on a first message used to create two, after which
+  // booking state was picked arbitrarily and could be lost mid-flow.
+  await db`insert into conversations (patient_id, channel) values (${patient.id}, 'whatsapp')
+           on conflict (patient_id, channel) do nothing`;
+  const [conversation] = await db<{ id: string; state: ConversationState }[]>`
     select id, state from conversations
-     where patient_id = ${patient.id} and channel = 'whatsapp'
-     order by last_message_at desc limit 1`;
-  const conversation = existing ?? (await db<{ id: string; state: ConversationState }[]>`
-    insert into conversations (patient_id) values (${patient.id}) returning id, state`)[0];
+     where patient_id = ${patient.id} and channel = 'whatsapp'`;
 
   return { clinic, patient, conversation };
 }

@@ -89,8 +89,12 @@ export async function bookAppointment(
   }
 
   const doctor = await doctorContext(db, input.doctorId);
-  const hour = Number(localPart(input.startsAt, doctor.timezone, "hour"));
-  if (hour < OPEN_HOUR || hour >= CLOSE_HOUR) {
+  const endsAt = new Date(input.startsAt.getTime() + doctor.default_slot_minutes * 60_000);
+  const startHour = Number(localPart(input.startsAt, doctor.timezone, "hour"));
+  // Check the end too: a 17:45 start with a 30-minute slot runs past closing.
+  const endsAfterClose =
+    Number(localPart(new Date(endsAt.getTime() - 1), doctor.timezone, "hour")) >= CLOSE_HOUR;
+  if (startHour < OPEN_HOUR || startHour >= CLOSE_HOUR || endsAfterClose) {
     throw new BookingError("outside_hours",
       `the clinic books between ${OPEN_HOUR}:00 and ${CLOSE_HOUR}:00`);
   }
@@ -98,7 +102,6 @@ export async function bookAppointment(
     throw new BookingError("not_open", "the clinic is closed that day");
   }
 
-  const endsAt = new Date(input.startsAt.getTime() + doctor.default_slot_minutes * 60_000);
   try {
     const [row] = await db<{ id: string; starts_at: Date; ends_at: Date }[]>`
       insert into appointments
@@ -127,17 +130,19 @@ export async function rescheduleAppointment(
   requirePermission(role, "appointments:write");
   const appt = await ownedAppointment(db, input.appointmentId, input.patientId);
 
-  // Free the old slot first so a same-day shuffle doesn't collide with itself,
-  // then book. Both happen in the caller's transaction, so a failed booking
-  // rolls the release back and the patient keeps the original appointment.
-  await db`update appointments set status = 'rescheduled', updated_at = now()
-            where id = ${input.appointmentId}`;
+  // Take the new slot BEFORE releasing the old one. If the new slot is gone,
+  // this throws and the patient still has their original appointment — even
+  // when the caller catches the error and re-offers instead of rolling back.
+  // Cost of this ordering: moving to a slot that overlaps the appointment's own
+  // current time is refused as 'slot_taken'. That is a no-op move anyway.
   const booked = await bookAppointment(db, actor, role, {
     patientId: input.patientId,
     doctorId: appt.doctor_id,
     startsAt: input.startsAt,
     reasonText: appt.reason_text ?? undefined,
   }, now);
+  await db`update appointments set status = 'rescheduled', updated_at = now()
+            where id = ${input.appointmentId}`;
 
   await db`update reminders set status = 'cancelled'
             where type = 'appointment' and related_id = ${input.appointmentId}

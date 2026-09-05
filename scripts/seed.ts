@@ -4,15 +4,17 @@ import { hashPassword } from "../src/lib/password";
 
 const sql = postgres(process.env.DATABASE_URL!, { max: 1, onnotice: () => {} });
 
+const CLINIC = "Sunrise Clinic";
+
 async function main() {
-  const [clinic] = await sql<{ id: string }[]>`
+  // `clinics` has no unique constraint, so look up before inserting — an
+  // `on conflict do nothing` here silently created a second clinic per run.
+  const [existing] = await sql<{ id: string }[]>`
+    select id from clinics where name = ${CLINIC}`;
+  const clinicId = existing?.id ?? (await sql<{ id: string }[]>`
     insert into clinics (name, timezone, phone)
-    values ('Sunrise Clinic', 'Asia/Kolkata', '+911140001234')
-    on conflict do nothing
-    returning id`
-    ?? [];
-  const clinicId = clinic?.id ??
-    (await sql<{ id: string }[]>`select id from clinics order by created_at limit 1`)[0].id;
+    values (${CLINIC}, 'Asia/Kolkata', '+911140001234')
+    returning id`)[0].id;
 
   const doctors = [
     { name: "Dr. Rao", specialty: "General Medicine", slot: 30 },

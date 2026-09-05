@@ -12,7 +12,10 @@ const configured = () =>
 
 export async function sendMessage(msg: Outbound): Promise<{ delivered: boolean }> {
   if (!configured()) {
-    console.log(`[channel:simulated] → ${msg.to}\n${msg.text}`);
+    // The body is health-adjacent and the number identifies the patient
+    // (docs/02); logs are the easiest place for both to leak. `npm run sim`
+    // prints the conversation itself, so nothing is lost here.
+    console.log(`[channel:simulated] → ${mask(msg.to)} (${msg.text.length} chars)`);
     return { delivered: false };
   }
   const res = await fetch(
@@ -35,9 +38,23 @@ export async function sendMessage(msg: Outbound): Promise<{ delivered: boolean }
   return { delivered: true };
 }
 
-/** Tell the on-duty staff number that something needs a human (docs/03). */
+/** Keep the last two digits, so a log line can be tied to a conversation
+ *  by someone who already has the record, and to nobody else. */
+export const mask = (phone: string) => `${"*".repeat(Math.max(0, phone.length - 2))}${phone.slice(-2)}`;
+
+/**
+ * Tell the on-duty staff number that something needs a human (docs/03).
+ *
+ * Without STAFF_NOTIFY_PHONE an escalation reaches the CRM inbox but pings
+ * nobody, so an emergency waits until someone happens to look. That is a
+ * deployment gap worth shouting about, not a quiet default.
+ */
 export async function notifyStaff(text: string) {
   const to = process.env.STAFF_NOTIFY_PHONE;
-  if (!to) { console.log(`[staff-notify] ${text}`); return; }
+  if (!to) {
+    console.warn("[staff-notify] STAFF_NOTIFY_PHONE is not set — escalation " +
+                 "is visible in the CRM inbox only, and nobody has been paged.");
+    return;
+  }
   await sendMessage({ to, text }).catch(e => console.error("staff notify failed", e));
 }

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { audit } from "@/lib/audit";
@@ -16,23 +17,27 @@ export default async function CalendarPage({
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: clinic.timezone }).format(new Date());
   const day = (await searchParams).day ?? today;
 
-  const rows = await sql<{
-    id: string; starts_at: Date; ends_at: Date; status: string;
-    doctor_name: string; patient_name: string | null; patient_phone: string;
-    reason_text: string | null; created_by: string;
-  }[]>`
-    select a.id, a.starts_at, a.ends_at, a.status,
-           d.name as doctor_name, p.name as patient_name, p.phone as patient_phone,
-           a.reason_text, a.created_by
-      from appointments a
-      join doctors d  on d.id = a.doctor_id
-      join patients p on p.id = a.patient_id
-     where a.clinic_id = ${staff.clinicId}
-       and a.status in ('booked','completed','no_show')
-       and (a.starts_at at time zone ${clinic.timezone})::date = ${day}::date
-     order by a.starts_at`;
-
-  await audit(sql, { kind: "staff", id: staff.id }, "read_calendar", "appointments", null);
+  // The audit write doesn't depend on the appointments query (or vice versa) —
+  // running them concurrently instead of one after the other saves a full
+  // Neon round trip on every page load.
+  const [rows] = await Promise.all([
+    sql<{
+      id: string; starts_at: Date; ends_at: Date; status: string;
+      doctor_name: string; patient_name: string | null; patient_phone: string;
+      reason_text: string | null; created_by: string;
+    }[]>`
+      select a.id, a.starts_at, a.ends_at, a.status,
+             d.name as doctor_name, p.name as patient_name, p.phone as patient_phone,
+             a.reason_text, a.created_by
+        from appointments a
+        join doctors d  on d.id = a.doctor_id
+        join patients p on p.id = a.patient_id
+       where a.clinic_id = ${staff.clinicId} and p.deleted_at is null
+         and a.status in ('booked','completed','no_show')
+         and (a.starts_at at time zone ${clinic.timezone})::date = ${day}::date
+       order by a.starts_at`,
+    audit(sql, { kind: "staff", id: staff.id }, "read_calendar", "appointments", null),
+  ]);
 
   const time = (at: Date) => new Intl.DateTimeFormat("en-GB", {
     timeZone: clinic.timezone, hour: "2-digit", minute: "2-digit", hour12: false,
@@ -46,9 +51,9 @@ export default async function CalendarPage({
         <h1 className="text-lg font-semibold text-slate-900">Appointments</h1>
         <span className="text-sm text-slate-500">{day}</span>
         <nav className="ml-auto flex gap-3 text-sm">
-          <a href={`/?day=${shift(-1)}`} className="text-slate-600 hover:text-slate-900">← Previous</a>
-          <a href="/" className="text-slate-600 hover:text-slate-900">Today</a>
-          <a href={`/?day=${shift(1)}`} className="text-slate-600 hover:text-slate-900">Next →</a>
+          <Link href={`/?day=${shift(-1)}`} className="text-slate-600 hover:text-slate-900">← Previous</Link>
+          <Link href="/" className="text-slate-600 hover:text-slate-900">Today</Link>
+          <Link href={`/?day=${shift(1)}`} className="text-slate-600 hover:text-slate-900">Next →</Link>
         </nav>
       </div>
 

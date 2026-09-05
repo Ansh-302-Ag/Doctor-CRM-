@@ -13,7 +13,10 @@ export const AGENT_TEST_URL = TEST_URL.replace(
 export const db = postgres(TEST_URL, { max: 5, onnotice: () => {} });
 export const agentDb = postgres(AGENT_TEST_URL, { max: 3, onnotice: () => {} });
 
-/** Wipe every row but keep the schema — faster and simpler than re-migrating. */
+/** Wipe every row but keep the schema — faster and simpler than re-migrating.
+ *  NOTE: the suite shares one database, so it must run serially. package.json
+ *  passes --test-concurrency=1; without it the per-file worker processes
+ *  truncate each other's fixtures mid-test. */
 export async function reset() {
   await db`truncate
     audit_log, consent_log, messages, conversations, escalations,

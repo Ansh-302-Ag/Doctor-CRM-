@@ -27,10 +27,14 @@ export async function recordConsent(
   db: Db, actor: Actor, patientId: string,
   action: "granted" | "withdrawn", channel = "whatsapp",
 ) {
+  // Re-consenting revives a soft-deleted patient. Without clearing deleted_at
+  // the patient is walked through the whole consent flow and then permanently
+  // fails to book, because assertConsent filters soft-deleted rows out.
   await db`
     update patients
        set consent_status      = ${action}::consent_status,
-           consent_recorded_at = ${action === "granted" ? new Date() : null}
+           consent_recorded_at = ${action === "granted" ? new Date() : null},
+           deleted_at          = ${action === "granted" ? null : db`deleted_at`}
      where id = ${patientId}
   `;
   await db`
@@ -43,6 +47,10 @@ export async function recordConsent(
 /**
  * DPDP withdrawal (docs/02): soft-delete now, keep the append-only consent trail,
  * cancel anything still scheduled. A purge job hard-deletes later.
+ *
+ * The caller must supply a transaction: a half-executed deletion — consent
+ * withdrawn but the record still live, or appointments cancelled but the
+ * patient not marked deleted — is worse than an outright failure.
  */
 export async function withdrawAndDelete(db: Db, actor: Actor, patientId: string) {
   await recordConsent(db, actor, patientId, "withdrawn");

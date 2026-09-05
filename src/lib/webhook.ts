@@ -5,10 +5,18 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 
-/** Meta signs the raw body with the app secret; we compare in constant time. */
+/**
+ * Meta signs the raw body with the app secret; we compare in constant time.
+ *
+ * With no secret configured this returns false. Accepting unsigned payloads
+ * lets anyone POST a message claiming any phone number — booking, cancelling,
+ * or triggering delete-my-data on a stranger's record — so skipping the check
+ * is an explicit opt-in (ALLOW_UNSIGNED_WEBHOOKS=1), never inferred from
+ * NODE_ENV happening not to say "production".
+ */
 export function verifySignature(rawBody: string, header: string | null): boolean {
   const secret = process.env.WHATSAPP_APP_SECRET;
-  if (!secret) return process.env.NODE_ENV !== "production";   // unsigned local dev only
+  if (!secret) return process.env.ALLOW_UNSIGNED_WEBHOOKS === "1";
   if (!header?.startsWith("sha256=")) return false;
   const expected = createHmac("sha256", secret).update(rawBody, "utf8").digest();
   const given = Buffer.from(header.slice("sha256=".length), "hex");
