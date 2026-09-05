@@ -45,3 +45,6 @@ next-env.d.ts
 
 # next build output is symlinked to local disk in this environment
 .next
+
+# subagent-driven-development scratch
+.superpowers/
