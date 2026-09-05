@@ -7,7 +7,7 @@ import type { Classifier, Classification, ClassifyInput } from "../src/lib/agent
  */
 export function stub(script: (i: ClassifyInput) => Partial<Classification>): Classifier {
   return async (i) => ({
-    intent: "unclear", doctor: null, day: null, slotIndex: null, ...script(i),
+    intent: "unclear", doctor: null, day: null, slotIndex: null, name: null, ...script(i),
   });
 }
 
@@ -38,7 +38,7 @@ export const scripted: Classifier = stub(i => {
     /\b(book|appointment|schedule|slot)\b/.test(t) ? "book" :
     (doctor || day || slotIndex !== null) ? "book" : "unclear";
 
-  return { intent, doctor, day, slotIndex };
+  return { intent, doctor, day, slotIndex, name: null };
 });
 
 const nullIfMissing = (n: number) => (n < 0 ? null : n);

@@ -212,17 +212,19 @@ test("the whole loop works while connected as the restricted agent role", async 
   // Everything above runs as the app role. This one proves the agent's own
   // database grants are sufficient for its job and no wider (docs/08).
   const { agentDb } = await import("./helpers");
-  const asAgent = (body: string, id: string) =>
+  const asAgent = (body: string, id: string, over: Record<string, unknown> = {}) =>
     handleInbound(agentDb, {
       clinicId: f.clinicId, phone: "+919000000077", body, providerMessageId: id,
-    }, new Date(), scripted);
+    }, new Date(), async (i) => ({ ...(await scripted(i)), ...(i.body === body ? over : {}) }));
 
   assert.match((await asAgent("I want an appointment", "a1"))!.text, /store your name/i);
-  assert.match((await asAgent("yes", "a2"))!.text, /thank you/i);
-  const offer = await asAgent("tomorrow", "a3");
+  assert.match((await asAgent("yes", "a2"))!.text, /what name/i);
+  assert.match((await asAgent("Priya Nair", "a3", { intent: "provide_name", name: "Priya Nair" }))!.text,
+    /what day/i);
+  const offer = await asAgent("tomorrow", "a4");
   assert.match(offer!.text, /these times are free/i);
   const time = offer!.text.match(/(\d{1,2}:\d{2})/)![1];
-  assert.match((await asAgent(time, "a4"))!.text, /you are booked/i);
+  assert.match((await asAgent(time, "a5"))!.text, /you are booked/i);
 
   const rows = await db`select created_by from appointments where status = 'booked'`;
   assert.equal(rows.length, 1);
@@ -331,7 +333,7 @@ test("the classifier is given only booking context, never patient history", asyn
   let seen: unknown;
   const capture: typeof scripted = async (i) => {
     seen = i;
-    return { intent: "book", doctor: null, day: null, slotIndex: null };
+    return { intent: "book", doctor: null, day: null, slotIndex: null, name: null };
   };
   await handleInbound(db, {
     clinicId: f.clinicId, phone: "+919000000001",
@@ -342,4 +344,28 @@ test("the classifier is given only booking context, never patient history", asyn
   assert.deepEqual(Object.keys(seen as object).sort(),
     ["body", "doctors", "offered", "today", "weekday"]);
   assert.doesNotMatch(JSON.stringify(seen), /Amoxicillin|\+9190000/);
+});
+
+test("a patient with no name on file is asked for one before booking", async () => {
+  const p = "+919000000088";
+  const ask = (body: string, id: string, over: Record<string, unknown> = {}) =>
+    handleInbound(db, { clinicId: f.clinicId, phone: p, body, providerMessageId: id },
+      // The override only applies to classifying this message itself. A booking
+      // resumed off the back of it (e.g. the stashed request once we have a
+      // name) reclassifies its own, different text and must not inherit it.
+      new Date(), async (i) => ({ ...(await scripted(i)), ...(i.body === body ? over : {}) }));
+
+  assert.match((await ask("I need an appointment", "n1"))!.text, /store your name/i);
+  assert.match((await ask("yes", "n2"))!.text, /name/i);
+
+  const named = await ask("Asha Verma", "n3", { intent: "provide_name", name: "Asha Verma" });
+  assert.match(named!.text, /what day/i);
+
+  const [row] = await db<{ name: string }[]>`select name from patients where phone = ${p}`;
+  assert.equal(row.name, "Asha Verma");
+});
+
+test("a patient who already has a name is never asked again", async () => {
+  const r = await say("I need an appointment with Dr. Rao");
+  assert.doesNotMatch(r!.text, /what name/i);
 });

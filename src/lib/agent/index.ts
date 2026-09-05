@@ -23,6 +23,7 @@ import {
 } from "./intent";
 import { CONSENT_NOTICE, recordConsent, withdrawAndDelete, ConsentRequired } from "../consent";
 import { BookingError } from "../booking";
+import { setPatientName } from "../patients";
 
 export type Reply = { text: string; escalated: boolean };
 
@@ -118,7 +119,7 @@ async function inTransaction(
 
 type Ctx = {
   clinic: { id: string; timezone: string; phone: string };
-  patient: { id: string; consent_status: string };
+  patient: { id: string; consent_status: string; name: string | null };
   conversation: { id: string; state: ConversationState };
 };
 type Routed = { text: string; escalated: boolean; intent?: string };
@@ -204,6 +205,32 @@ async function route(
     }
     await setState(db, ctx.conversation.id, { pending: msg.body });
     return { text: CONSENT_NOTICE, escalated: false, intent: "consent_requested" };
+  }
+
+  // A booking with no name attached is not much use to the front desk, so ask
+  // once, right after consent. Anything else — reading back an appointment,
+  // cancelling — proceeds without it.
+  if (!ctx.patient.name && c.intent === "provide_name" && c.name) {
+    await setPatientName(db, { kind: "agent" }, ctx.patient.id, c.name);
+    const stashed = isPending(state) ? state.pending : null;
+    await clearState(db, ctx.conversation.id);
+    if (!stashed) {
+      return { text: `Thank you, ${c.name}. What day would you like to come in?`,
+               escalated: false, intent: c.intent };
+    }
+    const resumed = await route(
+      db, { ...msg, body: stashed },
+      { ...ctx, patient: { ...ctx.patient, name: c.name },
+        conversation: { ...ctx.conversation, state: {} } },
+      now, classify,
+    );
+    return { ...resumed, text: `Thank you, ${c.name}. ${resumed.text}` };
+  }
+
+  if (!ctx.patient.name && (c.intent === "book" || c.intent === "reschedule")) {
+    await setState(db, ctx.conversation.id, { pending: msg.body });
+    return { text: "Before I book that — what name should I put on the appointment?",
+             escalated: false, intent: "name_requested" };
   }
 
   // 4. Logistics.
@@ -442,8 +469,8 @@ async function context(db: Db, msg: InboundMessage): Promise<Ctx> {
   // the identity columns (docs/08).
   await db`insert into patients (clinic_id, phone) values (${msg.clinicId}, ${msg.phone})
            on conflict (clinic_id, phone) do nothing`;
-  const [patient] = await db<{ id: string; consent_status: string }[]>`
-    select id, consent_status from patients
+  const [patient] = await db<{ id: string; consent_status: string; name: string | null }[]>`
+    select id, consent_status, name from patients
      where clinic_id = ${msg.clinicId} and phone = ${msg.phone}`;
 
   // One conversation per patient per channel, enforced by a unique index — two

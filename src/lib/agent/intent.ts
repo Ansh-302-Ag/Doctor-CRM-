@@ -16,7 +16,7 @@ const ENDPOINT = "https://api.anthropic.com/v1/messages";
 export const INTENTS = [
   "book", "reschedule", "cancel",
   "check_appointment", "check_prescription_record",
-  "consent_yes", "delete_my_data",
+  "consent_yes", "delete_my_data", "provide_name",
   "unclear",
 ] as const;
 
@@ -30,6 +30,7 @@ export type Classification = {
   day: string | null;
   /** Index into the offered slots, or null. */
   slotIndex: number | null;
+  name: string | null;
 };
 
 export type ClassifyInput = {
@@ -60,13 +61,15 @@ const TOOL = {
       intent: {
         type: "string",
         enum: ["book", "reschedule", "cancel", "check_appointment",
-               "check_prescription_record", "consent_yes", "delete_my_data", "unclear"],
+               "check_prescription_record", "consent_yes", "delete_my_data",
+               "provide_name", "unclear"],
         description:
           "book: wants an appointment. reschedule: move an existing one. " +
           "cancel: cancel one. check_appointment: asking when their appointment is. " +
           "check_prescription_record: asking what is on their prescription record. " +
           "consent_yes: agreeing to the data-storage notice. " +
           "delete_my_data: withdrawing consent or asking to be deleted. " +
+          "provide_name: the message is the patient telling us their name. " +
           "unclear: anything else, including anything needing clinical judgement.",
       },
       doctor: {
@@ -85,8 +88,12 @@ const TOOL = {
           "Zero-based index into the offered times, if the patient is picking one. " +
           "Null if they are not, or if it is not clear which one they mean.",
       },
+      name: {
+        type: ["string", "null"],
+        description: "The patient's own name, if this message states it. Null otherwise.",
+      },
     },
-    required: ["intent", "doctor", "day", "slot_index"],
+    required: ["intent", "doctor", "day", "slot_index", "name"],
   },
 } as const;
 
@@ -142,7 +149,7 @@ export const classifyWithClaude: Classifier = async (input) => {
   if (!call?.input) throw new ClassifierUnavailable("no tool call in response");
 
   const raw = call.input as {
-    intent: Intent; doctor: unknown; day: unknown; slot_index: unknown;
+    intent: Intent; doctor: unknown; day: unknown; slot_index: unknown; name: unknown;
   };
 
   // Trust the shape, verify the values: a hallucinated doctor or an out-of-range
@@ -160,6 +167,8 @@ export const classifyWithClaude: Classifier = async (input) => {
   const slotIndex = Number.isInteger(raw.slot_index) &&
     (raw.slot_index as number) >= 0 && (raw.slot_index as number) < input.offered.length
     ? raw.slot_index as number : null;
+  const name = typeof raw.name === "string" && raw.name.trim().length > 0 &&
+    raw.name.trim().length <= 80 ? raw.name.trim() : null;
 
-  return { intent, doctor, day, slotIndex };
+  return { intent, doctor, day, slotIndex, name };
 };
