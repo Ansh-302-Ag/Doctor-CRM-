@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { authenticate } from "@/lib/auth";
 import { getSession, signIn } from "@/lib/session";
+import { TooManyAttempts } from "@/lib/throttle";
 
 export default async function LoginPage({
   searchParams,
@@ -11,10 +12,16 @@ export default async function LoginPage({
 
   async function login(form: FormData) {
     "use server";
-    const user = await authenticate({
-      email: String(form.get("email") ?? ""),
-      password: String(form.get("password") ?? ""),
-    });
+    let user;
+    try {
+      user = await authenticate({
+        email: String(form.get("email") ?? ""),
+        password: String(form.get("password") ?? ""),
+      });
+    } catch (e) {
+      if (e instanceof TooManyAttempts) redirect("/login?error=throttled");
+      throw e;
+    }
     if (!user) redirect("/login?error=1");
     await signIn(user);
     redirect("/");
@@ -30,7 +37,9 @@ export default async function LoginPage({
 
         {error && (
           <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-            That email and password did not match.
+            {error === "throttled"
+              ? "Too many sign-in attempts. Please wait a few minutes and try again."
+              : "That email and password did not match."}
           </p>
         )}
 
