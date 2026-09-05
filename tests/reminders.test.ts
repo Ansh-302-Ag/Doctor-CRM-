@@ -198,3 +198,23 @@ test("two overlapping runs do not double-send one reminder", async () => {
   assert.equal(rec.sent.length, 1, "only one overlapping run may send the reminder");
   assert.equal(a.sent + b.sent, 1);
 });
+
+test("the cron endpoint refuses a request without the shared secret", async () => {
+  const { GET } = await import("../src/app/api/cron/reminders/route");
+  process.env.CRON_SECRET = "s3cret";
+  try {
+    assert.equal((await GET(new Request("http://localhost/x"))).status, 401);
+    assert.equal((await GET(new Request("http://localhost/x", {
+      headers: { authorization: "Bearer nope" },
+    }))).status, 401);
+  } finally { delete process.env.CRON_SECRET; }
+});
+
+test("the cron endpoint refuses to run at all when no secret is configured", async () => {
+  const { GET } = await import("../src/app/api/cron/reminders/route");
+  delete process.env.CRON_SECRET;
+  const res = await GET(new Request("http://localhost/x", {
+    headers: { authorization: "Bearer anything" },
+  }));
+  assert.equal(res.status, 500, "an unprotected reminder endpoint must not be callable");
+});
