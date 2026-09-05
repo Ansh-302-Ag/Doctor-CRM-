@@ -47,9 +47,9 @@ HIPAA would require a largely separate compliance pass, not an add-on).
   on breach, with no minimum size threshold — so "it was a small leak"
   is not a reason to skip notification.
 - Practical implication: **have a breach runbook before launch**, not
-  after. Who gets notified, in what timeframe, using what channel. This
-  is a doc, not code, but it belongs in this repo (`docs/runbooks/`)
-  once we're closer to launch.
+  after. Who gets notified, in what timeframe, using what channel. See
+  `docs/runbooks/breach.md` — it still needs its contact table filled
+  in and one tabletop rehearsal before launch.
 
 ## Technical requirements this drives
 
