@@ -61,3 +61,34 @@ export async function withdrawAndDelete(db: Db, actor: Actor, patientId: string)
   await db`update patients set deleted_at = now() where id = ${patientId}`;
   await audit(db, actor, "patient_soft_deleted", "patients", patientId);
 }
+
+/**
+ * How long a soft-deleted record survives before it is destroyed.
+ *
+ * Not zero, deliberately: a withdrawal sent by mistake, and a dispute about
+ * whether an appointment happened, both need a short window. Thirty days is a
+ * choice, not a legal finding — confirm it with counsel before a real clinic.
+ */
+export const PURGE_AFTER_DAYS = 30;
+
+/**
+ * Hard-delete patients whose retention window has passed (docs/02).
+ *
+ * Their appointments, conversations, messages, prescriptions, reminders and
+ * consent-log rows go with them via `on delete cascade`. The audit_log entry
+ * survives holding only the patient's id: it records that a deletion happened,
+ * which is itself an obligation, and nothing about who they were.
+ */
+export async function purgeDeletedPatients(
+  db: Db, now = new Date(),
+): Promise<{ purged: number }> {
+  const cutoff = new Date(now.getTime() - PURGE_AFTER_DAYS * 86_400_000);
+  const rows = await db<{ id: string }[]>`
+    select id from patients where deleted_at is not null and deleted_at < ${cutoff}`;
+
+  for (const row of rows) {
+    await db`delete from patients where id = ${row.id}`;
+    await audit(db, { kind: "agent" }, "patient_purged", "patients", row.id);
+  }
+  return { purged: rows.length };
+}
