@@ -80,7 +80,7 @@ export default async function PatientRecordPage({
     const existing = await listPrescriptions(sql, meActor, me.role, patientId);
     if (!existing.some(p => p.id === prescriptionId)) notFound();
 
-    await discontinuePrescription(sql, meActor, me.role, prescriptionId);
+    await discontinuePrescription(sql, meActor, me.role, me.clinicId, prescriptionId);
     revalidatePath(`/patients/${patientId}`);
   }
 

@@ -27,6 +27,10 @@ export class InvalidPrescription extends Error {
   }
 }
 
+export class NotFound extends Error {
+  constructor() { super("no such prescription for this clinic"); this.name = "NotFound"; }
+}
+
 /** Validate at the trust boundary: this is typed by a human in a hurry. */
 function validate(input: PrescriptionInput) {
   const drugName = input.drugName?.trim();
@@ -45,6 +49,16 @@ export async function createPrescription(
 ): Promise<{ id: string }> {
   requirePermission(role, "prescriptions:write");
   const input = validate(raw);
+
+  // A doctor at one clinic writing on another clinic's patient is always a bug
+  // or an attack; there is no legitimate case for it.
+  const [pair] = await db<{ ok: boolean }[]>`
+    select (p.clinic_id = d.clinic_id) as ok
+      from patients p, doctors d
+     where p.id = ${input.patientId} and d.id = ${input.doctorId}`;
+  if (!pair?.ok) {
+    throw new InvalidPrescription("patientId", "that patient and doctor are at different clinics");
+  }
 
   const [row] = await db<{ id: string }[]>`
     insert into prescriptions
@@ -76,9 +90,15 @@ export async function listPrescriptions(
 }
 
 export async function discontinuePrescription(
-  db: Db, actor: { kind: "staff"; id: string }, role: Role, id: string,
+  db: Db, actor: { kind: "staff"; id: string }, role: Role, clinicId: string, id: string,
 ): Promise<void> {
   requirePermission(role, "prescriptions:write");
-  await db`update prescriptions set status = 'discontinued' where id = ${id}`;
+  const rows = await db`
+    update prescriptions p set status = 'discontinued'
+      from patients pt
+     where pt.id = p.patient_id and pt.clinic_id = ${clinicId}
+       and p.id = ${id}
+    returning p.id`;
+  if (rows.length === 0) throw new NotFound();
   await audit(db, actor, "discontinue_prescription", "prescriptions", id);
 }

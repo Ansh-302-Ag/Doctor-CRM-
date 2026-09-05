@@ -74,7 +74,7 @@ test("listing returns newest first with the prescribing doctor's name", async ()
 
 test("discontinuing changes status and leaves the record intact", async () => {
   const { id } = await createPrescription(db, DOCTOR(), "doctor", input());
-  await discontinuePrescription(db, DOCTOR(), "doctor", id);
+  await discontinuePrescription(db, DOCTOR(), "doctor", f.clinicId, id);
 
   const [row] = await db<{ status: string; drug_name: string }[]>`
     select status, drug_name from prescriptions where id = ${id}`;

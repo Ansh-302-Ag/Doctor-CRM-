@@ -105,7 +105,7 @@ test("a reminder for a discontinued prescription is not sent", async () => {
     drugName: "Amoxicillin", dosage: "500mg twice daily", durationDays: 5,
   });
   await scheduleRefillFollowup(db, id, f.patientId, new Date(Date.now() - 60_000));
-  await discontinuePrescription(db, DOCTOR(), "doctor", id);
+  await discontinuePrescription(db, DOCTOR(), "doctor", f.clinicId, id);
 
   const rec = recorder();
   assert.deepEqual(await runDueReminders(db, { send: rec.send as never }),
