@@ -1,3 +1,5 @@
+import { TEMPLATES, type TemplateName } from "./templates";
+
 /**
  * Outbound messaging. Talks to the WhatsApp Cloud API when it is configured,
  * and otherwise records the message and returns — which is what lets the whole
@@ -57,4 +59,49 @@ export async function notifyStaff(text: string) {
     return;
   }
   await sendMessage({ to, text }).catch(e => console.error("staff notify failed", e));
+}
+
+/**
+ * Send a pre-approved template. This is the ONLY way to message a patient
+ * outside the 24-hour window WhatsApp allows after their last message, so every
+ * reminder goes through here — never through sendMessage.
+ */
+export async function sendTemplate(msg: {
+  to: string; name: TemplateName; parameters: string[];
+}): Promise<{ delivered: boolean }> {
+  const spec = TEMPLATES[msg.name];
+  if (msg.parameters.length !== spec.params.length) {
+    throw new Error(
+      `template '${msg.name}' needs ${spec.params.length} parameters, got ${msg.parameters.length}`);
+  }
+  if (!configured()) {
+    console.log(`[channel:simulated template] -> ${mask(msg.to)} (${msg.name})`);
+    return { delivered: false };
+  }
+
+  const res = await fetch(
+    `https://graph.facebook.com/v21.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+    {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: msg.to,
+        type: "template",
+        template: {
+          name: msg.name,
+          language: { code: spec.language },
+          components: [{
+            type: "body",
+            parameters: msg.parameters.map(text => ({ type: "text", text })),
+          }],
+        },
+      }),
+    },
+  );
+  if (!res.ok) throw new Error(`whatsapp template send failed: ${res.status} ${await res.text()}`);
+  return { delivered: true };
 }
