@@ -4,7 +4,7 @@
  */
 import test, { after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { db, reset, seed, closeAll, type Fixture } from "./helpers";
+import { db, reset, seed, closeAll, futureSlot, localDay, type Fixture } from "./helpers";
 import { handleInbound } from "../src/lib/agent";
 import { CONSENT_NOTICE } from "../src/lib/consent";
 import { scripted } from "./stub-classifier";
@@ -368,4 +368,15 @@ test("a patient with no name on file is asked for one before booking", async () 
 test("a patient who already has a name is never asked again", async () => {
   const r = await say("I need an appointment with Dr. Rao");
   assert.doesNotMatch(r!.text, /what name/i);
+});
+
+test("the booking confirmation promises a reminder, because one is now scheduled", async () => {
+  const day = localDay(futureSlot(10, 5));
+  await say("appointment with Dr Rao");
+  const offer = await say(day);
+  const done = await say(offer!.text.match(/(\d{1,2}:\d{2})/)![1]);
+
+  assert.match(done!.text, /reminder/i);
+  assert.equal((await db`select id from reminders where status = 'scheduled'`).length, 1,
+    "the promise must correspond to a real scheduled reminder");
 });

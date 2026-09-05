@@ -391,10 +391,8 @@ async function continueBooking(
           }, now);
       await clearState(db, ctx.conversation.id);
       return {
-        // No reminder is promised: nothing schedules or sends one yet (Phase 2).
-        // Promising one and not sending it is the failure docs/08 calls real harm.
         text: `You are booked for ${fmtTime(appt.startsAt, ctx.clinic.timezone)}. ` +
-              `Reply CANCEL anytime to cancel.`,
+              `We will send a reminder the day before. Reply CANCEL anytime to cancel.`,
         escalated: false, intent: "book",
       };
     } catch (e) {
