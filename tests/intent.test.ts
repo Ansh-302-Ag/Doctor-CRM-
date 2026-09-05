@@ -28,7 +28,7 @@ function stubFetch(toolInput: Record<string, unknown>, status = 200) {
 }
 
 test("a well-formed response passes through", async () => {
-  stubFetch({ intent: "book", doctor: "Dr. Rao", day: "2026-09-04", slot_index: 1 });
+  stubFetch({ intent: "book", doctor: "Dr. Rao", day: "2026-09-04", slot_index: 1, name: null });
   const r = await classifyWithClaude(input);
   assert.equal(r.intent, "book");
   assert.equal(r.doctor, "Dr. Rao");
@@ -37,27 +37,27 @@ test("a well-formed response passes through", async () => {
 });
 
 test("a doctor who does not work here becomes null", async () => {
-  stubFetch({ intent: "book", doctor: "Dr. Sharma", day: null, slot_index: null });
+  stubFetch({ intent: "book", doctor: "Dr. Sharma", day: null, slot_index: null, name: null });
   assert.equal((await classifyWithClaude(input)).doctor, null);
 });
 
 test("an impossible date becomes null rather than reaching the database", async () => {
   for (const day of ["2026-13-45", "2026-02-30", "0000-00-00", "tomorrow", "2026-9-4"]) {
-    stubFetch({ intent: "book", doctor: null, day, slot_index: null });
+    stubFetch({ intent: "book", doctor: null, day, slot_index: null, name: null });
     assert.equal((await classifyWithClaude(input)).day, null, day);
   }
 });
 
 test("an out-of-range or non-integer slot index becomes null", async () => {
   for (const slot_index of [-1, 2, 99, 1.5, "1", null]) {
-    stubFetch({ intent: "book", doctor: null, day: null, slot_index });
+    stubFetch({ intent: "book", doctor: null, day: null, slot_index, name: null });
     assert.equal((await classifyWithClaude(input)).slotIndex, null, String(slot_index));
   }
 });
 
 test("an intent outside the enum degrades to unclear, which escalates", async () => {
   for (const intent of ["answer_medical_question", "prescribe", "", null, 42]) {
-    stubFetch({ intent, doctor: null, day: null, slot_index: null });
+    stubFetch({ intent, doctor: null, day: null, slot_index: null, name: null });
     assert.equal((await classifyWithClaude(input)).intent, "unclear", String(intent));
   }
 });
@@ -66,7 +66,7 @@ test("a missing key, a non-200, junk JSON and no tool call all fail loudly", asy
   delete process.env.ANTHROPIC_API_KEY;
   await assert.rejects(classifyWithClaude(input), ClassifierUnavailable);
 
-  stubFetch({ intent: "book", doctor: null, day: null, slot_index: null }, 500);
+  stubFetch({ intent: "book", doctor: null, day: null, slot_index: null, name: null }, 500);
   await assert.rejects(classifyWithClaude(input), ClassifierUnavailable);
 
   process.env.ANTHROPIC_API_KEY = "sk-test";
@@ -86,17 +86,27 @@ test("a network failure surfaces as ClassifierUnavailable, not a raw fetch error
   await assert.rejects(classifyWithClaude(input), ClassifierUnavailable);
 });
 
-test("the request body carries only booking context", async () => {
+test("the request body carries only the context it was given", async () => {
   process.env.ANTHROPIC_API_KEY = "sk-test";
   let captured: string | undefined;
   globalThis.fetch = (async (_url: unknown, init: { body: string }) => {
     captured = init.body;
     return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "record_intent",
-      input: { intent: "book", doctor: null, day: null, slot_index: null } }] }), { status: 200 });
+      input: { intent: "book", doctor: null, day: null, slot_index: null, name: null } }] }), { status: 200 });
   }) as unknown as typeof fetch;
 
   await classifyWithClaude(input);
+
+  // What it was given, it may send.
   assert.match(captured!, /Dr\. Rao/);
   assert.match(captured!, /book me in/);
-  assert.doesNotMatch(captured!, /prescription|history|patient_id/i);
+
+  // What it was never given must not appear. The request is assembled from the
+  // ClassifyInput fields alone, so no identifier from the database can reach it.
+  // (The end-to-end version of this guarantee — real prescription and phone in
+  // the database, neither reaching the classifier — lives in tests/agent.test.ts,
+  // "the classifier is given only booking context, never patient history".)
+  assert.doesNotMatch(captured!, /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
+    "no UUID — a patient, doctor or appointment id would show up like this");
+  assert.doesNotMatch(captured!, /\+?\d{10,}/, "no phone-shaped digit run");
 });
