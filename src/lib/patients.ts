@@ -28,7 +28,7 @@ export async function searchPatients(
            ) as next_appointment,
            (select count(*) from prescriptions r
              where r.patient_id = p.id and r.status = 'active'
-           ) as active_prescriptions
+           )::int as active_prescriptions
       from patients p
      where p.clinic_id = ${clinicId} and p.deleted_at is null
        and (${q === ""} or p.name ilike ${like} or p.phone ilike ${like})
@@ -50,7 +50,7 @@ export async function getPatient(
            ) as next_appointment,
            (select count(*) from prescriptions r
              where r.patient_id = p.id and r.status = 'active'
-           ) as active_prescriptions
+           )::int as active_prescriptions
       from patients p
      where p.id = ${patientId} and p.clinic_id = ${clinicId} and p.deleted_at is null`;
   if (!row) return null;

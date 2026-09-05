@@ -46,7 +46,7 @@ test("the summary carries the next appointment and active prescription count", a
   const p = await getPatient(db, STAFF(), "receptionist", f.clinicId, f.patientId);
   assert.ok(p);
   assert.ok(p.next_appointment);
-  assert.equal(Number(p.active_prescriptions), 1);
+  assert.strictEqual(p.active_prescriptions, 1);
 });
 
 test("a name can be captured and is trimmed", async () => {
