@@ -150,3 +150,51 @@ test("a failing send is retried, then surfaced to staff", async () => {
   assert.ok([...rows].some(e => /reminder/i.test(e.reason)),
     "staff must be told a reminder could not be delivered");
 });
+
+test("an exhausted reminder still escalates for a patient with no conversation", async () => {
+  // A front-desk booking never texts the clinic, so it has no conversation row.
+  // The escalation on exhausted retries must not depend on one existing.
+  const [patient] = await db<{ id: string }[]>`
+    insert into patients (clinic_id, name, phone, consent_status, consent_recorded_at)
+    values (${f.clinicId}, 'NoText', '+919000000099', 'granted', now())
+    returning id`;
+  await bookAppointment(db, STAFF(), "receptionist",
+    { patientId: patient.id, doctorId: f.doctorId, startsAt: futureSlot(10, 5) });
+  await due();
+
+  const boom = async () => { throw new Error("network down"); };
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    await runDueReminders(db, { send: boom as never });
+    await due();
+  }
+
+  const [r] = await db<{ status: string }[]>`
+    select status from reminders where patient_id = ${patient.id}`;
+  assert.equal(r.status, "failed");
+
+  const rows = await db<{ conversation_id: string | null }[]>`
+    select conversation_id from escalations where patient_id = ${patient.id}`;
+  assert.equal(rows.length, 1,
+    "a patient with no conversation must still get an escalation");
+  assert.equal(rows[0].conversation_id, null);
+});
+
+test("two overlapping runs do not double-send one reminder", async () => {
+  await bookAppointment(db, STAFF(), "receptionist",
+    { patientId: f.patientId, doctorId: f.doctorId, startsAt: futureSlot(10, 5) });
+  await due();
+
+  const rec = recorder();
+  const slowSend = async (m: { to: string; name: string; parameters: string[] }) => {
+    await new Promise(resolve => setTimeout(resolve, 200));
+    return rec.send(m);
+  };
+
+  const [a, b] = await Promise.all([
+    runDueReminders(db, { send: slowSend as never }),
+    runDueReminders(db, { send: slowSend as never }),
+  ]);
+
+  assert.equal(rec.sent.length, 1, "only one overlapping run may send the reminder");
+  assert.equal(a.sent + b.sent, 1);
+});

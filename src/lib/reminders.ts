@@ -17,6 +17,8 @@ import { renderTemplate } from "./templates";
 export const MAX_ATTEMPTS = 3;
 /** How long before an appointment the reminder goes out. */
 export const LEAD_TIME_MS = 24 * 60 * 60 * 1000;
+/** Arbitrary constant identifying the reminder-run advisory lock. */
+const RUN_LOCK_KEY = 4_726_301;
 
 export type DueReminder = {
   id: string; patient_id: string; type: "appointment" | "refill_followup";
@@ -54,7 +56,7 @@ export async function cancelReminders(db: Db, relatedId: string): Promise<void> 
 
 /** Everything due now, with the context needed to fill a template. */
 export async function claimDue(db: Db, now = new Date(), limit = 50): Promise<DueReminder[]> {
-  return db<DueReminder[]>`
+  const rows = await db<DueReminder[]>`
     select r.id, r.patient_id, r.type, r.related_id, r.attempts,
            p.phone, c.name as clinic_name, c.timezone,
            d.name as doctor_name, a.starts_at, pr.drug_name
@@ -67,6 +69,13 @@ export async function claimDue(db: Db, now = new Date(), limit = 50): Promise<Du
      where r.status = 'scheduled' and r.send_at <= ${now}
      order by r.send_at
      limit ${limit}`;
+  // This is a read of every claimed patient's contact details — audit the batch
+  // once rather than once per row; the per-reminder outcome (sent/skipped) is
+  // already recorded below.
+  if (rows.length) {
+    await audit(db, { kind: "agent" }, "read_for_reminders", "reminders", null);
+  }
+  return rows;
 }
 
 /**
@@ -104,15 +113,14 @@ function parametersFor(r: DueReminder) {
   });
 }
 
-/** Send everything due. Returns counts rather than throwing, so one bad
- *  reminder never stops the batch. */
-export async function runDueReminders(
-  db: Db, deps: { send?: typeof sendTemplate; now?: Date } = {},
-): Promise<{ sent: number; skipped: number; failed: number }> {
-  const send = deps.send ?? sendTemplate;
+type RunResult = { sent: number; skipped: number; failed: number };
+
+async function sendDue(
+  db: Db, send: typeof sendTemplate, now?: Date,
+): Promise<RunResult> {
   let sent = 0, skipped = 0, failed = 0;
 
-  for (const r of await claimDue(db, deps.now)) {
+  for (const r of await claimDue(db, now)) {
     if (!(await stillValid(db, r))) {
       await db`update reminders set status = 'cancelled' where id = ${r.id}`;
       await audit(db, { kind: "agent" }, "reminder_skipped", "reminders", r.id);
@@ -144,18 +152,49 @@ export async function runDueReminders(
         select status from reminders where id = ${r.id}`;
       if (row.status === "failed") {
         // docs/08: after N attempts a human is told. Silence here is the harm.
+        // The patient may never have texted the clinic (booked at the front
+        // desk), so there may be no conversation to attach — escalate anyway,
+        // with a null conversation_id (migration 007), rather than dropping it.
         const [conversation] = await db<{ id: string }[]>`
           select id from conversations where patient_id = ${r.patient_id} limit 1`;
-        if (conversation) {
-          await db`
-            insert into escalations (conversation_id, patient_id, reason, priority)
-            values (${conversation.id}, ${r.patient_id},
-                    ${`reminder could not be delivered after ${MAX_ATTEMPTS} attempts: ${message}`},
-                    'normal')`;
-        }
+        await db`
+          insert into escalations (conversation_id, patient_id, reason, priority)
+          values (${conversation?.id ?? null}, ${r.patient_id},
+                  ${`reminder could not be delivered after ${MAX_ATTEMPTS} attempts: ${message}`},
+                  'normal')`;
         failed++;
       }
     }
   }
   return { sent, skipped, failed };
+}
+
+/** Send everything due. Returns counts rather than throwing, so one bad
+ *  reminder never stops the batch. */
+export async function runDueReminders(
+  db: Db, deps: { send?: typeof sendTemplate; now?: Date } = {},
+): Promise<RunResult> {
+  const send = deps.send ?? sendTemplate;
+  const zero: RunResult = { sent: 0, skipped: 0, failed: 0 };
+
+  // One reminder run at a time. Two overlapping cron invocations would each
+  // claim the same 'scheduled' rows and message the patient twice; the lock is
+  // cheaper than row-level claiming and holds nothing across a network send.
+  // Advisory locks are held per Postgres session, so lock and unlock must run
+  // on the SAME connection — reserve() pins one from the pool. A caller already
+  // inside a transaction (Db can be a TransactionSql) is already pinned.
+  const reserved = "reserve" in db ? await db.reserve() : null;
+  const runDb: Db = reserved ?? db;
+  try {
+    const [lock] = await runDb<{ locked: boolean }[]>`
+      select pg_try_advisory_lock(${RUN_LOCK_KEY}) as locked`;
+    if (!lock.locked) return zero;
+    try {
+      return await sendDue(runDb, send, deps.now);
+    } finally {
+      await runDb`select pg_advisory_unlock(${RUN_LOCK_KEY})`;
+    }
+  } finally {
+    reserved?.release();
+  }
 }
