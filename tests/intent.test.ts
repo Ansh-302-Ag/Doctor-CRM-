@@ -10,7 +10,12 @@ import {
 } from "../src/lib/agent/intent";
 
 const realFetch = globalThis.fetch;
-afterEach(() => { globalThis.fetch = realFetch; delete process.env.ANTHROPIC_API_KEY; });
+afterEach(() => {
+  globalThis.fetch = realFetch;
+  delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.GROK_API_KEY;
+  delete process.env.GROK_MODEL;
+});
 
 const input: ClassifyInput = {
   body: "book me in", doctors: ["Dr. Rao", "Dr. Iyer"],
@@ -23,6 +28,17 @@ function stubFetch(toolInput: Record<string, unknown>, status = 200) {
   process.env.ANTHROPIC_API_KEY = "sk-test";
   globalThis.fetch = (async () => new Response(
     JSON.stringify({ content: [{ type: "tool_use", name: "record_intent", input: toolInput }] }),
+    { status, headers: { "content-type": "application/json" } },
+  )) as typeof fetch;
+}
+
+/** Reply with one Grok-shaped tool_calls entry carrying these fields (JSON-stringified, as xAI sends them). */
+function stubGrokFetch(toolInput: Record<string, unknown>, status = 200) {
+  process.env.GROK_API_KEY = "grok-test";
+  globalThis.fetch = (async () => new Response(
+    JSON.stringify({ choices: [{ message: { tool_calls: [{
+      function: { name: "record_intent", arguments: JSON.stringify(toolInput) },
+    }] } }] }),
     { status, headers: { "content-type": "application/json" } },
   )) as typeof fetch;
 }
@@ -109,4 +125,82 @@ test("the request body carries only the context it was given", async () => {
   assert.doesNotMatch(captured!, /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i,
     "no UUID — a patient, doctor or appointment id would show up like this");
   assert.doesNotMatch(captured!, /\+?\d{10,}/, "no phone-shaped digit run");
+});
+
+test("with only GROK_API_KEY set, a well-formed Grok response classifies correctly", async () => {
+  stubGrokFetch({ intent: "book", doctor: "Dr. Rao", day: "2026-09-04", slot_index: 1, name: null });
+  const r = await classifyWithClaude(input);
+  assert.equal(r.intent, "book");
+  assert.equal(r.doctor, "Dr. Rao");
+  assert.equal(r.day, "2026-09-04");
+  assert.equal(r.slotIndex, 1);
+});
+
+test("the Grok request goes to api.x.ai with a Bearer header and no x-api-key", async () => {
+  process.env.GROK_API_KEY = "grok-test";
+  let capturedUrl: unknown;
+  let capturedHeaders: Record<string, string> | undefined;
+  globalThis.fetch = (async (url: unknown, init: { headers: Record<string, string> }) => {
+    capturedUrl = url;
+    capturedHeaders = init.headers;
+    return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{
+      function: { name: "record_intent", arguments: JSON.stringify(
+        { intent: "book", doctor: null, day: null, slot_index: null, name: null }) },
+    }] } }] }), { status: 200 });
+  }) as unknown as typeof fetch;
+
+  await classifyWithClaude(input);
+
+  assert.match(String(capturedUrl), /api\.x\.ai/);
+  assert.equal(capturedHeaders!.authorization, "Bearer grok-test");
+  assert.equal(capturedHeaders!["x-api-key"], undefined);
+});
+
+test("Grok's JSON-string tool call arguments are parsed", async () => {
+  stubGrokFetch({ intent: "cancel", doctor: null, day: null, slot_index: null, name: "Priya" });
+  const r = await classifyWithClaude(input);
+  assert.equal(r.intent, "cancel");
+  assert.equal(r.name, "Priya");
+});
+
+test("unparseable Grok arguments throw ClassifierUnavailable", async () => {
+  process.env.GROK_API_KEY = "grok-test";
+  globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{
+    function: { name: "record_intent", arguments: "{not valid json" },
+  }] } }] }), { status: 200 })) as typeof fetch;
+  await assert.rejects(classifyWithClaude(input), ClassifierUnavailable);
+});
+
+test("a Grok response with no tool_calls throws ClassifierUnavailable", async () => {
+  process.env.GROK_API_KEY = "grok-test";
+  globalThis.fetch = (async () => new Response(JSON.stringify({ choices: [{ message: {} }] }),
+    { status: 200 })) as typeof fetch;
+  await assert.rejects(classifyWithClaude(input), ClassifierUnavailable);
+});
+
+test("sanitisation still applies on the Grok path: hallucinated doctor becomes null", async () => {
+  stubGrokFetch({ intent: "book", doctor: "Dr. Sharma", day: null, slot_index: null, name: null });
+  assert.equal((await classifyWithClaude(input)).doctor, null);
+});
+
+test("sanitisation still applies on the Grok path: impossible date becomes null", async () => {
+  for (const day of ["2026-13-45", "2026-02-30", "0000-00-00", "tomorrow", "2026-9-4"]) {
+    stubGrokFetch({ intent: "book", doctor: null, day, slot_index: null, name: null });
+    assert.equal((await classifyWithClaude(input)).day, null, day);
+  }
+});
+
+test("with both keys set, Anthropic wins", async () => {
+  process.env.ANTHROPIC_API_KEY = "sk-test";
+  process.env.GROK_API_KEY = "grok-test";
+  let capturedUrl: unknown;
+  globalThis.fetch = (async (url: unknown) => {
+    capturedUrl = url;
+    return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "record_intent",
+      input: { intent: "book", doctor: null, day: null, slot_index: null, name: null } }] }),
+      { status: 200 });
+  }) as unknown as typeof fetch;
+
+  await classifyWithClaude(input);
+  assert.match(String(capturedUrl), /api\.anthropic\.com/);
 });
