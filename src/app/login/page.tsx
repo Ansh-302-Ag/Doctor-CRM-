@@ -3,6 +3,9 @@ import { authenticate } from "@/lib/auth";
 import { getSession, signIn } from "@/lib/session";
 import { TooManyAttempts } from "@/lib/throttle";
 
+const field =
+  "mt-1.5 w-full rounded-md border border-line bg-surface px-3 py-2.5 text-sm text-ink";
+
 export default async function LoginPage({
   searchParams,
 }: { searchParams: Promise<{ error?: string }> }) {
@@ -29,38 +32,56 @@ export default async function LoginPage({
   }
 
   return (
-    <main className="min-h-dvh grid place-items-center bg-slate-50 p-6">
-      <form action={login} className="w-full max-w-sm space-y-4 rounded-xl bg-white p-8 shadow-sm">
-        <div>
-          <h1 className="text-xl font-semibold text-slate-900">Clinic CRM</h1>
-          <p className="mt-1 text-sm text-slate-500">Sign in to your clinic account.</p>
+    <main className="grid min-h-dvh place-items-center bg-rail p-6">
+      <div className="w-full max-w-sm">
+        <div className="flex items-center justify-center gap-2.5">
+          <span aria-hidden="true" className="grid size-9 place-items-center rounded-md bg-accent text-white">
+            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+              <path d="M12 6v12M6 12h12" />
+            </svg>
+          </span>
+          <span className="text-lg font-semibold text-white">Clinic CRM</span>
         </div>
 
-        {error && (
-          <p role="alert" className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-            {error === "throttled"
-              ? "Too many sign-in attempts. Please wait a few minutes and try again."
-              : "That email and password did not match."}
-          </p>
-        )}
+        <form action={login} className="mt-6 rounded-xl border border-line bg-surface p-7 shadow-lg">
+          <h1 className="text-lg font-semibold text-ink">Sign in</h1>
+          <p className="mt-1 text-sm text-ink-2">Use your clinic staff account.</p>
 
-        <label className="block text-sm font-medium text-slate-700">
-          Email
-          <input name="email" type="email" required autoComplete="username"
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900" />
-        </label>
+          {error && (
+            <p role="alert" className="mt-4 rounded-md border border-danger-line bg-danger-soft px-3 py-2 text-sm font-medium text-danger-ink">
+              {error === "throttled"
+                ? "Too many sign-in attempts. Please wait a few minutes and try again."
+                : "That email and password did not match."}
+            </p>
+          )}
 
-        <label className="block text-sm font-medium text-slate-700">
-          Password
-          <input name="password" type="password" required autoComplete="current-password"
-            className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-slate-900" />
-        </label>
+          <div className="mt-5 space-y-4">
+            <div>
+              <label htmlFor="email" className="block text-xs font-semibold uppercase tracking-wide text-ink-3">
+                Email
+              </label>
+              <input id="email" name="email" type="email" required autoComplete="username" className={field} />
+            </div>
+            <div>
+              <label htmlFor="password" className="block text-xs font-semibold uppercase tracking-wide text-ink-3">
+                Password
+              </label>
+              <input id="password" name="password" type="password" required autoComplete="current-password" className={field} />
+            </div>
+          </div>
 
-        <button type="submit"
-          className="w-full rounded-md bg-slate-900 px-3 py-2 font-medium text-white hover:bg-slate-800">
-          Sign in
-        </button>
-      </form>
+          <button
+            type="submit"
+            className="mt-6 w-full rounded-md bg-accent px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-hover"
+          >
+            Sign in
+          </button>
+        </form>
+
+        <p className="mt-5 text-center text-xs text-rail-ink">
+          Patient data. Sessions end after eight hours.
+        </p>
+      </div>
     </main>
   );
 }

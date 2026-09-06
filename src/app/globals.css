@@ -1,26 +1,91 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* The token layer for the whole CRM.
+ *
+ * One light scale, chosen for a front desk laptop under fluorescent light:
+ * high-contrast text, quiet chrome, and red spent on exactly one thing — a
+ * medical emergency — so that when it appears it still means something.
+ * Every colour on screen comes from here; no page picks its own greys.
+ *
+ * The default Tailwind palette is cleared below so an ad-hoc `slate-600`
+ * cannot creep back in: if a colour is not a token, it does not compile. */
+@theme {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentcolor;
+  --color-white: #ffffff;
+  --color-black: #000000;
+
+  /* Surfaces */
+  --color-canvas: #f2f5f7;
+  --color-surface: #ffffff;
+  --color-subtle: #f6f8fa;
+  --color-line: #e0e5ea;
+  --color-line-strong: #c6ced7;
+
+  /* Text: primary / secondary / muted. All AA or better on surface. */
+  --color-ink: #0d1b2a;
+  --color-ink-2: #45566a;
+  --color-ink-3: #66788c;
+
+  /* Navigation rail */
+  --color-rail: #0d1b2a;
+  --color-rail-line: #1e3149;
+  --color-rail-active: #1b2f45;
+  --color-rail-ink: #a9b8ca;
+
+  /* Accent: the clinic's own colour. Actions, links, "booked". */
+  --color-accent: #0d6e6b;
+  --color-accent-hover: #095551;
+  --color-accent-soft: #e6f2f1;
+  --color-accent-line: #9ecac6;
+  --color-accent-ink: #08423f;
+
+  /* Semantic. Emergency escalations and no-shows read off these. */
+  --color-danger: #b3261e;
+  --color-danger-hover: #8f1d17;
+  --color-danger-soft: #fdf2f1;
+  --color-danger-line: #f2c1bd;
+  --color-danger-ink: #7a1611;
+
+  --color-warn: #a25a00;
+  --color-warn-soft: #fff8ec;
+  --color-warn-line: #f0cf9a;
+  --color-warn-ink: #6b3c00;
+
+  --color-ok: #15703f;
+  --color-ok-soft: #edf8f1;
+  --color-ok-line: #a9dcbe;
+  --color-ok-ink: #0d4a29;
+
+  /* Visible on the white content area and on the dark rail alike. */
+  --color-focus: #1a8f89;
+
+  /* No webfont: see the note in layout.tsx. */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    color-scheme: light;
   }
-}
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+  }
+
+  /* One focus style for every interactive element, so no screen has to
+   * remember to add it. */
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+
+  ::placeholder {
+    color: var(--color-ink-3);
+  }
 }
