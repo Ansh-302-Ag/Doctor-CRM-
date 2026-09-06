@@ -67,7 +67,9 @@ test("an impossible date becomes null rather than reaching the database", async 
 });
 
 test("an out-of-range or non-integer slot index becomes null", async () => {
-  for (const slot_index of [-1, 2, 99, 1.5, "1", null]) {
+  // "1" is deliberately absent: a numeric string is now coerced and range-checked
+  // (see "a numeric string slot index is coerced"). Everything here is genuinely unusable.
+  for (const slot_index of [-1, 2, 99, 1.5, "one", null]) {
     stubFetch({ intent: "book", doctor: null, day: null, slot_index, name: null });
     assert.equal((await classifyWithClaude(input)).slotIndex, null, String(slot_index));
   }
@@ -241,4 +243,28 @@ test("with both keys set, Anthropic wins", async () => {
 
   await classifyWithClaude(input);
   assert.match(String(capturedUrl), /api\.anthropic\.com/);
+});
+
+test("a model that emits the string \"null\" instead of null is tolerated", async () => {
+  // gpt-oss-20b does exactly this. Observed in live testing: the provider
+  // validates tool arguments against our schema server-side and 400s the whole
+  // call, which the patient sees as "technical issue".
+  stubFetch({ intent: "provide_name", doctor: "null", day: "null",
+              slot_index: "null", name: "Ansh Agarwal" });
+  const r = await classifyWithClaude(input);
+  assert.equal(r.intent, "provide_name");
+  assert.equal(r.doctor, null, '"null" is not a real doctor');
+  assert.equal(r.day, null, '"null" is not a date');
+  assert.equal(r.slotIndex, null, '"null" is not a slot');
+  assert.equal(r.name, "Ansh Agarwal");
+});
+
+test("a numeric string slot index is coerced, and still range-checked", async () => {
+  stubFetch({ intent: "book", doctor: null, day: null, slot_index: "1", name: null });
+  assert.equal((await classifyWithClaude(input)).slotIndex, 1);
+
+  for (const bad of ["9", "-1", "1.5", "one", ""]) {
+    stubFetch({ intent: "book", doctor: null, day: null, slot_index: bad, name: null });
+    assert.equal((await classifyWithClaude(input)).slotIndex, null, bad);
+  }
 });

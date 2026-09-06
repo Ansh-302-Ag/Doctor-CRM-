@@ -95,7 +95,13 @@ const TOOL = {
           "today's date. Null if they did not give one or it is ambiguous.",
       },
       slot_index: {
-        type: ["integer", "null"],
+        // Deliberately permissive: smaller models emit the STRING "null", or a
+        // numeric string, instead of a JSON null/integer. Some providers validate
+        // tool arguments against this schema server-side and reject the whole call
+        // with a 400, which we would surface to the patient as "technical issue".
+        // Accepting the loose type here costs nothing — the sanitisation below is
+        // what actually decides, and it still refuses anything out of range.
+        type: ["integer", "string", "null"],
         description:
           "Zero-based index into the offered times, if the patient is picking one. " +
           "Null if they are not, or if it is not clear which one they mean.",
@@ -264,9 +270,15 @@ export const classifyWithClaude: Classifier = async (input) => {
     !Number.isNaN(Date.parse(`${raw.day}T00:00:00Z`)) &&
     new Date(`${raw.day}T00:00:00Z`).toISOString().startsWith(raw.day)
     ? raw.day : null;
-  const slotIndex = Number.isInteger(raw.slot_index) &&
-    (raw.slot_index as number) >= 0 && (raw.slot_index as number) < input.offered.length
-    ? raw.slot_index as number : null;
+  // Coerce a numeric string ("2") to a number; anything else — including the
+  // literal string "null" that weaker models like to emit — becomes null. The
+  // range check is unchanged and is what keeps a bad index from booking.
+  const rawSlot = typeof raw.slot_index === "string" && /^-?\d+$/.test(raw.slot_index.trim())
+    ? Number(raw.slot_index.trim())
+    : raw.slot_index;
+  const slotIndex = Number.isInteger(rawSlot) &&
+    (rawSlot as number) >= 0 && (rawSlot as number) < input.offered.length
+    ? rawSlot as number : null;
   const name = typeof raw.name === "string" && raw.name.trim().length > 0 &&
     raw.name.trim().length <= 80 ? raw.name.trim() : null;
 
