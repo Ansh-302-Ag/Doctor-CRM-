@@ -380,3 +380,40 @@ test("the booking confirmation promises a reminder, because one is now scheduled
   assert.equal((await db`select id from reminders where status = 'scheduled'`).length, 1,
     "the promise must correspond to a real scheduled reminder");
 });
+
+test("a clinical message replayed on the resumed consent path never reaches the classifier", async () => {
+  // route() re-enters itself to replay a stashed message once consent is
+  // granted (src/lib/agent/index.ts). The safety screen runs at the top of
+  // every route() call, so this should hold on the resumed call too — but
+  // no committed test drove that specific path. A message stashed via the
+  // normal flow can never itself be clinical (it already passed the screen
+  // once, live, to get stashed) so the only way to exercise the resumed
+  // call with clinical content is to put it there directly, the way a bug
+  // elsewhere in the pipeline might.
+  const phone = "+919000000091";
+  const a = await handleInbound(db, {
+    clinicId: f.clinicId, phone, body: "I'd like to book something",
+    providerMessageId: "res1",
+  }, new Date(), scripted);
+  assert.equal(a!.text, CONSENT_NOTICE);
+
+  await db`update conversations set state = ${db.json({ pending: "can I take paracetamol with the antibiotics" })}
+           where patient_id = (select id from patients where phone = ${phone})`;
+
+  let calledWithClinical = false;
+  const spy: typeof scripted = async (i) => {
+    if (i.body.includes("paracetamol")) { calledWithClinical = true; throw new Error("should not be reached"); }
+    return scripted(i);
+  };
+
+  const b = await handleInbound(db, {
+    clinicId: f.clinicId, phone, body: "yes", providerMessageId: "res2",
+  }, new Date(), spy);
+
+  assert.equal(calledWithClinical, false,
+    "the resumed clinical message must not reach the classifier");
+  assert.equal(b!.escalated, true);
+  const [esc] = await db<{ reason: string }[]>`
+    select reason from escalations order by created_at desc limit 1`;
+  assert.match(esc.reason, /clinical/);
+});

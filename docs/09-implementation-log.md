@@ -15,7 +15,7 @@ an earlier entry — add a new one saying what changed and why.
 |---|---|
 | Phase 0 — foundations | **Done**, verified against a real Postgres |
 | Phase 1 — WhatsApp booking loop | **Done**, verified end to end via a local simulator |
-| Phase 2 — prescriptions + refill reminders | **Done** |
+| Phase 2 — prescriptions + refill reminders | Prescriptions **done**; refill reminders **built, not wired** (deliberate — see "Not built yet, on purpose") |
 | Phase 3 — second clinic + hardening | **Partly done** — load test and tenant isolation covered; tabletop rehearsal outstanding |
 | Phase 4 — voice | Not started, and deliberately so |
 
@@ -170,10 +170,19 @@ Logged rather than built, per the docs/07 ponytail rule:
 - Escalation to a stronger model tier for genuinely ambiguous phrasing
   (docs/05). Haiku handles everything today; add the second tier when real
   conversations show where it falls short
+- **Refill reminders are not scheduled.** `scheduleRefillFollowup`, the
+  `refill_followup` template, and the send path all exist and are tested,
+  but nothing calls it when a prescription is created. That is deliberate:
+  how many days before a course ends a patient should be nudged is a
+  clinical-adjacent judgement, and `docs/01` puts those with the clinic
+  rather than with us. Wire it into `createPrescription` once the pilot
+  clinic has chosen the lead time. Until then, the only reminders that
+  actually send are appointment reminders.
 
-Prescription entry, refill reminders, the reminder sender, patient screens,
-login rate limiting, the purge job, and the breach runbook are now built —
-see "What exists" and the session log below.
+Prescription entry, the reminder sender, patient screens, login rate
+limiting, the purge job, and the breach runbook are now built — see
+"What exists" and the session log below. Refill-followup reminders are
+built but deliberately not wired, per the entry above.
 
 ---
 
@@ -320,9 +329,9 @@ failing, with a misleading foreign-key error. The suite now runs with
 
 ### 2026-09-05 — Phase 2 built, Phase 3 hardening mostly done
 
-Prescriptions, refill reminders, patient screens, login throttling, the purge
-job, multi-clinic isolation tests, a load test, and the breach runbook, all in
-one pass. Migrations 006–009. The suite went from 69 offline tests to 143: 136
+Prescriptions, the refill-reminder machinery (built and tested, not wired —
+see below), patient screens, login throttling, the purge job, multi-clinic
+isolation tests, a load test, and the breach runbook, all in one pass. Migrations 006–009. The suite went from 69 offline tests to 143: 136
 passing, 7 skipped (the live Anthropic tests, still unrun — no key available).
 `npx tsc --noEmit` is clean and `npm run build` succeeds.
 
@@ -333,12 +342,16 @@ prescription entry form on the patient record page
 (`src/app/(crm)/patients/[id]/page.tsx`).
 
 **Reminders** (`src/lib/reminders.ts`, `src/app/api/cron/reminders/route.ts`):
-scheduled at prescription-create time, re-validated against the prescription's
-current status at send time (not just schedule time — this is the docs/08
-testing-bar item that was previously unmet), retried with backoff, and
-escalated to staff once the retry budget is exhausted. `templates.ts` holds
-the WhatsApp template text and renders it; `docs/10-whatsapp-templates.md`
-documents the same templates for whoever submits them to Meta.
+appointment reminders are scheduled when an appointment is booked,
+re-validated against the prescription's or appointment's current status at
+send time (not just schedule time — this is the docs/08 testing-bar item
+that was previously unmet), retried with backoff, and escalated to staff
+once the retry budget is exhausted. `scheduleRefillFollowup` and the
+`refill_followup` template exist and are tested, but nothing in `src/`
+calls `scheduleRefillFollowup` yet — see "Not built yet, on purpose".
+`templates.ts` holds the WhatsApp template text and renders it;
+`docs/10-whatsapp-templates.md` documents the same templates for whoever
+submits them to Meta.
 
 **Patients** (`src/lib/patients.ts`, `src/app/(crm)/patients/`): search and a
 record-summary view. The agent now asks for and records a patient's name on

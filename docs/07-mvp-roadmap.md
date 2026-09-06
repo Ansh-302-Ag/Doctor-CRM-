@@ -28,7 +28,7 @@ of building them "just in case."
 ## Phase 2 — Prescription records + refill reminders — **Done**
 - Doctor/staff can enter prescription records in the CRM
 - get_prescription_summary tool (read-only) added to the agent
-- Refill-followup reminders scheduled and sent
+- Refill-followup reminders: machinery built and tested, deliberately not wired — see docs/09
 - This is where the "never let the agent write to prescriptions" rule
   gets its first real test — write a test that asserts the agent's DB
   role literally cannot INSERT into `prescriptions`

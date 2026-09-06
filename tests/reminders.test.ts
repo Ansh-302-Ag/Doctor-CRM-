@@ -4,7 +4,7 @@ import { db, reset, seed, closeAll, futureSlot, type Fixture } from "./helpers";
 import {
   scheduleAppointmentReminder, scheduleRefillFollowup, runDueReminders, claimDue, MAX_ATTEMPTS,
 } from "../src/lib/reminders";
-import { bookAppointment, cancelAppointment } from "../src/lib/booking";
+import { bookAppointment, cancelAppointment, rescheduleAppointment } from "../src/lib/booking";
 import { createPrescription, discontinuePrescription } from "../src/lib/prescriptions";
 
 let f: Fixture;
@@ -217,4 +217,22 @@ test("the cron endpoint refuses to run at all when no secret is configured", asy
     headers: { authorization: "Bearer anything" },
   }));
   assert.equal(res.status, 500, "an unprotected reminder endpoint must not be callable");
+});
+
+test("rescheduling moves the reminder to the new appointment", async () => {
+  // Spans booking.ts and reminders.ts: booking schedules, rescheduling books a new
+  // appointment (which schedules again) and cancels the old one's reminder. Neither
+  // module's own tests can see whether the pair composes.
+  const a = await bookAppointment(db, STAFF(), "receptionist",
+    { patientId: f.patientId, doctorId: f.doctorId, startsAt: futureSlot(10, 5) });
+  const b = await rescheduleAppointment(db, STAFF(), "receptionist",
+    { appointmentId: a.id, patientId: f.patientId, startsAt: futureSlot(11, 6) });
+
+  const rows = await db<{ related_id: string; status: string }[]>`
+    select related_id, status from reminders`;
+  const scheduled = [...rows].filter(r => r.status === "scheduled");
+  assert.equal(scheduled.length, 1, "exactly one live reminder after a reschedule");
+  assert.equal(scheduled[0].related_id, b.id, "and it points at the new appointment");
+  assert.ok([...rows].some(r => r.related_id === a.id && r.status === "cancelled"),
+    "the original appointment's reminder is cancelled, not left to fire");
 });
