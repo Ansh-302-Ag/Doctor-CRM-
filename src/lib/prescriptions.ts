@@ -77,16 +77,24 @@ export async function listPrescriptions(
   db: Db, actor: Actor, role: Role, clinicId: string, patientId: string,
 ): Promise<Prescription[]> {
   requirePermission(role, "prescriptions:read");
-  const rows = await db<Prescription[]>`
-    select p.id, p.drug_name, p.dosage, p.duration_days, p.notes, p.status, p.created_at,
-           d.name as doctor_name, s.name as created_by_name
-      from prescriptions p
-      join doctors d     on d.id = p.doctor_id
-      join staff_users s on s.id = p.created_by
-      join patients pt   on pt.id = p.patient_id
-     where p.patient_id = ${patientId} and pt.clinic_id = ${clinicId}
-     order by p.created_at desc`;
-  await audit(db, actor, "read_prescriptions", "patients", patientId);
+  // Read and audit go out together — the audit row does not depend on the rows
+  // returned, and sequential queries each cost a full round trip to Neon.
+  // `db` may be a transaction handle; postgres.js pipelines concurrent queries
+  // down the one connection, so both still land inside that transaction.
+  // (The audit calls in the write paths below stay sequential: those rows must
+  // stay ordered with the write they describe.)
+  const [rows] = await Promise.all([
+    db<Prescription[]>`
+      select p.id, p.drug_name, p.dosage, p.duration_days, p.notes, p.status, p.created_at,
+             d.name as doctor_name, s.name as created_by_name
+        from prescriptions p
+        join doctors d     on d.id = p.doctor_id
+        join staff_users s on s.id = p.created_by
+        join patients pt   on pt.id = p.patient_id
+       where p.patient_id = ${patientId} and pt.clinic_id = ${clinicId}
+       order by p.created_at desc`,
+    audit(db, actor, "read_prescriptions", "patients", patientId),
+  ]);
   return rows;
 }
 

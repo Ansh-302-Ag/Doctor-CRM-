@@ -16,10 +16,13 @@ export default async function PatientRecordPage({
   const { error } = await searchParams;
   const actor = { kind: "staff" as const, id: staff.id };
 
-  const patient = await getPatient(sql, actor, staff.role, staff.clinicId, id);
-  if (!patient) notFound();
-
-  const [appointments, prescriptions, doctors] = await Promise.all([
+  // One round trip for the whole record. Every query below is scoped to this
+  // clinic on its own — the appointments and doctors lists by clinic_id, the
+  // prescriptions by a join back to patients — so none of them depends on the
+  // existence check to stay safe, and the check can move after them. Neon is a
+  // continent away; three sequential hops here were most of the page's latency.
+  const [patient, appointments, prescriptions, doctors] = await Promise.all([
+    getPatient(sql, actor, staff.role, staff.clinicId, id),
     sql<{
       id: string; starts_at: Date; status: string; doctor_name: string; reason_text: string | null;
     }[]>`
@@ -32,8 +35,9 @@ export default async function PatientRecordPage({
     listPrescriptions(sql, actor, staff.role, staff.clinicId, id),
     sql<{ id: string; name: string }[]>`
       select id, name from doctors where clinic_id = ${staff.clinicId} order by name`,
+    audit(sql, actor, "read_patient_appointments", "patients", id),
   ]);
-  await audit(sql, actor, "read_patient_appointments", "patients", id);
+  if (!patient) notFound();
 
   async function addPrescription(form: FormData) {
     "use server";

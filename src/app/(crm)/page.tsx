@@ -12,9 +12,8 @@ export default async function CalendarPage({
   const staff = await currentStaff();
   requirePermission(staff.role, "appointments:read");
 
-  const [clinic] = await sql<{ timezone: string }[]>`
-    select timezone from clinics where id = ${staff.clinicId}`;
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: clinic.timezone }).format(new Date());
+  // The clinic's timezone rides along on currentStaff() — see src/lib/session.ts.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: staff.timezone }).format(new Date());
   const day = (await searchParams).day ?? today;
 
   // The audit write doesn't depend on the appointments query (or vice versa) —
@@ -34,13 +33,20 @@ export default async function CalendarPage({
         join patients p on p.id = a.patient_id
        where a.clinic_id = ${staff.clinicId} and p.deleted_at is null
          and a.status in ('booked','completed','no_show')
-         and (a.starts_at at time zone ${clinic.timezone})::date = ${day}::date
+         -- Half-open range on the raw column. The old form,
+         -- (a.starts_at at time zone tz)::date = day, applied a function to the
+         -- column, so no index on starts_at could ever be used. Adding the day
+         -- in local time before converting keeps a 23- or 25-hour DST day
+         -- exactly one day long.
+         and a.starts_at >= (${day} || ' 00:00')::timestamp at time zone ${staff.timezone}
+         and a.starts_at <  ((${day} || ' 00:00')::timestamp + interval '1 day')
+                            at time zone ${staff.timezone}
        order by a.starts_at`,
     audit(sql, { kind: "staff", id: staff.id }, "read_calendar", "appointments", null),
   ]);
 
   const time = (at: Date) => new Intl.DateTimeFormat("en-GB", {
-    timeZone: clinic.timezone, hour: "2-digit", minute: "2-digit", hour12: false,
+    timeZone: staff.timezone, hour: "2-digit", minute: "2-digit", hour12: false,
   }).format(at);
   const shift = (days: number) =>
     new Date(Date.parse(`${day}T12:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);

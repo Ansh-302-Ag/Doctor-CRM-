@@ -49,11 +49,23 @@ export async function signOut() {
  *
  *  `cache()` dedupes this within a single request — the layout and the page it
  *  wraps both call this, and without memoizing it that was a second staff_users
- *  round trip on every navigation. */
+ *  round trip on every navigation.
+ *
+ *  The clinic is joined in rather than fetched separately: the timezone is
+ *  needed to render any date on any page, and the database is a continent away,
+ *  so a second query for one column cost a full round trip on every page load. */
 export const currentStaff = cache(async () => {
   const user = await requireUser();
-  const [row] = await sql<{ id: string; clinic_id: string; name: string; role: Role }[]>`
-    select id, clinic_id, name, role from staff_users where id = ${user.id}`;
+  const [row] = await sql<{
+    id: string; clinic_id: string; name: string; role: Role; timezone: string;
+  }[]>`
+    select u.id, u.clinic_id, u.name, u.role, c.timezone
+      from staff_users u
+      join clinics c on c.id = u.clinic_id
+     where u.id = ${user.id}`;
   if (!row) redirect("/login");
-  return { id: row.id, clinicId: row.clinic_id, name: row.name, role: row.role };
+  return {
+    id: row.id, clinicId: row.clinic_id, name: row.name, role: row.role,
+    timezone: row.timezone,
+  };
 });

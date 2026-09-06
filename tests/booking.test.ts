@@ -212,3 +212,57 @@ test("a role without appointments:write cannot book", async () => {
     requirePermission("agent", "prescriptions:write");
   }, Forbidden);
 });
+
+/**
+ * The calendar (src/app/(crm)/page.tsx) picks a day with a half-open range on the
+ * raw starts_at column instead of `(starts_at at time zone tz)::date = day`, so
+ * that the index on appointments (clinic_id, starts_at) can actually be used.
+ * The two forms must agree — including on the days that are not 24 hours long.
+ */
+test("the calendar's day range matches the local date, across DST", async () => {
+  const tz = "America/New_York";
+  const at = async (iso: string) => {
+    const [row] = await db<{ id: string }[]>`
+      insert into appointments (clinic_id, doctor_id, patient_id, starts_at, ends_at, created_by)
+      values (${f.clinicId}, ${f.doctorId}, ${f.patientId}, ${iso}::timestamptz,
+              ${iso}::timestamptz + interval '30 minutes', 'agent')
+      returning id`;
+    return row.id;
+  };
+
+  // The half-open range the page uses.
+  const range = async (day: string) => [...await db<{ id: string }[]>`
+    select id from appointments
+     where clinic_id = ${f.clinicId}
+       and starts_at >= (${day} || ' 00:00')::timestamp at time zone ${tz}
+       and starts_at <  ((${day} || ' 00:00')::timestamp + interval '1 day')
+                        at time zone ${tz}
+     order by starts_at`].map(r => r.id);
+
+  // The form it replaced, kept here only as the oracle to compare against.
+  const byDate = async (day: string) => [...await db<{ id: string }[]>`
+    select id from appointments
+     where clinic_id = ${f.clinicId}
+       and (starts_at at time zone ${tz})::date = ${day}::date
+     order by starts_at`].map(r => r.id);
+
+  const cases = [
+    // Spring forward: 2026-03-08 is 23 hours long in New York (EST → EDT).
+    { day: "2026-03-08",
+      inside:  ["2026-03-08T05:30:00Z", "2026-03-09T03:30:00Z"],   // 00:30 EST, 23:30 EDT
+      outside: ["2026-03-08T04:30:00Z", "2026-03-09T04:30:00Z"] }, // 23:30 the 7th, 00:30 the 9th
+    // Fall back: 2026-11-01 is 25 hours long (EDT → EST).
+    { day: "2026-11-01",
+      inside:  ["2026-11-01T04:30:00Z", "2026-11-02T04:30:00Z"],   // 00:30 EDT, 23:30 EST
+      outside: ["2026-11-01T03:30:00Z", "2026-11-02T05:30:00Z"] }, // 23:30 Oct 31, 00:30 Nov 2
+  ];
+
+  for (const c of cases) {
+    const expected = [];
+    for (const iso of c.inside) expected.push(await at(iso));
+    for (const iso of c.outside) await at(iso);
+
+    assert.deepEqual(await range(c.day), expected, `${c.day}: wrong rows`);
+    assert.deepEqual(await range(c.day), await byDate(c.day), `${c.day}: disagrees with the date cast`);
+  }
+});
