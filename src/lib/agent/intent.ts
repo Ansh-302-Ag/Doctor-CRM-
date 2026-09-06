@@ -10,19 +10,20 @@
  * names, the times we just offered, and today's date. Never appointment
  * history, never prescriptions, never anything about other patients.
  *
- * Two providers are supported so this can be exercised with xAI's Grok today
- * and switched to Anthropic for production later with no code change — see
+ * Two providers are supported so this can be exercised against any
+ * OpenAI-compatible endpoint (Groq, OpenRouter, xAI, Together …) today and
+ * switched to Anthropic for production later with no code change — see
  * `selectProvider` below. Whichever provider answers, its raw tool call is
  * run through the same sanitisation block at the end of `classifyWithClaude`.
  */
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5";
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
 
-// xAI's Grok API is OpenAI chat-completions-compatible.
-const GROK_ENDPOINT = "https://api.x.ai/v1/chat/completions";
-// Confirm this is still xAI's current model name before relying on it — we
-// cannot check xAI's docs from here.
-const GROK_MODEL = process.env.GROK_MODEL ?? "grok-3";
+// Default base URL for the OpenAI-compatible provider: Groq, serving
+// openai/gpt-oss-20b. Any OpenAI chat-completions-compatible API works here —
+// OpenRouter, xAI, Together … — just point OPENAI_COMPAT_BASE_URL at it.
+const DEFAULT_OPENAI_COMPAT_BASE_URL = "https://api.groq.com/openai/v1";
+const DEFAULT_OPENAI_COMPAT_MODEL = "openai/gpt-oss-20b";
 
 export const INTENTS = [
   "book", "reschedule", "cancel",
@@ -122,18 +123,21 @@ type RawToolCall = {
   intent: Intent; doctor: unknown; day: unknown; slot_index: unknown; name: unknown;
 };
 
-type Provider = { name: "anthropic"; key: string } | { name: "grok"; key: string };
+type Provider = { name: "anthropic"; key: string } | { name: "openai-compatible"; key: string };
 
 /**
  * ANTHROPIC_API_KEY, if set, always wins — a production deployment configured
  * with both keys must never silently fall back to the test provider. Otherwise
- * GROK_API_KEY (for testing). Neither set: no classifier is available.
+ * OPENAI_COMPAT_API_KEY (for testing against any OpenAI-compatible endpoint).
+ * Neither set: no classifier is available.
  */
 function selectProvider(): Provider {
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
   if (anthropicKey) return { name: "anthropic", key: anthropicKey };
-  const grokKey = process.env.GROK_API_KEY;
-  if (grokKey) return { name: "grok", key: grokKey };
+  // GROK_API_KEY is the old name for this same key — kept working so an
+  // existing xAI-configured deployment doesn't break.
+  const compatKey = process.env.OPENAI_COMPAT_API_KEY ?? process.env.GROK_API_KEY;
+  if (compatKey) return { name: "openai-compatible", key: compatKey };
   throw new ClassifierUnavailable("ANTHROPIC_API_KEY is not set");
 }
 
@@ -171,7 +175,7 @@ async function callAnthropic(context: string, key: string): Promise<RawToolCall>
 
 // The same TOOL schema Anthropic uses, reshaped into OpenAI's function-calling
 // shape — built from TOOL rather than duplicated, so the two can never drift.
-const GROK_TOOL = {
+const OPENAI_COMPAT_TOOL = {
   type: "function",
   function: {
     name: TOOL.name,
@@ -180,21 +184,31 @@ const GROK_TOOL = {
   },
 } as const;
 
-async function callGrok(context: string, key: string): Promise<RawToolCall> {
-  const res = await fetch(GROK_ENDPOINT, {
+// OpenAI-compatible provider (Groq, OpenRouter, xAI, Together …) — same
+// chat-completions request/response shape, only the base URL and model differ.
+async function callOpenAICompatible(context: string, key: string): Promise<RawToolCall> {
+  // Backward compatibility: if only the old GROK_API_KEY is set, keep hitting
+  // xAI's base URL rather than Groq's, so an existing deployment doesn't break.
+  const baseUrl = process.env.OPENAI_COMPAT_BASE_URL ?? (
+    process.env.GROK_API_KEY && !process.env.OPENAI_COMPAT_API_KEY
+      ? "https://api.x.ai/v1" : DEFAULT_OPENAI_COMPAT_BASE_URL
+  );
+  const model = process.env.OPENAI_COMPAT_MODEL ?? DEFAULT_OPENAI_COMPAT_MODEL;
+
+  const res = await fetch(`${baseUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "authorization": `Bearer ${key}`,
     },
     body: JSON.stringify({
-      model: GROK_MODEL,
+      model,
       max_tokens: 256,
       messages: [
         { role: "system", content: SYSTEM },
         { role: "user", content: context },
       ],
-      tools: [GROK_TOOL],
+      tools: [OPENAI_COMPAT_TOOL],
       tool_choice: { type: "function", function: { name: TOOL.name } },
     }),
     signal: AbortSignal.timeout(10_000),
@@ -236,7 +250,7 @@ export const classifyWithClaude: Classifier = async (input) => {
 
   const raw = provider.name === "anthropic"
     ? await callAnthropic(context, provider.key)
-    : await callGrok(context, provider.key);
+    : await callOpenAICompatible(context, provider.key);
 
   // Trust the shape, verify the values: a hallucinated doctor or an out-of-range
   // index must become "we don't know", never a wrong booking.
