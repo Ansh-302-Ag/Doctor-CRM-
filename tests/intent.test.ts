@@ -10,6 +10,10 @@ import {
 } from "../src/lib/agent/intent";
 
 const realFetch = globalThis.fetch;
+// Zero out the retry backoff for the whole suite -- the retry tests below
+// exercise the loop's logic (call counts, which errors retry), not real
+// wall-clock delay.
+process.env.INTENT_RETRY_DELAY_MS_OVERRIDE = "0,0";
 afterEach(() => {
   globalThis.fetch = realFetch;
   delete process.env.ANTHROPIC_API_KEY;
@@ -267,4 +271,102 @@ test("a numeric string slot index is coerced, and still range-checked", async ()
     stubFetch({ intent: "book", doctor: null, day: null, slot_index: bad, name: null });
     assert.equal((await classifyWithClaude(input)).slotIndex, null, bad);
   }
+});
+
+
+test("a 500 on the first attempt, success on the second: retries once and returns the classification", async () => {
+  process.env.ANTHROPIC_API_KEY = "sk-test";
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    if (calls === 1) return new Response("server error", { status: 500 });
+    return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "record_intent",
+      input: { intent: "book", doctor: null, day: null, slot_index: null, name: null } }] }),
+      { status: 200 });
+  }) as typeof fetch;
+
+  const r = await classifyWithClaude(input);
+  assert.equal(r.intent, "book");
+  assert.equal(calls, 2, "fetch should have been called exactly twice");
+});
+
+test("a tool_use_failed-style 400 on the first two attempts, success on the third", async () => {
+  // The real failure observed in production: Groq 400s with this body when
+  // gpt-oss-20b replies with prose despite tool_choice forcing a tool call.
+  process.env.OPENAI_COMPAT_API_KEY = "compat-test";
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    if (calls <= 2) {
+      return new Response(
+        JSON.stringify({ error: { message: "Tool choice is required, but model did not call a tool" } }),
+        { status: 400 },
+      );
+    }
+    return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{
+      function: { name: "record_intent", arguments: JSON.stringify(
+        { intent: "cancel", doctor: null, day: null, slot_index: null, name: null }) },
+    }] } }] }), { status: 200 });
+  }) as typeof fetch;
+
+  const r = await classifyWithClaude(input);
+  assert.equal(r.intent, "cancel");
+  assert.equal(calls, 3, "fetch should have been called exactly three times");
+});
+
+test("a 401 fails fast: exactly one call, no retry", async () => {
+  process.env.ANTHROPIC_API_KEY = "sk-test";
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    return new Response("unauthorized", { status: 401 });
+  }) as typeof fetch;
+
+  await assert.rejects(classifyWithClaude(input), ClassifierUnavailable);
+  assert.equal(calls, 1, "a 401 must not be retried -- a bad key should fail fast and loudly");
+});
+
+test("a 400 with an unrelated body also fails fast, without retrying", async () => {
+  process.env.ANTHROPIC_API_KEY = "sk-test";
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    return new Response(JSON.stringify({ error: { message: "model not found" } }), { status: 400 });
+  }) as typeof fetch;
+
+  await assert.rejects(classifyWithClaude(input), ClassifierUnavailable);
+  assert.equal(calls, 1, "an ordinary 400 (wrong model, bad request) is not the transient tool-call failure and must not retry");
+});
+
+test("all three attempts fail: throws ClassifierUnavailable, exactly three calls, message names the attempts", async () => {
+  process.env.ANTHROPIC_API_KEY = "sk-test";
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    return new Response("still broken", { status: 503 });
+  }) as typeof fetch;
+
+  await assert.rejects(classifyWithClaude(input), (err: unknown) => {
+    assert.ok(err instanceof ClassifierUnavailable);
+    assert.match((err as Error).message, /3 attempts/, "the escalation message should name the attempt count");
+    assert.match((err as Error).message, /503/, "the escalation message should name the last error");
+    return true;
+  });
+  assert.equal(calls, 3, "fetch should have been called exactly three times");
+});
+
+test("a network throw (not an HTTP status) is retried and can still succeed", async () => {
+  process.env.ANTHROPIC_API_KEY = "sk-test";
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    if (calls === 1) throw new Error("ECONNRESET");
+    return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "record_intent",
+      input: { intent: "book", doctor: null, day: null, slot_index: null, name: null } }] }),
+      { status: 200 });
+  }) as typeof fetch;
+
+  const r = await classifyWithClaude(input);
+  assert.equal(r.intent, "book");
+  assert.equal(calls, 2, "fetch should have been called exactly twice");
 });

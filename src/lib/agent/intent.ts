@@ -64,6 +64,43 @@ export class ClassifierUnavailable extends Error {
   }
 }
 
+// Retryable provider failures: a rate limit or gateway hiccup, or the model
+// failing to emit a valid tool call despite tool_choice forcing it (a
+// documented gpt-oss-20b misbehaviour, surfaced as a 400 whose body says so).
+// Everything else -- a bad key, a wrong model name, any other 4xx -- is a
+// configuration problem: retrying it just delays the real error by seconds.
+const RETRYABLE_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
+
+function isRetryableProviderError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const statusMatch = message.match(/^(\d{3})\b/);
+  if (!statusMatch) return true; // no HTTP status: network/timeout/parse failure -- transient
+  const status = Number(statusMatch[1]);
+  if (RETRYABLE_STATUSES.has(status)) return true;
+  return status === 400 &&
+    /tool_use_failed|tool_call_validation|did not call a tool/i.test(message);
+}
+
+// 3 attempts total (2 retries), short fixed backoff. Ceiling: worst case adds
+// ~1s of backoff on top of 3x the existing 10s per-attempt timeout -- bounded,
+// not the unbounded retries a naive "just try again" loop would give you.
+// This is a retry loop, not a resilience framework: no exponential backoff,
+// no jitter, no circuit breaker.
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAYS_MS = [250, 750] as const; // before attempt 2, then before attempt 3
+
+function retryDelayMs(attemptIndex: number): number {
+  // Test-only escape hatch so the suite doesn't spend real seconds backing
+  // off. Unset in production, so this never changes real behaviour.
+  const override = process.env.INTENT_RETRY_DELAY_MS_OVERRIDE;
+  if (override) return Number(override.split(",")[attemptIndex] ?? 0);
+  return RETRY_DELAYS_MS[attemptIndex];
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 const TOOL = {
   name: "record_intent",
   description: "Record what the patient is asking for.",
@@ -165,16 +202,16 @@ async function callAnthropic(context: string, key: string): Promise<RawToolCall>
     }),
     signal: AbortSignal.timeout(10_000),
   }).catch((e: Error) => {
-    throw new ClassifierUnavailable(e.name === "TimeoutError" ? "timed out" : e.message);
+    throw new Error(e.name === "TimeoutError" ? "timed out" : e.message);
   });
 
-  if (!res.ok) throw new ClassifierUnavailable(`${res.status} ${await res.text()}`);
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
 
   const body = await res.json().catch(() => {
-    throw new ClassifierUnavailable("response body was not JSON");
+    throw new Error("response body was not JSON");
   }) as { content: { type: string; name?: string; input?: Record<string, unknown> }[] };
   const call = body.content?.find(c => c.type === "tool_use" && c.name === TOOL.name);
-  if (!call?.input) throw new ClassifierUnavailable("no tool call in response");
+  if (!call?.input) throw new Error("no tool call in response");
 
   return call.input as RawToolCall;
 }
@@ -219,25 +256,25 @@ async function callOpenAICompatible(context: string, key: string): Promise<RawTo
     }),
     signal: AbortSignal.timeout(10_000),
   }).catch((e: Error) => {
-    throw new ClassifierUnavailable(e.name === "TimeoutError" ? "timed out" : e.message);
+    throw new Error(e.name === "TimeoutError" ? "timed out" : e.message);
   });
 
-  if (!res.ok) throw new ClassifierUnavailable(`${res.status} ${await res.text()}`);
+  if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
 
   const body = await res.json().catch(() => {
-    throw new ClassifierUnavailable("response body was not JSON");
+    throw new Error("response body was not JSON");
   }) as {
     choices?: { message?: { tool_calls?: { function?: { name?: string; arguments?: string } }[] } }[];
   };
   const call = body.choices?.[0]?.message?.tool_calls?.[0];
-  if (!call?.function?.arguments) throw new ClassifierUnavailable("no tool call in response");
+  if (!call?.function?.arguments) throw new Error("no tool call in response");
 
   // Unlike Anthropic's already-parsed `content[].input`, OpenAI-shaped APIs
   // hand the arguments back as a JSON string.
   try {
     return JSON.parse(call.function.arguments) as RawToolCall;
   } catch {
-    throw new ClassifierUnavailable("tool call arguments were not valid JSON");
+    throw new Error("tool call arguments were not valid JSON");
   }
 }
 
@@ -254,9 +291,27 @@ export const classifyWithClaude: Classifier = async (input) => {
     `Patient's message: ${JSON.stringify(input.body)}`,
   ].filter(Boolean).join("\n");
 
-  const raw = provider.name === "anthropic"
-    ? await callAnthropic(context, provider.key)
-    : await callOpenAICompatible(context, provider.key);
+  // Retry wraps whichever provider was selected above -- both benefit, and
+  // there is only one copy of the retry logic. `raw` is definitely assigned:
+  // the loop below only ever exits via `break` (success) or `throw` (final
+  // failure), never by falling off the end.
+  let raw!: RawToolCall;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      raw = provider.name === "anthropic"
+        ? await callAnthropic(context, provider.key)
+        : await callOpenAICompatible(context, provider.key);
+      break;
+    } catch (error) {
+      if (attempt === MAX_ATTEMPTS || !isRetryableProviderError(error)) {
+        const cause = error instanceof Error ? error.message : String(error);
+        throw new ClassifierUnavailable(
+          `giving up after ${attempt} attempt${attempt === 1 ? "" : "s"}: ${cause}`
+        );
+      }
+      await sleep(retryDelayMs(attempt - 1));
+    }
+  }
 
   // Trust the shape, verify the values: a hallucinated doctor or an out-of-range
   // index must become "we don't know", never a wrong booking.
