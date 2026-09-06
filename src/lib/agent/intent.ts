@@ -1,5 +1,5 @@
 /**
- * Intent classification and slot filling, via the Anthropic Messages API.
+ * Intent classification and slot filling, via a pluggable LLM provider.
  *
  * This replaces hand-rolled parsing of what the patient typed. It does NOT
  * replace `screen()` — that runs first, deterministically, and its verdict
@@ -9,14 +9,25 @@
  * Data minimisation (docs/02): the model sees the message, the clinic's doctor
  * names, the times we just offered, and today's date. Never appointment
  * history, never prescriptions, never anything about other patients.
+ *
+ * Two providers are supported so this can be exercised with xAI's Grok today
+ * and switched to Anthropic for production later with no code change — see
+ * `selectProvider` below. Whichever provider answers, its raw tool call is
+ * run through the same sanitisation block at the end of `classifyWithClaude`.
  */
 const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5";
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
 
+// xAI's Grok API is OpenAI chat-completions-compatible.
+const GROK_ENDPOINT = "https://api.x.ai/v1/chat/completions";
+// Confirm this is still xAI's current model name before relying on it — we
+// cannot check xAI's docs from here.
+const GROK_MODEL = process.env.GROK_MODEL ?? "grok-3";
+
 export const INTENTS = [
   "book", "reschedule", "cancel",
   "check_appointment", "check_prescription_record",
-  "consent_yes", "delete_my_data",
+  "consent_yes", "delete_my_data", "provide_name",
   "unclear",
 ] as const;
 
@@ -30,6 +41,7 @@ export type Classification = {
   day: string | null;
   /** Index into the offered slots, or null. */
   slotIndex: number | null;
+  name: string | null;
 };
 
 export type ClassifyInput = {
@@ -60,13 +72,15 @@ const TOOL = {
       intent: {
         type: "string",
         enum: ["book", "reschedule", "cancel", "check_appointment",
-               "check_prescription_record", "consent_yes", "delete_my_data", "unclear"],
+               "check_prescription_record", "consent_yes", "delete_my_data",
+               "provide_name", "unclear"],
         description:
           "book: wants an appointment. reschedule: move an existing one. " +
           "cancel: cancel one. check_appointment: asking when their appointment is. " +
           "check_prescription_record: asking what is on their prescription record. " +
           "consent_yes: agreeing to the data-storage notice. " +
           "delete_my_data: withdrawing consent or asking to be deleted. " +
+          "provide_name: the message is the patient telling us their name. " +
           "unclear: anything else, including anything needing clinical judgement.",
       },
       doctor: {
@@ -85,8 +99,12 @@ const TOOL = {
           "Zero-based index into the offered times, if the patient is picking one. " +
           "Null if they are not, or if it is not clear which one they mean.",
       },
+      name: {
+        type: ["string", "null"],
+        description: "The patient's own name, if this message states it. Null otherwise.",
+      },
     },
-    required: ["intent", "doctor", "day", "slot_index"],
+    required: ["intent", "doctor", "day", "slot_index", "name"],
   },
 } as const;
 
@@ -99,20 +117,27 @@ const SYSTEM =
   "the day, the doctor, or which time they picked, return null for that field. " +
   "A null costs one extra question; a guess books the wrong appointment.";
 
-export const classifyWithClaude: Classifier = async (input) => {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) throw new ClassifierUnavailable("ANTHROPIC_API_KEY is not set");
+/** What both providers hand back before sanitisation — trust the shape, not the values. */
+type RawToolCall = {
+  intent: Intent; doctor: unknown; day: unknown; slot_index: unknown; name: unknown;
+};
 
-  const context = [
-    `Today is ${input.weekday} ${input.today}.`,
-    input.doctors.length ? `Doctors at this clinic: ${input.doctors.join(", ")}.` : "",
-    input.offered.length
-      ? `Times just offered to this patient, in order: ${
-          input.offered.map((t, i) => `[${i}] ${t}`).join(", ")}.`
-      : "",
-    `Patient's message: ${JSON.stringify(input.body)}`,
-  ].filter(Boolean).join("\n");
+type Provider = { name: "anthropic"; key: string } | { name: "grok"; key: string };
 
+/**
+ * ANTHROPIC_API_KEY, if set, always wins — a production deployment configured
+ * with both keys must never silently fall back to the test provider. Otherwise
+ * GROK_API_KEY (for testing). Neither set: no classifier is available.
+ */
+function selectProvider(): Provider {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (anthropicKey) return { name: "anthropic", key: anthropicKey };
+  const grokKey = process.env.GROK_API_KEY;
+  if (grokKey) return { name: "grok", key: grokKey };
+  throw new ClassifierUnavailable("ANTHROPIC_API_KEY is not set");
+}
+
+async function callAnthropic(context: string, key: string): Promise<RawToolCall> {
   const res = await fetch(ENDPOINT, {
     method: "POST",
     headers: {
@@ -141,9 +166,77 @@ export const classifyWithClaude: Classifier = async (input) => {
   const call = body.content?.find(c => c.type === "tool_use" && c.name === TOOL.name);
   if (!call?.input) throw new ClassifierUnavailable("no tool call in response");
 
-  const raw = call.input as {
-    intent: Intent; doctor: unknown; day: unknown; slot_index: unknown;
+  return call.input as RawToolCall;
+}
+
+// The same TOOL schema Anthropic uses, reshaped into OpenAI's function-calling
+// shape — built from TOOL rather than duplicated, so the two can never drift.
+const GROK_TOOL = {
+  type: "function",
+  function: {
+    name: TOOL.name,
+    description: TOOL.description,
+    parameters: TOOL.input_schema,
+  },
+} as const;
+
+async function callGrok(context: string, key: string): Promise<RawToolCall> {
+  const res = await fetch(GROK_ENDPOINT, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "authorization": `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model: GROK_MODEL,
+      max_tokens: 256,
+      messages: [
+        { role: "system", content: SYSTEM },
+        { role: "user", content: context },
+      ],
+      tools: [GROK_TOOL],
+      tool_choice: { type: "function", function: { name: TOOL.name } },
+    }),
+    signal: AbortSignal.timeout(10_000),
+  }).catch((e: Error) => {
+    throw new ClassifierUnavailable(e.name === "TimeoutError" ? "timed out" : e.message);
+  });
+
+  if (!res.ok) throw new ClassifierUnavailable(`${res.status} ${await res.text()}`);
+
+  const body = await res.json().catch(() => {
+    throw new ClassifierUnavailable("response body was not JSON");
+  }) as {
+    choices?: { message?: { tool_calls?: { function?: { name?: string; arguments?: string } }[] } }[];
   };
+  const call = body.choices?.[0]?.message?.tool_calls?.[0];
+  if (!call?.function?.arguments) throw new ClassifierUnavailable("no tool call in response");
+
+  // Unlike Anthropic's already-parsed `content[].input`, OpenAI-shaped APIs
+  // hand the arguments back as a JSON string.
+  try {
+    return JSON.parse(call.function.arguments) as RawToolCall;
+  } catch {
+    throw new ClassifierUnavailable("tool call arguments were not valid JSON");
+  }
+}
+
+export const classifyWithClaude: Classifier = async (input) => {
+  const provider = selectProvider();
+
+  const context = [
+    `Today is ${input.weekday} ${input.today}.`,
+    input.doctors.length ? `Doctors at this clinic: ${input.doctors.join(", ")}.` : "",
+    input.offered.length
+      ? `Times just offered to this patient, in order: ${
+          input.offered.map((t, i) => `[${i}] ${t}`).join(", ")}.`
+      : "",
+    `Patient's message: ${JSON.stringify(input.body)}`,
+  ].filter(Boolean).join("\n");
+
+  const raw = provider.name === "anthropic"
+    ? await callAnthropic(context, provider.key)
+    : await callGrok(context, provider.key);
 
   // Trust the shape, verify the values: a hallucinated doctor or an out-of-range
   // index must become "we don't know", never a wrong booking.
@@ -160,6 +253,8 @@ export const classifyWithClaude: Classifier = async (input) => {
   const slotIndex = Number.isInteger(raw.slot_index) &&
     (raw.slot_index as number) >= 0 && (raw.slot_index as number) < input.offered.length
     ? raw.slot_index as number : null;
+  const name = typeof raw.name === "string" && raw.name.trim().length > 0 &&
+    raw.name.trim().length <= 80 ? raw.name.trim() : null;
 
-  return { intent, doctor, day, slotIndex };
+  return { intent, doctor, day, slotIndex, name };
 };

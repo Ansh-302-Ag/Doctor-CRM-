@@ -1,6 +1,7 @@
 import { sql, type Db } from "./db";
 import { hashPassword, verifyPassword } from "./password";
 import type { Role } from "./rbac";
+import { assertNotThrottled, recordFailure, clearFailures } from "./throttle";
 
 /** Built once, on first use, from a value nobody can log in with. */
 let dummyHash: Promise<string> | null = null;
@@ -15,6 +16,8 @@ export type Credentials = { email: string; password: string };
  * which accounts exist.
  */
 export async function authenticate(c: Credentials, db: Db = sql) {
+  await assertNotThrottled(db, c.email);
+
   const [row] = await db<{
     id: string; clinic_id: string; name: string; role: Role; password_hash: string;
   }[]>`select id, clinic_id, name, role, password_hash
@@ -26,6 +29,10 @@ export async function authenticate(c: Credentials, db: Db = sql) {
   const hash = row?.password_hash ?? (await getDummyHash());
   const ok = await verifyPassword(c.password, hash);
 
-  if (!ok || !row) return null;
+  if (!ok || !row) {
+    await recordFailure(db, c.email);
+    return null;
+  }
+  await clearFailures(db, c.email);
   return { id: row.id, clinicId: row.clinic_id, name: row.name, role: row.role };
 }

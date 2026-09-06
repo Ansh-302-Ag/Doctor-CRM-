@@ -2,6 +2,7 @@ import type { Db } from "./db";
 import { audit, actorId, type Actor } from "./audit";
 import { assertConsent } from "./consent";
 import { requirePermission, type Role } from "./rbac";
+import { scheduleAppointmentReminder, cancelReminders } from "./reminders";
 
 export type Slot = { startsAt: Date; endsAt: Date };
 
@@ -112,6 +113,7 @@ export async function bookAppointment(
       returning id, starts_at, ends_at
     `;
     await audit(db, actor, "book_appointment", "appointments", row.id);
+    await scheduleAppointmentReminder(db, row.id, input.patientId, row.starts_at);
     return { id: row.id, startsAt: row.starts_at, endsAt: row.ends_at };
   } catch (e) {
     // 23P01 = exclusion_violation: the database refused a double-booking (docs/08).
@@ -144,9 +146,7 @@ export async function rescheduleAppointment(
   await db`update appointments set status = 'rescheduled', updated_at = now()
             where id = ${input.appointmentId}`;
 
-  await db`update reminders set status = 'cancelled'
-            where type = 'appointment' and related_id = ${input.appointmentId}
-              and status = 'scheduled'`;
+  await cancelReminders(db, input.appointmentId);
   await audit(db, actor, "reschedule_appointment", "appointments", input.appointmentId);
   return booked;
 }
@@ -159,9 +159,7 @@ export async function cancelAppointment(
   await ownedAppointment(db, input.appointmentId, input.patientId);
   await db`update appointments set status = 'cancelled', updated_at = now()
             where id = ${input.appointmentId}`;
-  await db`update reminders set status = 'cancelled'
-            where type = 'appointment' and related_id = ${input.appointmentId}
-              and status = 'scheduled'`;
+  await cancelReminders(db, input.appointmentId);
   await audit(db, actor, "cancel_appointment", "appointments", input.appointmentId);
 }
 

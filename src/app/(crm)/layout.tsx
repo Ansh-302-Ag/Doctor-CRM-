@@ -23,6 +23,7 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
           <span className="font-semibold text-slate-900">Clinic CRM</span>
           <nav className="flex gap-4 text-sm">
             <Link href="/" className="text-slate-600 hover:text-slate-900">Calendar</Link>
+            <Link href="/patients" className="text-slate-600 hover:text-slate-900">Patients</Link>
             <Link href="/escalations" className="text-slate-600 hover:text-slate-900">
               Escalations
               {Number(open.count) > 0 && (

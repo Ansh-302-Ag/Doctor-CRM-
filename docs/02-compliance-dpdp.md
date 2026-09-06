@@ -32,6 +32,24 @@ HIPAA would require a largely separate compliance pass, not an add-on).
   workflow (soft-delete + purge job), not a manual ask-the-founder
   process. This is far cheaper to build now than to retrofit later.
 
+### Open question: classification happens before consent
+
+The agent has to understand a patient's first message well enough to
+tell a "yes" from anything else, and it does that with a model call —
+which means the inbound message text reaches the LLM API before consent
+is recorded, not after. This is arguably unavoidable: the consent reply
+itself is what needs classifying, and the code predates this branch.
+
+What limits the exposure today: only the message text, the clinic's
+doctor names, the times already offered, and today's date are sent to
+the classifier — never appointment history or prescription records
+(see "What this means for the agent specifically" below), and this
+holds whether or not consent has been recorded yet.
+
+This is recorded here as an open question, not resolved: **counsel
+should confirm whether pre-consent classification is acceptable under
+DPDP before a real clinic is onboarded.**
+
 ## Data minimization
 
 - Collect only what booking, reminders, and the doctor's record need:
@@ -47,9 +65,9 @@ HIPAA would require a largely separate compliance pass, not an add-on).
   on breach, with no minimum size threshold — so "it was a small leak"
   is not a reason to skip notification.
 - Practical implication: **have a breach runbook before launch**, not
-  after. Who gets notified, in what timeframe, using what channel. This
-  is a doc, not code, but it belongs in this repo (`docs/runbooks/`)
-  once we're closer to launch.
+  after. Who gets notified, in what timeframe, using what channel. See
+  `docs/runbooks/breach.md` — it still needs its contact table filled
+  in and one tabletop rehearsal before launch.
 
 ## Technical requirements this drives
 

@@ -63,10 +63,35 @@ The model is sent the message, the clinic's doctor names, the times just
 offered, and today's date. Never appointment history, never prescriptions
 (`docs/02`).
 
+## Reminders
+
+Reminders are clinic-initiated, and WhatsApp only allows that through a
+template approved by Meta in advance. `docs/10-whatsapp-templates.md` has the
+exact text to submit and tracks approval status. Until both templates are
+approved, no reminder can reach a patient.
+
+Nothing runs on a timer inside the app — it is serverless. Point a scheduler at
+these two endpoints, both with `Authorization: Bearer $CRON_SECRET`:
+
+| Endpoint | How often | What it does |
+|---|---|---|
+| `GET /api/cron/reminders` | every 15 minutes | sends reminders that have come due |
+| `GET /api/cron/purge` | daily | destroys records past the retention window |
+
+Both refuse to run if `CRON_SECRET` is unset — an unprotected reminder endpoint
+would let anyone make the clinic message its patients, and an unprotected purge
+endpoint would let anyone destroy records.
+
+A reminder re-checks the world immediately before sending. A cancelled
+appointment, a discontinued prescription, or a patient who withdrew consent all
+result in no message, however the reminder was scheduled. A send that fails is
+retried with backoff, and after three attempts it raises an escalation so a
+human is told rather than the reminder disappearing.
+
 ## Tests
 
 ```bash
-npm test          # 57 tests against TEST_DATABASE_URL, no network needed
+npm test          # 143 tests against TEST_DATABASE_URL, no network needed
 npm run typecheck
 ```
 
@@ -93,6 +118,8 @@ delivery, a clinical question mid-booking, consent not yet granted.
 | Path | What |
 |---|---|
 | `docs/` | The design. `00-README.md` first; `09-implementation-log.md` for current state |
+| `docs/runbooks/` | Operational runbooks — `breach.md` for a suspected DPDP breach |
+| `docs/10-whatsapp-templates.md` | The WhatsApp template text used for reminders |
 | `db/` | Numbered SQL migrations |
 | `src/lib/` | Business logic — booking, consent, RBAC, audit |
 | `src/lib/agent/` | The safety screen, the tool set, the conversation state machine |

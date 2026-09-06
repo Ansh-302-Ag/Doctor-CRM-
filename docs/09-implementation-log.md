@@ -15,14 +15,16 @@ an earlier entry — add a new one saying what changed and why.
 |---|---|
 | Phase 0 — foundations | **Done**, verified against a real Postgres |
 | Phase 1 — WhatsApp booking loop | **Done**, verified end to end via a local simulator |
-| Phase 2 — prescriptions + refill reminders | Not started (read path exists; entry UI and reminders do not) |
-| Phase 3 — second clinic + hardening | Not started |
+| Phase 2 — prescriptions + refill reminders | Prescriptions **done**; refill reminders **built, not wired** (deliberate — see "Not built yet, on purpose") |
+| Phase 3 — second clinic + hardening | **Partly done** — load test and tenant isolation covered; tabletop rehearsal outstanding |
 | Phase 4 — voice | Not started, and deliberately so |
 
-**69 offline tests, all passing** against a real Postgres, plus 7 live tests
-that need an API key. Five of the six items on the docs/08 testing bar are
-covered; the sixth (a reminder for a discontinued prescription must not send)
-is unmet because no reminder sender exists yet — see "Not built yet".
+**143 tests: 136 passing, 7 skipped** against a real Postgres. The 7 skipped
+are the live Anthropic API tests in `tests/intent.live.test.ts`, which skip
+without `ANTHROPIC_API_KEY` and have still never been run, so the default
+`ANTHROPIC_MODEL` value remains unverified. All six items on the docs/08
+testing bar are now covered, including the last one (a reminder for a
+discontinued prescription must not send — `tests/reminders.test.ts`).
 
 ---
 
@@ -34,35 +36,53 @@ db/                    numbered SQL migrations, applied in order
   002_agent_role.sql   the clinic_agent Postgres role and its grants (docs/08)
   003_clinic_phone.sql the clinic's own number, quoted in every escalation reply
   004_agent_patient_intake.sql  lets the agent register a first-time caller
+  005_review_fixes.sql the agent-role select grant on reminders, and other review fixes
+  006_reminders_and_templates.sql  reminders/templates schema (Phase 2)
+  007_escalations_nullable_conversation.sql  conversation_id made nullable (see below)
+  008_appointments_patient_cascade.sql  on delete cascade on appointments.patient_id
+  009_login_throttle.sql  login_attempts table backing throttle.ts
 
 src/lib/
   db.ts                two pools: the app role, and the agent's restricted role
   password.ts          scrypt via node:crypto — no auth dependency
   rbac.ts              the docs/08 role matrix, written once
   audit.ts             append-only "who did what" writes
-  consent.ts           versioned notice, consent gate, DPDP withdrawal path
+  consent.ts           versioned notice, consent gate, DPDP withdrawal path,
+                       purgeDeletedPatients for the retention purge job
   booking.ts           availability, book, reschedule, cancel, ownership checks
   escalations.ts       the staff side of the escalation queue
   auth.ts / session.ts staff login and the signed session cookie
   channel.ts           outbound WhatsApp, or console when unconfigured
   webhook.ts           signature verification and payload parsing
+  prescriptions.ts     create/list/discontinue — doctor and admin only, clinic-scoped
+  patients.ts          patient search, record summary, name capture
+  templates.ts         WhatsApp template definitions and rendering
+  reminders.ts         scheduling, send-time re-validation, retry with backoff, escalation
+  throttle.ts          login lockout keyed on email
+  cron-auth.ts         shared CRON_SECRET guard for the scheduler endpoints
   agent/
     screen.ts          the deterministic safety screen + templated replies
     intent.ts          Anthropic Messages API — intent + doctor + day + slot
     tools.ts           the entire tool set (docs/05) and nothing else
-    index.ts           the conversation state machine
+    index.ts           the conversation state machine; now asks for and records a
+                       patient's name
 
 src/app/
   login/               staff sign-in
   (crm)/               calendar + escalation inbox, behind the session check
+  (crm)/patients/      patient list and patient record (prescription entry)
   api/webhook/whatsapp route handler: verify, parse, handle, reply, notify
+  api/cron/reminders   scheduler endpoint, guarded by cron-auth.ts
+  api/cron/purge       retention purge endpoint, guarded by cron-auth.ts
 
 scripts/
   migrate.ts           applies pending db/*.sql, one transaction each
   seed.ts              a clinic, two doctors, three staff logins
   sim.ts               terminal WhatsApp simulator against the real agent
 
-tests/                 58 tests: booking, safety, agent, screen, dates, webhook
+tests/                 143 tests: booking, safety, agent, screen, dates, webhook,
+                       prescriptions, patients, templates, reminders, throttle,
+                       intent, multi-clinic, consent-purge, load
 ```
 
 ## Decisions made while building
@@ -144,17 +164,25 @@ slow (~5s per page on local disk versus minutes across the bridge), so
 
 Logged rather than built, per the docs/07 ponytail rule:
 
-- Prescription entry UI and refill reminders (Phase 2)
-- The reminder sender itself — the `reminders` table exists and cancellation
-  is wired, but nothing schedules or sends yet
-- Patient-record and patient-search screens in the CRM
 - Per-doctor availability. Clinic hours are one shared 09:00–18:00, Mon–Sat
   range in `booking.ts`; the first clinic with differing doctor hours turns
   this into a table
 - Escalation to a stronger model tier for genuinely ambiguous phrasing
   (docs/05). Haiku handles everything today; add the second tier when real
   conversations show where it falls short
-- The breach runbook (docs/02) — a document, still owed before launch
+- **Refill reminders are not scheduled.** `scheduleRefillFollowup`, the
+  `refill_followup` template, and the send path all exist and are tested,
+  but nothing calls it when a prescription is created. That is deliberate:
+  how many days before a course ends a patient should be nudged is a
+  clinical-adjacent judgement, and `docs/01` puts those with the clinic
+  rather than with us. Wire it into `createPrescription` once the pilot
+  clinic has chosen the lead time. Until then, the only reminders that
+  actually send are appointment reminders.
+
+Prescription entry, the reminder sender, patient screens, login rate
+limiting, the purge job, and the breach runbook are now built — see
+"What exists" and the session log below. Refill-followup reminders are
+built but deliberately not wired, per the entry above.
 
 ---
 
@@ -298,3 +326,117 @@ by default, and all three database files truncate the same database in
 `beforeEach`, so on a normal laptop they wiped each other's fixtures — 38 of 57
 failing, with a misleading foreign-key error. The suite now runs with
 `--test-concurrency=1`.
+
+### 2026-09-05 — Phase 2 built, Phase 3 hardening mostly done
+
+Prescriptions, the refill-reminder machinery (built and tested, not wired —
+see below), patient screens, login throttling, the purge job, multi-clinic
+isolation tests, a load test, and the breach runbook, all in one pass. Migrations 006–009. The suite went from 69 offline tests to 143: 136
+passing, 7 skipped (the live Anthropic tests, still unrun — no key available).
+`npx tsc --noEmit` is clean and `npm run build` succeeds.
+
+**Prescriptions** (`src/lib/prescriptions.ts`): create, list, discontinue.
+Doctor and admin only — a receptionist can read but not write, matching the
+docs/08 role matrix — and every function is clinic-scoped. The CRM gained a
+prescription entry form on the patient record page
+(`src/app/(crm)/patients/[id]/page.tsx`).
+
+**Reminders** (`src/lib/reminders.ts`, `src/app/api/cron/reminders/route.ts`):
+appointment reminders are scheduled when an appointment is booked,
+re-validated against the prescription's or appointment's current status at
+send time (not just schedule time — this is the docs/08 testing-bar item
+that was previously unmet), retried with backoff, and escalated to staff
+once the retry budget is exhausted. `scheduleRefillFollowup` and the
+`refill_followup` template exist and are tested, but nothing in `src/`
+calls `scheduleRefillFollowup` yet — see "Not built yet, on purpose".
+`templates.ts` holds the WhatsApp template text and renders it;
+`docs/10-whatsapp-templates.md` documents the same templates for whoever
+submits them to Meta.
+
+**Patients** (`src/lib/patients.ts`, `src/app/(crm)/patients/`): search and a
+record-summary view. The agent now asks for and records a patient's name on
+first contact (`src/lib/agent/index.ts`, `intent.ts`) rather than leaving it
+blank, which the patient list needed to be useful at all.
+
+**Login throttling** (`src/lib/throttle.ts`, migration 009): lockout keyed on
+email after repeated failed logins.
+
+**The purge job** (`purgeDeletedPatients` in `src/lib/consent.ts`,
+`src/app/api/cron/purge/route.ts`): the DPDP retention purge, guarded by the
+same `CRON_SECRET` check as the reminder scheduler (`src/lib/cron-auth.ts`).
+
+**Multi-clinic and load** (`tests/multi-clinic.test.ts`, `tests/load.test.ts`):
+tenant isolation and a concurrent-booking load test, per docs/07 Phase 3.
+
+**The breach runbook** (`docs/runbooks/breach.md`): written per docs/02.
+Contact table and tabletop rehearsal are explicitly still outstanding — see
+below.
+
+#### Three real bugs, found and fixed
+
+**Escalation was silently dropped for anyone without a conversation row.**
+`escalations.conversation_id` was `not null`, so a reminder escalation for a
+patient booked at the front desk — who had never messaged the clinic and so
+had no `conversations` row — failed to insert at all. That is exactly the
+failure the retry budget exists to prevent: a patient's medication reminder
+exhausts its retries, and the escalation meant to catch that silently doesn't
+happen either. Migration 007 makes the column nullable.
+
+**`claimDue` had no locking.** Two overlapping scheduler runs (a slow run
+still in flight when the next cron fires) could each claim the same reminder
+row and send the same patient the same message twice. Fixed with a Postgres
+advisory lock held on a reserved connection for the claim.
+
+**The test fixture leaked failed-login rows between files.** `reset()` in
+`tests/helpers.ts` did not truncate `login_attempts`, so failed logins from
+one test file could carry over and lock out the shared seeded account in
+another — latent, order-dependent flakiness in the suite that every other
+test depends on to catch real bugs. `reset()` now truncates it.
+
+Also worth recording outside the "three": `appointments.patient_id` was the
+only patient foreign key in the original schema missing `on delete cascade`,
+so the purge job would have failed outright on any patient with an
+appointment. Migration 008 fixed it.
+
+#### Deferred minors, found during review
+
+Logged rather than fixed, per the docs/00 ponytail rule — none of these block
+launch, but they should not be forgotten:
+
+- `requireCronSecret` short-circuits on length mismatch, leaking the secret's
+  length by timing. Standard idiom for this kind of check; low severity.
+- The retention-boundary tests check "now" versus "31 days ago", not the exact
+  30-day cutoff, so an off-by-one at the boundary would not be caught.
+- `cancelReminders` dropped the `type = 'appointment'` filter the old inline
+  SQL had; it now relies on UUID uniqueness across tables instead.
+- `reminders.attempts` is incremented on the success path too, so the column
+  reads as "attempts", not "failed attempts" — worth a rename if it starts
+  driving alerting logic.
+- A forged POST from an unauthorised role surfaces an unhandled `Forbidden`
+  (500-shaped) instead of a friendly redirect. Nothing is written in that
+  path; this is a UX gap, not a safety one.
+- The prescription form's doctor dropdown lets a doctor attribute a
+  prescription to any doctor in the clinic, because `currentStaff()` doesn't
+  expose `doctor_id`.
+- `recordFailure`'s cleanup `DELETE` has no email predicate, so it can't use
+  the index — a sequential scan per failed login. Fine at clinic scale.
+- Template text and `docs/10-whatsapp-templates.md` are kept in sync by prose
+  instruction, not by a test.
+- No adversarial cross-clinic test yet for the WhatsApp agent tool path, or
+  for reminder delivery specifically (the CRM-side multi-clinic tests exist;
+  these two paths don't yet).
+- `tests/load.test.ts` shares its fixture across both tests via `before`/
+  `after` rather than `beforeEach` — safe today because the two tests use
+  non-overlapping day offsets, but worth tightening if a third test is added.
+
+#### Still owed before launch
+
+- `ANTHROPIC_API_KEY` is not set, so the 7 live classifier tests have never
+  run and the default `ANTHROPIC_MODEL` value is unverified.
+- Neither WhatsApp template has been submitted to Meta; nothing can reach a
+  real patient until they're approved.
+- The migrations have never been run against the production Neon database.
+- The breach runbook's contact table needs filling in, and the tabletop
+  rehearsal (docs/07 Phase 3) has not happened.
+- The 30-day retention window in `purgeDeletedPatients` is an engineering
+  guess that needs legal confirmation.
