@@ -53,3 +53,9 @@ next-env.d.ts
 # credentials can send messages as the linked WhatsApp account.
 /whatsapp-gateway/node_modules
 /whatsapp-gateway/auth
+
+# throwaway Postgres for `npm test`
+/.pgdata
+
+# verification screenshots — scaffolding, not a deliverable
+/.shots
