@@ -47,6 +47,72 @@ everything except Meta. Try "I need an appointment with Dr. Rao", then
 "tomorrow", then a time. Then try "can I take paracetamol with it" and watch
 it escalate instead of answering.
 
+## Talking to the agent from a real phone
+
+`whatsapp-gateway/` links a real WhatsApp number with
+[Baileys](https://github.com/WhiskeySockets/Baileys) so you can message the
+clinic from your own phone and drive the whole agent — booking, escalation,
+reminders — without a Meta Business account.
+
+It is an adapter, not a second integration. It speaks the WhatsApp Cloud API on
+the app-facing side: inbound it POSTs Meta's signed webhook envelope to
+`/api/webhook/whatsapp`, outbound it serves Meta's
+`/<phone-number-id>/messages`. The app runs exactly the code path it runs
+against real Meta — same signature check, same parser, same agent — so this
+path proves the production one instead of shadowing it.
+
+```bash
+cd whatsapp-gateway && npm install && cd ..
+```
+
+In `.env.local`, alongside the existing settings:
+
+```
+WHATSAPP_API_BASE=http://localhost:3001
+WHATSAPP_PHONE_NUMBER_ID=gateway      # any non-empty string
+WHATSAPP_TOKEN=<invent a long random string>
+WHATSAPP_APP_SECRET=<invent another>
+```
+
+Those last two are shared secrets between the two local processes, not Meta
+credentials. `WHATSAPP_APP_SECRET` is what signs the inbound webhook and
+`WHATSAPP_TOKEN` is what the gateway checks on every send; the gateway refuses
+to start without both, because an unsigned webhook would let anyone POST as any
+patient and an unauthenticated send endpoint would let anyone message the
+clinic's patients as the clinic.
+
+Then, in two terminals:
+
+```bash
+npm run dev        # the app, on :3000
+npm run gateway    # the gateway, on :3001 — prints a QR code
+```
+
+On the phone you want to use as the clinic: **WhatsApp → Settings → Linked
+Devices → Link a device**, and scan the QR code in the terminal. The session is
+saved to `whatsapp-gateway/auth` (gitignored — it holds credentials that can
+send as that account) so you only scan once. Now message that number from a
+*different* phone: "I need an appointment with Dr. Rao".
+
+Remove `WHATSAPP_API_BASE` and the app is back on Meta. Nothing else changes.
+
+### Caveats — read these
+
+- **Baileys is unofficial.** It reverse-engineers WhatsApp Web; it is not
+  supported or sanctioned by WhatsApp, and it can break whenever they change
+  the protocol.
+- **The linked number can be rate-limited or banned**, with no appeal and no
+  warning. Automated replies to strangers is exactly the pattern that triggers
+  it.
+- **Use a dedicated SIM.** Never link a personal or a clinic's real number.
+- **This is a testing path.** Production goes through the Meta Cloud API, which
+  is what the app is actually built against — the gateway exists so that path
+  can be exercised before an account exists, not instead of it.
+- **Reminder templates are sent as plain text here.** Meta resolves `{{1}}`
+  against an approved template; Baileys has no such concept, so
+  `sendTemplate` sends the rendered text (`src/lib/channel.ts`). Nothing about
+  Meta's 24-hour window or template approval is tested on this path.
+
 ## The agent
 
 `src/lib/agent/screen.ts` is deterministic keyword matching and runs first. If
@@ -91,7 +157,7 @@ human is told rather than the reminder disappearing.
 ## Tests
 
 ```bash
-npm test          # 143 tests against TEST_DATABASE_URL, no network needed
+npm test          # runs against TEST_DATABASE_URL, no network needed
 npm run typecheck
 ```
 
@@ -125,6 +191,7 @@ delivery, a clinical question mid-booking, consent not yet granted.
 | `src/lib/agent/` | The safety screen, the tool set, the conversation state machine |
 | `src/app/` | CRM pages and the WhatsApp webhook |
 | `scripts/` | Migrations, seed, simulator, local Postgres |
+| `whatsapp-gateway/` | The unofficial Baileys gateway — a separate Node process with its own deps |
 | `tests/` | The suite |
 
 ## Environment

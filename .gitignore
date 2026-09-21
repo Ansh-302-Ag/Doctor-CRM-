@@ -48,3 +48,8 @@ next-env.d.ts
 
 # subagent-driven-development scratch
 .superpowers/
+
+# unofficial WhatsApp gateway: its own deps, and the Baileys session — those
+# credentials can send messages as the linked WhatsApp account.
+/whatsapp-gateway/node_modules
+/whatsapp-gateway/auth

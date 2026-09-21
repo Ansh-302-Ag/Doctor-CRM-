@@ -1,4 +1,4 @@
-import { TEMPLATES, type TemplateName } from "./templates";
+import { TEMPLATES, renderTemplate, type TemplateName } from "./templates";
 
 /**
  * Outbound messaging. Talks to the WhatsApp Cloud API when it is configured,
@@ -12,6 +12,14 @@ export type Outbound = { to: string; text: string };
 const configured = () =>
   Boolean(process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID);
 
+/**
+ * Meta's Cloud API unless WHATSAPP_API_BASE says otherwise. That override
+ * points these same calls at the local Baileys gateway (whatsapp-gateway/),
+ * which serves this endpoint so a real phone can drive the agent without a
+ * Meta account. Unset — the production case — nothing here changes.
+ */
+const apiBase = () => process.env.WHATSAPP_API_BASE ?? "https://graph.facebook.com/v21.0";
+
 export async function sendMessage(msg: Outbound): Promise<{ delivered: boolean }> {
   if (!configured()) {
     // The body is health-adjacent and the number identifies the patient
@@ -21,7 +29,7 @@ export async function sendMessage(msg: Outbound): Promise<{ delivered: boolean }
     return { delivered: false };
   }
   const res = await fetch(
-    `https://graph.facebook.com/v21.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+    `${apiBase()}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
     {
       method: "POST",
       headers: {
@@ -79,8 +87,19 @@ export async function sendTemplate(msg: {
     return { delivered: false };
   }
 
+  // Templates are a Meta concept: Meta holds the approved body and resolves
+  // {{1}} against `parameters`. The Baileys gateway has neither, so when
+  // WHATSAPP_API_BASE points at it we send the text the template renders to.
+  // The 24-hour-window rule this indirection exists for is Meta's, and does
+  // not apply to that unofficial path.
+  if (process.env.WHATSAPP_API_BASE) {
+    const { preview } = renderTemplate(msg.name,
+      Object.fromEntries(spec.params.map((p, i) => [p, msg.parameters[i]])));
+    return sendMessage({ to: msg.to, text: preview });
+  }
+
   const res = await fetch(
-    `https://graph.facebook.com/v21.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+    `${apiBase()}/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
     {
       method: "POST",
       headers: {
