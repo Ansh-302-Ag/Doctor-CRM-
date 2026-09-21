@@ -440,3 +440,114 @@ launch, but they should not be forgotten:
   rehearsal (docs/07 Phase 3) has not happened.
 - The 30-day retention window in `purgeDeletedPatients` is an engineering
   guess that needs legal confirmation.
+
+---
+
+## Session — 2026-09-21: live WhatsApp testing, and a fast test loop
+
+### An unofficial WhatsApp gateway (`55ca998`)
+
+Until now nothing could reach a real phone: the Meta Cloud API needs an
+approved business account, approved templates and a public HTTPS webhook, none
+of which exist yet. Baileys — an unofficial library that links a normal
+WhatsApp account as a "linked device", the same mechanism WhatsApp Web uses —
+closes that gap for testing.
+
+It is a separate Node process in `whatsapp-gateway/`, with its own
+`package.json` and its own `node_modules`; nothing was added to the app's
+dependencies. It holds the socket, prints a QR code, reconnects on its own, and
+does no business logic at all — so re-scanning after a disconnect never touches
+the app.
+
+**The design decision worth recording: the gateway speaks WhatsApp Cloud API,
+not a contract of its own.** The reference project this idea came from
+(`../travel-agent`) invented a bespoke JSON shape between its sidecar and its
+backend, which permanently couples the two. Ours does the opposite — the
+gateway emits Meta's webhook envelope, HMAC-signed with `WHATSAPP_APP_SECRET`,
+and accepts Meta's send body on `POST /:phoneNumberId/messages`. So
+`src/lib/webhook.ts`, the inbound route, the agent and every existing test are
+untouched. Pointing at the gateway is one env var, `WHATSAPP_API_BASE`, and
+going live on real Meta is deleting it. Testing and production share one code
+path rather than diverging.
+
+The gateway signs its POSTs deliberately, so `ALLOW_UNSIGNED_WEBHOOKS` never
+has to be turned on. That flag would let anyone POST claiming any patient's
+number and book, cancel or trigger delete-my-data on a stranger's record.
+
+Two things did have to change:
+
+- `channel.ts` gained an `apiBase()` helper and a four-line branch in
+  `sendTemplate`. Baileys has no template concept, so when `WHATSAPP_API_BASE`
+  is set the already-rendered `renderTemplate(...).preview` text is sent
+  instead. Nothing else in that file moved.
+- `tsconfig.json`'s `exclude` widened to `**/node_modules`, or the gateway's
+  Baileys type definitions would be pulled into the app's program.
+
+**`@lid` handling.** Newer WhatsApp sometimes reports a "linked ID"
+(`…@lid`) instead of a phone number. The reference gateway passes those
+through verbatim; ours must not. The app does `phone = "+" + from` and keys
+patients, consent, audit and dedupe on that string, so a lid arriving as `from`
+would create a second patient record for someone who already exists — split
+history, split consent, and a reminder later sent to a number that does not
+exist. `senderPhone()` prefers the real number Baileys carries alongside the
+lid (`key.senderPn`, or `key.remoteJidAlt` in Baileys 7.x) and otherwise drops
+the message with a loud error. One unanswered patient visible in the logs beats
+silently corrupting identity in a clinical record.
+
+**The test is the contract.** `tests/gateway-contract.test.ts` runs realistic
+Baileys message objects through the gateway's envelope builder and signer, then
+asserts the app's own `verifySignature` and `parseInbound` accept the result.
+It covers text, quoted replies, disappearing messages, non-text landing in
+`unsupported`, group/`fromMe`/reaction messages being ignored, device-suffixed
+JIDs, both `@lid` outcomes, and — the case the HMAC exists for — a valid
+signature with another patient's number swapped into the body being rejected.
+
+Known gap, deliberately not fixed: **a failed webhook POST is not retried.**
+Meta redelivers; Baileys will not. The app already dedupes on
+`providerMessageId`, so retry-with-backoff is safe to add whenever it bites.
+
+### Tests run against a local Postgres now (`7447bae`)
+
+The suite required `TEST_DATABASE_URL` pointing at a Neon database. Measured
+from the development machine, Neon us-east-2 is **279 ms per round trip** and
+~2.9 s cold, which made a full run take minutes and made every edit expensive
+to verify — the single biggest tax on the work in this repo.
+
+`scripts/test.mts` now starts a throwaway Postgres (the `embedded-postgres`
+dev dependency, data in the gitignored `.pgdata/`), migrates it, runs the suite
+against it and shuts it down. `TEST_DATABASE_URL` still wins when set, so
+`npm run test:neon` keeps the old path — which is still the run to trust before
+a release, because it is the only one that exercises the real database.
+`npm test -- tests/booking.test.ts` runs a single file.
+
+Two failure modes cost real time and are worth not rediscovering:
+
+- `embedded-postgres` binds a unix socket only unless told
+  `-c listen_addresses=127.0.0.1`. The tests connect over TCP, so without it
+  every one of them fails with `ECONNREFUSED` while migrations, which ran
+  moments earlier, succeed.
+- `return run(...)` inside `try/finally` in an async function runs the
+  `finally` when the promise is *created*, not when it settles — so Postgres
+  was being stopped the instant the test child was spawned. It must be
+  `const code = await run(...)`.
+
+**Verified only in part:** `tests/booking.test.ts` passes 16/16 against the
+local database in 37 s. The full suite has not yet been run end to end on this
+path — each shell call in the development environment caps at 120 s and the
+whole suite exceeds it, so it needs to be run in chunks or from a real
+terminal. Treat the local path as working-but-unproven until that happens.
+
+Worth noting for whoever picks this up: 37 s for 16 tests is still slower than
+it should be for a local database. The likely cost is `scrypt` at N=2^17 in
+`seed()`, twice per fixture. Lowering the cost factor for tests only would
+probably halve the suite again.
+
+#### Still owed
+
+- The CRM redesign. `main` has the pre-redesign UI. Branch
+  `ui-redesign-wip` holds a draft, plus a stash (`git stash list`) with further
+  edits and a `.shots/` directory of verification screenshots that are
+  gitignored. **None of it has been reviewed** — treat it as material, not as
+  finished work.
+- The full test suite has never been run green end to end on the local path.
+- Everything in the previous session's "Still owed before launch" list.

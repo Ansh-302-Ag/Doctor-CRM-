@@ -19,10 +19,11 @@ Then, in `.env.local`:
 
 1. Replace both `CHANGE-ME` values with one password of your choosing — that is
    the password for `clinic_agent`, the restricted role the agent connects as.
-2. Create a second database on the same Postgres for the test suite (the suite
-   truncates every table it touches, so it must not share with development) and
-   point `TEST_DATABASE_URL` at it. On Neon: **Databases → New database**,
-   name it `neondb_test`.
+2. Leave `TEST_DATABASE_URL` commented out. `npm test` then starts its own
+   throwaway Postgres locally and tears it down again — nothing to create, no
+   network. Set it only if you want the suite to run against a real remote
+   database, in which case make it a *separate* database from development: the
+   suite truncates every table it touches.
 
 ```bash
 npm run migrate
@@ -157,9 +158,18 @@ human is told rather than the reminder disappearing.
 ## Tests
 
 ```bash
-npm test          # runs against TEST_DATABASE_URL, no network needed
+npm test                         # local throwaway Postgres, started and stopped for you
+npm test -- tests/booking.test.ts # one file
+npm run test:neon                # against TEST_DATABASE_URL instead
 npm run typecheck
 ```
+
+`npm test` starts a disposable Postgres (data in the gitignored `.pgdata/`),
+migrates it, runs the suite and shuts it down. A remote database costs a
+round trip per query — from India that was ~280 ms, which made a full run take
+minutes. Setting `TEST_DATABASE_URL` still wins and is what `test:neon` uses;
+run that before trusting a release, since it is the only path that exercises
+the real database.
 
 The suite drives the agent with a scripted stand-in for the model, so it stays
 offline and deterministic. `tests/intent.live.test.ts` hits the real API and is
@@ -169,11 +179,13 @@ skipped unless a key is present:
 ANTHROPIC_API_KEY=sk-... npm test
 ```
 
-Run `npm run migrate` against the test database once before the first `npm test`:
+If you point `TEST_DATABASE_URL` at your own database, migrate it once first:
 
 ```bash
 npx tsx scripts/migrate.ts "<your TEST_DATABASE_URL>"
 ```
+
+The local path migrates itself.
 
 The suite is the docs/08 bar, not a smoke test: concurrent bookings of one
 slot, the agent's role being refused a prescription write, a duplicate webhook
