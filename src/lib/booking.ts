@@ -26,9 +26,21 @@ export const OPEN_HOUR = 9;
 export const CLOSE_HOUR = 18;
 export const OPEN_DAYS = new Set(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]);
 
+/**
+ * Intl.DateTimeFormat falls back to the SERVER's zone when `timeZone` is
+ * undefined, so a clinic row read without its timezone would render and compare
+ * every time in whatever zone the box happens to run in — silently, hours out,
+ * with nothing failing. Refuse instead. A default here would be worse than the
+ * bug: one clinic's hours hardcoded into every clinic's schedule.
+ */
+export function requireTimezone(timezone: string | null | undefined): string {
+  if (!timezone) throw new Error("clinic timezone is missing");
+  return timezone;
+}
+
 const partsIn = (at: Date, timezone: string) =>
   new Intl.DateTimeFormat("en-GB", {
-    timeZone: timezone, weekday: "short", hour: "2-digit", hour12: false,
+    timeZone: requireTimezone(timezone), weekday: "short", hour: "2-digit", hour12: false,
   }).formatToParts(at);
 
 const localPart = (at: Date, tz: string, type: "weekday" | "hour") =>

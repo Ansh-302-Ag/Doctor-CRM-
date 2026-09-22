@@ -13,6 +13,7 @@ import type { Db } from "./db";
 import { audit } from "./audit";
 import { sendTemplate } from "./channel";
 import { renderTemplate } from "./templates";
+import { requireTimezone } from "./booking";
 
 export const MAX_ATTEMPTS = 3;
 /** How long before an appointment the reminder goes out. */
@@ -103,7 +104,7 @@ function parametersFor(r: DueReminder) {
       clinic_name: r.clinic_name,
       doctor_name: r.doctor_name ?? "the clinic",
       appointment_time: new Intl.DateTimeFormat("en-GB", {
-        timeZone: r.timezone, weekday: "short", day: "numeric", month: "short",
+        timeZone: requireTimezone(r.timezone), weekday: "short", day: "numeric", month: "short",
         hour: "numeric", minute: "2-digit", hour12: true,
       }).format(r.starts_at!),
     });

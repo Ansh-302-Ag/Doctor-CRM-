@@ -7,8 +7,12 @@ import assert from "node:assert/strict";
 import { db, reset, seed, closeAll, futureSlot, localDay, type Fixture } from "./helpers";
 import { handleInbound } from "../src/lib/agent";
 import { CONSENT_NOTICE } from "../src/lib/consent";
-import { scripted } from "./stub-classifier";
+import { scripted, stub } from "./stub-classifier";
 import { ClassifierUnavailable } from "../src/lib/agent/intent";
+import { OPEN_HOUR, CLOSE_HOUR } from "../src/lib/booking";
+
+/** Same rendering the agent uses, so the assertion tracks the real schedule. */
+const hour12 = (h: number) => `${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}`;
 
 let f: Fixture;
 let seq = 0;
@@ -36,8 +40,11 @@ test("happy path: book an appointment end to end", async () => {
   const b = await say("tomorrow");
   assert.match(b!.text, /these times are free/i);
 
-  const offered = b!.text.match(/• ([^\n]+)/g)!;
+  // The offer is numbered, not bulleted: "the 3rd one" then refers to something
+  // written down rather than something the model has to count.
+  const offered = b!.text.match(/^\d+\. .+$/gm)!;
   assert.ok(offered.length > 0);
+  assert.match(offered[0], /^1\. /);
 
   const firstTime = offered[0].match(/(\d{1,2}:\d{2})/)![1];
   const c = await say(`${firstTime} works`);
@@ -86,10 +93,43 @@ test("a clinical question wrapped inside a booking request still escalates", asy
   assert.equal((await db`select id from appointments`).length, 0);
 });
 
-test("an unclear message escalates rather than guessing", async () => {
+test("an unclear message asks again rather than guessing or escalating", async () => {
   const r = await say("asdf qwerty ????");
-  assert.equal(r!.escalated, true);
-  assert.equal((await escalations())[0].reason, "intent unclear");
+  assert.equal(r!.escalated, false);
+  assert.match(r!.text, /tell me when you would like to come in/i);
+  assert.doesNotMatch(r!.text, /112/, "an unreadable message is not an emergency");
+  assert.equal((await escalations()).length, 0);
+});
+
+test("three unreadable messages in a row do reach a human", async () => {
+  assert.equal((await say("asdf qwerty ????"))!.escalated, false);
+  assert.equal((await say("zxcv"))!.escalated, false);
+  const third = await say("???!!!");
+  assert.equal(third!.escalated, true);
+
+  const rows = await escalations();
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].reason, /intent unclear/);
+});
+
+test("anything we can read resets the count, so the third miss is a third in a row", async () => {
+  await say("asdf qwerty ????");
+  await say("zxcv");
+  assert.match((await say("when is my next appointment"))!.text, /no upcoming appointments/i);
+  assert.equal((await say("?????"))!.escalated, false,
+    "the recognised message in between broke the run");
+  assert.equal((await escalations()).length, 0);
+});
+
+test("'thanks' after a booking neither escalates nor shows emergency text", async () => {
+  await say("appointment with Dr Rao");
+  const offer = await say("tomorrow");
+  await say(offer!.text.match(/(\d{1,2}:\d{2})/)![1]);
+
+  const r = await say("ok thank you");
+  assert.equal(r!.escalated, false);
+  assert.doesNotMatch(r!.text, /112|emergency room/i);
+  assert.equal((await escalations()).length, 0);
 });
 
 test("a new patient is asked for consent and cannot book until they give it", async () => {
@@ -184,12 +224,44 @@ test("withdrawing consent cancels appointments and soft-deletes the patient", as
   assert.equal((await db`select id from appointments where status = 'booked'`).length, 0);
 });
 
-test("an ambiguous slot reply escalates instead of picking one", async () => {
+test("an ambiguous slot reply re-offers the times instead of picking one", async () => {
   await say("appointment with Dr Rao");
   await say("tomorrow");
 
   const r = await say("whichever is fine");
-  assert.equal(r!.escalated, true);
+  assert.equal(r!.escalated, false);
+  assert.match(r!.text, /which one works/i);
+  assert.match(r!.text, /^1\. /m, "the outstanding question comes back numbered");
+  assert.equal((await db`select id from appointments`).length, 0);
+});
+
+test("escalating mid-booking keeps everything the patient already gave", async () => {
+  await say("appointment with Dr Rao");
+  const offer = await say("tomorrow");
+  const offered = offer!.text.match(/^\d+\. .+$/gm)!;
+
+  for (const body of ["whichever is fine", "hmm", "dunno"]) await say(body);
+  assert.equal((await escalations()).length, 1, "the third miss in a row reaches a human");
+
+  const [c] = await db<{ state: { flow?: string; step?: string; offered?: string[] } }[]>`
+    select state from conversations where patient_id = ${f.patientId}`;
+  assert.equal(c.state.flow, "booking");
+  assert.equal(c.state.step, "awaiting_slot");
+  assert.equal(c.state.offered!.length, offered.length);
+
+  // And the booking still completes from where it was left.
+  const done = await say(offered[0].match(/(\d{1,2}:\d{2})/)![1]);
+  assert.match(done!.text, /you are booked/i);
+});
+
+test("an out-of-hours time is answered with the clinic's hours, not the same list again", async () => {
+  await say("appointment with Dr Rao");
+  await say("tomorrow");
+
+  const r = await say("can you make it at 11:00 pm");
+  assert.equal(r!.escalated, false);
+  assert.match(r!.text, new RegExp(`between ${hour12(OPEN_HOUR)} and ${hour12(CLOSE_HOUR)}`, "i"));
+  assert.match(r!.text, /which one works/i);
   assert.equal((await db`select id from appointments`).length, 0);
 });
 
@@ -274,10 +346,15 @@ test("with several doctors, the agent asks which one and never picks for you", a
   assert.match(a!.text, /Dr\. Rao/);
   assert.match(a!.text, /Dr\. Iyer/);
 
-  // A day, given before a doctor is chosen, must not book anything.
+  // A day, given before a doctor is chosen, must not book anything — but it
+  // must not be thrown away either.
   const b = await say("tomorrow");
-  assert.equal(b!.escalated, true);
+  assert.equal(b!.escalated, false);
+  assert.match(b!.text, /which doctor/i);
   assert.equal((await db`select id from appointments`).length, 0);
+
+  const c = await say("Dr. Rao");
+  assert.match(c!.text, /these times are free/i, "the day given earlier still counts");
 });
 
 test("naming the doctor resumes the booking with the right one", async () => {
@@ -333,7 +410,7 @@ test("the classifier is given only booking context, never patient history", asyn
   let seen: unknown;
   const capture: typeof scripted = async (i) => {
     seen = i;
-    return { intent: "book", doctor: null, day: null, slotIndex: null, name: null };
+    return { intent: "book", doctor: null, day: null, slotIndex: null, time: null, name: null };
   };
   await handleInbound(db, {
     clinicId: f.clinicId, phone: "+919000000001",
@@ -342,7 +419,7 @@ test("the classifier is given only booking context, never patient history", asyn
 
   // docs/02: minimise what any third-party API sees.
   assert.deepEqual(Object.keys(seen as object).sort(),
-    ["body", "doctors", "offered", "today", "weekday"]);
+    ["body", "doctors", "offered", "step", "today", "weekday"]);
   assert.doesNotMatch(JSON.stringify(seen), /Amoxicillin|\+9190000/);
 });
 
@@ -451,4 +528,62 @@ test("a patient who stays unreadable before consent does reach a human", async (
   const rows = await escalations();
   assert.equal(rows.length, 1);
   assert.match(rows[0].reason, /repeatedly unclear, before consent/);
+});
+
+test("the classifier is told which question is outstanding, so a bare name is an answer", async () => {
+  await db`insert into doctors (clinic_id, name, specialty, default_slot_minutes)
+           values (${f.clinicId}, 'Dr. Iyer', 'Paediatrics', 20)`;
+
+  const steps: (string | null)[] = [];
+  // Stands in for a model that can only read "Dr. Rao" as an answer when it is
+  // told that is the question on the table — which the real one never was, so
+  // a bare doctor name came back `unclear` and the patient got escalated.
+  const stepAware = stub(i => {
+    steps.push(i.step);
+    if (i.step === "awaiting_doctor" && i.doctors.includes(i.body)) {
+      return { intent: "book", doctor: i.body };
+    }
+    return { intent: /appointment/.test(i.body) ? "book" : "unclear" };
+  });
+  const ask = (body: string, id: string) =>
+    handleInbound(db, { clinicId: f.clinicId, phone: "+919000000001", body, providerMessageId: id },
+      new Date(), stepAware);
+
+  assert.match((await ask("I need an appointment", "s1"))!.text, /which doctor/i);
+  const r = await ask("Dr. Rao", "s2");
+
+  assert.equal(r!.escalated, false);
+  assert.match(r!.text, /what day works for you to see Dr\. Rao/i);
+  assert.deepEqual(steps, [null, "awaiting_doctor"]);
+  assert.equal((await escalations()).length, 0);
+});
+
+test("a day given before the name question is not asked for a second time", async () => {
+  await db`insert into doctors (clinic_id, name, specialty, default_slot_minutes)
+           values (${f.clinicId}, 'Dr. Iyer', 'Paediatrics', 20)`;
+
+  const p = "+919000000044";
+  const ask = (body: string, id: string, over: Record<string, unknown> = {}) =>
+    handleInbound(db, { clinicId: f.clinicId, phone: p, body, providerMessageId: id },
+      new Date(), async (i) => ({ ...(await scripted(i)), ...(i.body === body ? over : {}) }));
+
+  assert.match((await ask("hi", "d0"))!.text, /booking assistant/i);
+  assert.match((await ask("YES", "d1"))!.text, /what day/i);
+  assert.match((await ask("tomorrow", "d2"))!.text, /what name/i);
+
+  // The name, then the doctor: two detours, and the day has to survive both.
+  const named = await ask("Chotu Chinaar", "d3",
+    { intent: "provide_name", name: "Chotu Chinaar" });
+  assert.match(named!.text, /which doctor/i);
+
+  const offer = await ask("Dr. Iyer", "d4");
+  assert.match(offer!.text, /these times are free/i);
+  assert.doesNotMatch(offer!.text, /what day/i, "they already said tomorrow");
+});
+
+test("a clinic with no timezone fails loudly instead of quietly using the server's", async () => {
+  // Intl.DateTimeFormat falls back to the server's zone for a falsy timeZone,
+  // which would render every time in the product hours off with nothing failing.
+  await db`update clinics set timezone = '' where id = ${f.clinicId}`;
+  await assert.rejects(say("I need an appointment with Dr. Rao"), /timezone is missing/);
 });

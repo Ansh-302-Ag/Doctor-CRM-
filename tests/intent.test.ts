@@ -26,7 +26,7 @@ afterEach(() => {
 const input: ClassifyInput = {
   body: "book me in", doctors: ["Dr. Rao", "Dr. Iyer"],
   offered: ["Fri 4 Sept, 9:00 am", "Fri 4 Sept, 9:30 am"],
-  today: "2026-09-02", weekday: "Wednesday",
+  today: "2026-09-02", weekday: "Wednesday", step: null,
 };
 
 /** Reply with one tool_use block carrying exactly these fields. */
@@ -369,4 +369,51 @@ test("a network throw (not an HTTP status) is retried and can still succeed", as
   const r = await classifyWithClaude(input);
   assert.equal(r.intent, "book");
   assert.equal(calls, 2, "fetch should have been called exactly twice");
+});
+
+/** Capture the request body the classifier sends, with a valid reply stubbed. */
+function captureRequest(): () => string {
+  process.env.ANTHROPIC_API_KEY = "sk-test";
+  let captured = "";
+  globalThis.fetch = (async (_url: unknown, init: { body: string }) => {
+    captured = init.body;
+    return new Response(JSON.stringify({ content: [{ type: "tool_use", name: "record_intent",
+      input: { intent: "book", doctor: null, day: null, slot_index: null, time: null, name: null } }] }),
+      { status: 200 });
+  }) as unknown as typeof fetch;
+  return () => captured;
+}
+
+test("the model is told which question the desk is waiting on", async () => {
+  const sent = captureRequest();
+  await classifyWithClaude({ ...input, step: "awaiting_day", body: "whatever suits" });
+  assert.match(sent(), /WHICH DAY/);
+  // And what does not count as an answer to it, so "I am free" is not a date.
+  assert.match(sent(), /I am free/);
+  assert.match(sent(), /leave day null/);
+
+  await classifyWithClaude({ ...input, step: "awaiting_doctor", body: "Dr. Rao" });
+  assert.match(sent(), /WHICH DOCTOR/);
+
+  await classifyWithClaude({ ...input, step: null, body: "hi" });
+  assert.match(sent(), /No booking is in progress/);
+});
+
+test("the offered times are sent numbered, with slot_index defined against that numbering", async () => {
+  const sent = captureRequest();
+  await classifyWithClaude({ ...input, step: "awaiting_slot", body: "the 3rd one" });
+  assert.match(sent(), /1\. Fri 4 Sept, 9:00 am/);
+  assert.match(sent(), /2\. Fri 4 Sept, 9:30 am/);
+  assert.match(sent(), /ZERO-BASED/);
+});
+
+test("a clock time comes back as HH:MM, and anything else as null", async () => {
+  stubFetch({ intent: "book", doctor: null, day: null, slot_index: null,
+              time: "23:00", name: null });
+  assert.equal((await classifyWithClaude(input)).time, "23:00");
+
+  for (const time of ["11pm", "25:00", "9:0", "", "null", 23, null]) {
+    stubFetch({ intent: "book", doctor: null, day: null, slot_index: null, time, name: null });
+    assert.equal((await classifyWithClaude(input)).time, null, String(time));
+  }
 });

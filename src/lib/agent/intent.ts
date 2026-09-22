@@ -34,6 +34,10 @@ export const INTENTS = [
 
 export type Intent = (typeof INTENTS)[number];
 
+/** The question the desk is waiting on an answer to, or null when nothing is
+ *  in flight. The agent's booking state is the source of this. */
+export type ConversationStep = "awaiting_doctor" | "awaiting_day" | "awaiting_slot";
+
 export type Classification = {
   intent: Intent;
   /** Exactly one of the doctor names supplied, or null. */
@@ -42,6 +46,10 @@ export type Classification = {
   day: string | null;
   /** Index into the offered slots, or null. */
   slotIndex: number | null;
+  /** The clock time the patient named, 'HH:MM' on a 24-hour clock, or null.
+   *  Lets the caller answer "11 pm" with the clinic's hours instead of
+   *  re-offering the same list they just could not pick from. */
+  time: string | null;
   name: string | null;
 };
 
@@ -53,6 +61,9 @@ export type ClassifyInput = {
   /** Today, in the clinic's timezone, so relative dates resolve correctly. */
   today: string;
   weekday: string;
+  /** What the desk last asked. Without it a bare "Dr. Rao" sent straight after
+   *  "Which doctor would you like to see?" reads as a message about nothing. */
+  step: ConversationStep | null;
 };
 
 export type Classifier = (input: ClassifyInput) => Promise<Classification>;
@@ -129,7 +140,9 @@ const TOOL = {
         type: ["string", "null"],
         description:
           "The calendar day the patient means, as YYYY-MM-DD, resolved against " +
-          "today's date. Null if they did not give one or it is ambiguous.",
+          "today's date. Null if they did not give one or it is ambiguous. A " +
+          "phrase that names no particular day — \"anytime\", \"anyday\", " +
+          "\"I am free\", \"whenever suits you\" — is not a day: null.",
       },
       slot_index: {
         // Deliberately permissive: smaller models emit the STRING "null", or a
@@ -140,15 +153,23 @@ const TOOL = {
         // what actually decides, and it still refuses anything out of range.
         type: ["integer", "string", "null"],
         description:
-          "Zero-based index into the offered times, if the patient is picking one. " +
-          "Null if they are not, or if it is not clear which one they mean.",
+          "Zero-based index into the numbered list of offered times: the one " +
+          "shown as \"1.\" is 0, \"2.\" is 1, \"3.\" is 2. Null if the patient is " +
+          "not picking one of them, or if it is not clear which one they mean.",
+      },
+      time: {
+        type: ["string", "null"],
+        description:
+          "The clock time the patient named, as HH:MM on a 24-hour clock " +
+          "(\"11 pm\" is \"23:00\", \"half four\" is \"16:30\"). Null if they named " +
+          "no particular time.",
       },
       name: {
         type: ["string", "null"],
         description: "The patient's own name, if this message states it. Null otherwise.",
       },
     },
-    required: ["intent", "doctor", "day", "slot_index", "name"],
+    required: ["intent", "doctor", "day", "slot_index", "time", "name"],
   },
 } as const;
 
@@ -159,11 +180,44 @@ const SYSTEM =
   "clinical judgement is 'unclear' and goes to a human.\n\n" +
   "Record only what the patient actually said. If you are not confident about " +
   "the day, the doctor, or which time they picked, return null for that field. " +
-  "A null costs one extra question; a guess books the wrong appointment.";
+  "A null costs one extra question; a guess books the wrong appointment.\n\n" +
+  "The desk is usually waiting on an answer to one specific question, and the " +
+  "context says which. Read the message as an answer to that question first: a " +
+  "bare name, a bare day or a bare time is a complete answer to the question " +
+  "that was asked, not an unreadable message.";
+
+/**
+ * What a valid answer to the outstanding question looks like. Without this the
+ * model has no way to tell "Dr. Rao" (a complete answer to "which doctor?")
+ * from "Dr. Rao" said out of nowhere, and reads both as unclear.
+ */
+const AWAITING: Record<ConversationStep, string> = {
+  awaiting_doctor:
+    "The desk has just asked the patient WHICH DOCTOR they want to see. A bare " +
+    "name — \"Dr. Rao\", \"Rao\", \"the paediatrician\" — is a complete answer to " +
+    "that: intent \"book\", doctor set to the matching name from the list above.",
+  awaiting_day:
+    "The desk has just asked the patient WHICH DAY they want to come in. A bare " +
+    "day — \"Sunday\", \"tomorrow\", \"the 24th\" — is a complete answer to that: " +
+    "intent \"book\", day resolved against today's date. A phrase that names no " +
+    "particular day — \"I am free\", \"anytime\", \"anyday\", \"whenever suits you\" " +
+    "— is not a day: leave day null so the desk can ask again.",
+  awaiting_slot:
+    "The desk has just offered the numbered times above and asked the patient " +
+    "WHICH ONE works. A time or a position — \"10:30\", \"the 3rd one\", \"the last " +
+    "one\" — is a complete answer to that: intent \"book\", slot_index set. If they " +
+    "name a time that is not on that list, leave slot_index null and record the " +
+    "time they asked for in `time`.",
+};
+
+const NO_FLOW =
+  "No booking is in progress, so this is an opening message or a fresh request " +
+  "rather than an answer to anything.";
 
 /** What both providers hand back before sanitisation — trust the shape, not the values. */
 type RawToolCall = {
-  intent: Intent; doctor: unknown; day: unknown; slot_index: unknown; name: unknown;
+  intent: Intent; doctor: unknown; day: unknown; slot_index: unknown;
+  time: unknown; name: unknown;
 };
 
 type Provider = { name: "anthropic"; key: string } | { name: "openai-compatible"; key: string };
@@ -285,9 +339,14 @@ export const classifyWithClaude: Classifier = async (input) => {
     `Today is ${input.weekday} ${input.today}.`,
     input.doctors.length ? `Doctors at this clinic: ${input.doctors.join(", ")}.` : "",
     input.offered.length
-      ? `Times just offered to this patient, in order: ${
-          input.offered.map((t, i) => `[${i}] ${t}`).join(", ")}.`
+      // Numbered exactly as the patient sees them, so "the 3rd one" is a lookup
+      // rather than a counting exercise the model has to get right.
+      ? `Times just offered to this patient, numbered as they saw them:\n${
+          input.offered.map((t, i) => `${i + 1}. ${t}`).join("\n")
+        }\nslot_index is the ZERO-BASED index into that list: "1." is slot_index 0, ` +
+        `"2." is slot_index 1, "3." is slot_index 2.`
       : "",
+    input.step ? AWAITING[input.step] : NO_FLOW,
     `Patient's message: ${JSON.stringify(input.body)}`,
   ].filter(Boolean).join("\n");
 
@@ -334,8 +393,10 @@ export const classifyWithClaude: Classifier = async (input) => {
   const slotIndex = Number.isInteger(rawSlot) &&
     (rawSlot as number) >= 0 && (rawSlot as number) < input.offered.length
     ? rawSlot as number : null;
+  const time = typeof raw.time === "string" &&
+    /^([01]\d|2[0-3]):[0-5]\d$/.test(raw.time.trim()) ? raw.time.trim() : null;
   const name = typeof raw.name === "string" && raw.name.trim().length > 0 &&
     raw.name.trim().length <= 80 ? raw.name.trim() : null;
 
-  return { intent, doctor, day, slotIndex, name };
+  return { intent, doctor, day, slotIndex, time, name };
 };

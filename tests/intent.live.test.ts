@@ -19,6 +19,7 @@ const base: ClassifyInput = {
   offered: ["Fri 4 Sept, 9:00 am", "Fri 4 Sept, 9:30 am", "Fri 4 Sept, 4:00 pm"],
   today: "2026-09-02",
   weekday: "Wednesday",
+  step: null,
   body: "",
 };
 const ask = (body: string, over: Partial<ClassifyInput> = {}) =>

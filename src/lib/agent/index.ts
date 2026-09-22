@@ -19,54 +19,74 @@ import { tools } from "./tools";
 import { screen, templates } from "./screen";
 import {
   classifyWithClaude, ClassifierUnavailable,
-  type Classifier, type Classification,
+  type Classifier, type Classification, type ConversationStep,
 } from "./intent";
 import { CONSENT_NOTICE, introduction, recordConsent, withdrawAndDelete, ConsentRequired } from "../consent";
-import { BookingError } from "../booking";
+import { BookingError, OPEN_HOUR, CLOSE_HOUR, OPEN_DAYS, requireTimezone } from "../booking";
 import { setPatientName } from "../patients";
 
 export type Reply = { text: string; escalated: boolean };
 
 type BookingState = {
   flow: "booking";
-  step: "awaiting_doctor" | "awaiting_day" | "awaiting_slot";
+  step: ConversationStep;
   doctorId: string | null;
   reason?: string;
+  /** A day the patient has already named, held while we stop to ask something
+   *  else (which doctor, what name). Without it the answer is collected and
+   *  then thrown away, and they are asked for a day they already gave. */
+  day?: string;
   offered?: string[];          // ISO instants, in the order shown to the patient
   /** Set when this flow is moving an existing appointment. Carried rather than
    *  re-derived, so a second booking made meanwhile cannot move the wrong one. */
   reschedulingId?: string;
 };
-/** What the patient asked for before we stopped to collect consent, so the
- *  request can be honoured rather than dropped once they agree. */
+/** What the patient asked for before we stopped to collect consent or a name,
+ *  so the request can be honoured rather than dropped once they answer. */
 type PendingState = { pending: string };
-/** How many times someone we have not met yet has sent something we could not
- *  read. The consent notice answers the first couple; past that they are stuck
- *  going in circles and a human should look. */
-type GreetingState = { unclearBeforeConsent: number };
+/**
+ * Whatever the conversation is in the middle of, plus how many messages in a
+ * row we have failed to read. The two are independent — a patient can be
+ * mid-booking and unreadable — so the count rides alongside the flow instead of
+ * replacing it, and handing over to a human never takes the flow with it.
+ */
 type ConversationState =
-  BookingState | PendingState | GreetingState | Record<string, never>;
+  Partial<BookingState> & Partial<PendingState> & { unclear?: number };
 
-const isBooking = (s: ConversationState): s is BookingState =>
-  "flow" in s && s.flow === "booking";
-const isPending = (s: ConversationState): s is PendingState => "pending" in s;
-const isGreeting = (s: ConversationState): s is GreetingState =>
-  "unclearBeforeConsent" in s;
+const isBooking = (s: ConversationState): s is BookingState => s.flow === "booking";
+const isPending = (s: ConversationState): s is PendingState =>
+  typeof s.pending === "string";
 
-/** Two unreadable messages earn an introduction; the third earns a person. */
-const MAX_UNCLEAR_BEFORE_CONSENT = 2;
+/** Two messages we cannot read earn another try at the question; the third
+ *  earns a person. Pre- and post-consent alike: one counter, one threshold. */
+const MAX_UNCLEAR = 2;
 
 const fmtTime = (at: Date, tz: string) =>
   new Intl.DateTimeFormat("en-GB", {
-    timeZone: tz, weekday: "short", day: "numeric", month: "short",
+    timeZone: requireTimezone(tz), weekday: "short", day: "numeric", month: "short",
     hour: "numeric", minute: "2-digit", hour12: true,
   }).format(at);
 
 const dayIn = (at: Date, tz: string) =>
-  new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(at);
+  new Intl.DateTimeFormat("en-CA", { timeZone: requireTimezone(tz) }).format(at);
 
 const weekdayIn = (at: Date, tz: string) =>
-  new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "long" }).format(at);
+  new Intl.DateTimeFormat("en-GB", { timeZone: requireTimezone(tz), weekday: "long" }).format(at);
+
+/** Offered times, numbered as the patient sees them — "the 3rd one" then refers
+ *  to something written down rather than something they have to count. */
+const timesText = (offered: string[], tz: string, prefix = "") =>
+  `${prefix} These times are free:\n${
+    offered.map((iso, i) => `${i + 1}. ${fmtTime(new Date(iso), tz)}`).join("\n")
+  }\n\nWhich one works?`.trim();
+
+const hour12 = (h: number) => `${((h + 11) % 12) + 1}${h < 12 ? "am" : "pm"}`;
+/** Read off the real schedule, so this sentence cannot drift from it. */
+const clinicHours = () =>
+  `I can only book between ${hour12(OPEN_HOUR)} and ${hour12(CLOSE_HOUR)}, ` +
+  `${[...OPEN_DAYS].join(", ")}.`;
+const outsideHours = (time: string) =>
+  Number(time.slice(0, 2)) < OPEN_HOUR || Number(time.slice(0, 2)) >= CLOSE_HOUR;
 
 export type InboundMessage = {
   clinicId: string;
@@ -140,10 +160,12 @@ async function route(
   const escalate = async (
     reason: string, priority: "normal" | "emergency", text: string, intent?: string,
   ): Promise<Routed> => {
+    // Deliberately does NOT clear the conversation state. A human stepping in
+    // does not mean the doctor, day and times the patient already gave are
+    // thrown away — they used to be, and the patient started over every time.
     await tools.escalate_to_human({
       db, conversationId: ctx.conversation.id, patientId: ctx.patient.id, reason, priority,
     });
-    await clearState(db, ctx.conversation.id);
     return { text, escalated: true, intent };
   };
 
@@ -171,6 +193,9 @@ async function route(
       offered: offeredIso.map(iso => fmtTime(new Date(iso), ctx.clinic.timezone)),
       today: dayIn(now, ctx.clinic.timezone),
       weekday: weekdayIn(now, ctx.clinic.timezone),
+      // Which question this message is answering. A bare "Dr. Rao" is only
+      // readable as an answer if the model is told what was asked.
+      step: isBooking(state) ? state.step : null,
     });
   } catch (e) {
     // docs/08: the model being down never drops a message silently.
@@ -178,6 +203,33 @@ async function route(
     return escalate(`classifier unavailable: ${e.message}`, "normal",
       templates.technicalFailure(), "classifier_unavailable");
   }
+
+  // The count below is of CONSECUTIVE misses, so this message clears it up
+  // front; reask() writes it straight back if this one is another miss.
+  if (state.unclear) await setState(db, ctx.conversation.id, { ...state, unclear: 0 });
+
+  /**
+   * We could not read an answer to the question we are waiting on. Ask it
+   * again — an unreadable message is not a reason to hand the conversation to
+   * a nurse, it is a reason to repeat the question. Three in a row is a
+   * conversation going nowhere, and that is.
+   */
+  const reask = async (
+    question: string, reason: string, intent = "unclear",
+    keep: ConversationState = {},
+  ): Promise<Routed> => {
+    const seen = (state.unclear ?? 0) + 1;
+    const stuck = seen > MAX_UNCLEAR;
+    // Anything the message did tell us is kept either way — a message that
+    // answers one question and misses another must not cost us the answer.
+    await setState(db, ctx.conversation.id,
+      { ...state, ...keep, unclear: stuck ? 0 : seen });
+    if (stuck) {
+      return escalate(`${reason} (${seen} messages in a row)`, "normal",
+        templates.unclear(ctx.clinic.phone), "unclear");
+    }
+    return { text: question, escalated: false, intent };
+  };
 
   // 3. Consent gate. Nothing proceeds past here without a recorded 'granted'.
   if (c.intent === "delete_my_data") {
@@ -199,21 +251,17 @@ async function route(
       // "namaste"), which is how nearly every WhatsApp conversation opens.
       // Introducing ourselves is the useful reply. Handing a stranger's
       // "hello" to a nurse is not, and it used to happen to every single
-      // patient on their very first message.
-      const seen = isGreeting(state) ? state.unclearBeforeConsent : 0;
-      if (seen < MAX_UNCLEAR_BEFORE_CONSENT) {
-        await setState(db, ctx.conversation.id, { unclearBeforeConsent: seen + 1 });
-        return { text: introduction(ctx.clinic.name), escalated: false,
-                 intent: "consent_requested" };
-      }
-      // Still going nowhere after being introduced twice: they need a person.
-      return escalate("repeatedly unclear, before consent", "normal",
-        templates.unclear(ctx.clinic.phone), "unclear");
+      // patient on their very first message. Twice, then a person — counted by
+      // the same reask() the rest of the conversation uses, so there is one
+      // mechanism to reason about rather than two that can disagree.
+      return reask(introduction(ctx.clinic.name),
+        "repeatedly unclear, before consent", "consent_requested");
     }
     if (c.intent === "consent_yes") {
       await recordConsent(db, { kind: "agent" }, ctx.patient.id, "granted");
-      await clearState(db, ctx.conversation.id);
-      const pending = isPending(state) ? state.pending : null;
+      // Drop the stashed request, keep everything else the conversation knows.
+      const { pending, ...rest } = state;
+      await setState(db, ctx.conversation.id, rest);
       if (!pending) {
         return { text: "Thank you. What day would you like to come in?",
                  escalated: false, intent: c.intent };
@@ -222,12 +270,12 @@ async function route(
       const resumed = await route(
         db, { ...msg, body: pending },
         { ...ctx, patient: { ...ctx.patient, consent_status: "granted" },
-          conversation: { ...ctx.conversation, state: {} } },
+          conversation: { ...ctx.conversation, state: rest } },
         now, classify,
       );
       return { ...resumed, text: `Thank you. ${resumed.text}` };
     }
-    await setState(db, ctx.conversation.id, { pending: msg.body });
+    await setState(db, ctx.conversation.id, { ...state, pending: msg.body });
     return { text: CONSENT_NOTICE, escalated: false, intent: "consent_requested" };
   }
 
@@ -236,8 +284,10 @@ async function route(
   // cancelling — proceeds without it.
   if (!ctx.patient.name && c.intent === "provide_name" && c.name) {
     await setPatientName(db, { kind: "agent" }, ctx.patient.id, c.name);
-    const stashed = isPending(state) ? state.pending : null;
-    await clearState(db, ctx.conversation.id);
+    // Same as consent: the name question is a detour, not a reset. Anything
+    // already collected — the doctor, the day — has to survive it.
+    const { pending: stashed, ...rest } = state;
+    await setState(db, ctx.conversation.id, rest);
     if (!stashed) {
       return { text: `Thank you, ${c.name}. What day would you like to come in?`,
                escalated: false, intent: c.intent };
@@ -245,26 +295,30 @@ async function route(
     const resumed = await route(
       db, { ...msg, body: stashed },
       { ...ctx, patient: { ...ctx.patient, name: c.name },
-        conversation: { ...ctx.conversation, state: {} } },
+        conversation: { ...ctx.conversation, state: rest } },
       now, classify,
     );
     return { ...resumed, text: `Thank you, ${c.name}. ${resumed.text}` };
   }
 
   if (!ctx.patient.name && (c.intent === "book" || c.intent === "reschedule")) {
-    await setState(db, ctx.conversation.id, { pending: msg.body });
+    await setState(db, ctx.conversation.id, { ...state, pending: msg.body });
     return { text: "Before I book that — what name should I put on the appointment?",
              escalated: false, intent: "name_requested" };
   }
 
   // 4. Logistics.
+  if (c.intent === "unclear") {
+    return reask(outstanding(ctx, state, doctors), "intent unclear");
+  }
+
   if (isBooking(state) && c.intent !== "cancel") {
-    return continueBooking(db, ctx, state, c, doctors, now, escalate);
+    return continueBooking(db, ctx, state, c, doctors, now, escalate, reask);
   }
 
   switch (c.intent) {
     case "book":
-      return startBooking(db, msg, ctx, c, doctors, now, escalate);
+      return startBooking(db, msg, ctx, c, doctors, now, escalate, reask);
 
     case "check_appointment": {
       const rows = await tools.get_upcoming_appointments(db, ctx.patient.id);
@@ -334,18 +388,47 @@ async function route(
     }
 
     default:
-      // 5. No tool fits. The only remaining path is a human (docs/05).
-      return escalate("intent unclear", "normal",
-        templates.unclear(ctx.clinic.phone), "unclear");
+      // 5. No tool fits this message. Ask again for what we are waiting on
+      //    rather than spending a person on it (docs/05 keeps the handover for
+      //    a conversation that is actually stuck — see reask above).
+      return reask(outstanding(ctx, state, doctors), "no tool fits the request");
   }
 }
 
 type Escalate = (r: string, p: "normal" | "emergency", t: string, i?: string) => Promise<Routed>;
+type Reask = (question: string, reason: string, intent?: string,
+              keep?: ConversationState) => Promise<Routed>;
 type Doctor = { id: string; name: string };
+
+/**
+ * The question the patient still owes us an answer to. Re-asking it is the
+ * reply to anything we could not read: repeating a question costs one message,
+ * where handing over costs the patient everything they had told us so far.
+ */
+function outstanding(ctx: Ctx, state: ConversationState, doctors: Doctor[]): string {
+  if (!isBooking(state)) {
+    // Nothing is in flight, so there is no question to repeat and nothing to
+    // apologise for — just say what this desk can do.
+    return "Happy to help — tell me when you would like to come in and I will " +
+           "find you a time. You can also ask about an appointment you already " +
+           "have, or reply CANCEL to cancel it.";
+  }
+  if (state.step === "awaiting_slot" && state.offered?.length) {
+    return timesText(state.offered, ctx.clinic.timezone);
+  }
+  if (state.step === "awaiting_doctor" || !state.doctorId) {
+    return whichDoctor(doctors);
+  }
+  return "Which day would suit you? You can say a date, or something like " +
+         "\"tomorrow\" or \"Friday\".";
+}
+
+const whichDoctor = (doctors: Doctor[]) =>
+  `Which doctor would you like to see? We have ${doctors.map(d => d.name).join(", ")}.`;
 
 async function startBooking(
   db: Db, msg: InboundMessage, ctx: Ctx, c: Classification,
-  doctors: Doctor[], now: Date, escalate: Escalate,
+  doctors: Doctor[], now: Date, escalate: Escalate, reask: Reask,
 ): Promise<Routed> {
   if (doctors.length === 0) {
     return escalate("no doctors configured for this clinic", "normal",
@@ -358,17 +441,23 @@ async function startBooking(
   if (!doctor) {
     // Never assume which doctor they meant — an appointment with the wrong one
     // is worse than an extra question (docs/08: no tool call on guessed data).
-    await setState(db, ctx.conversation.id,
-      { flow: "booking", step: "awaiting_doctor", doctorId: null, reason: msg.body });
-    return {
-      text: `Which doctor would you like to see? We have ${doctors.map(d => d.name).join(", ")}.`,
-      escalated: false, intent: "book",
-    };
+    // A day given in the same breath is kept, not dropped: asking for it again
+    // two turns later is how the patient ends up repeating themselves.
+    await setState(db, ctx.conversation.id, {
+      flow: "booking", step: "awaiting_doctor", doctorId: null,
+      reason: msg.body, day: c.day ?? undefined,
+    });
+    return { text: whichDoctor(doctors), escalated: false, intent: "book" };
   }
 
   const state: BookingState = {
     flow: "booking", step: "awaiting_day", doctorId: doctor.id, reason: msg.body,
   };
+  if (c.time && outsideHours(c.time) && !c.day) {
+    await setState(db, ctx.conversation.id, state);
+    return { text: `${clinicHours()} What day works for you to see ${doctor.name}?`,
+             escalated: false, intent: "book" };
+  }
   if (c.day) return offerSlots(db, ctx, state, c.day, now);
 
   await setState(db, ctx.conversation.id, state);
@@ -378,17 +467,19 @@ async function startBooking(
 
 async function continueBooking(
   db: Db, ctx: Ctx, state: BookingState, c: Classification,
-  doctors: Doctor[], now: Date, escalate: Escalate,
+  doctors: Doctor[], now: Date, escalate: Escalate, reask: Reask,
 ): Promise<Routed> {
   if (state.step === "awaiting_doctor" || !state.doctorId) {
+    // A day named before the doctor question is answered still counts, whether
+    // this message answers that question or not.
+    const day = c.day ?? state.day;
     const doctor = doctors.find(d => d.name === c.doctor);
     if (!doctor) {
-      return escalate("patient did not identify which doctor they wanted", "normal",
-        "Sorry, I could not tell which doctor you meant. I have asked the clinic " +
-        "team to help you book.", "book");
+      return reask(whichDoctor(doctors),
+        "patient did not identify which doctor they wanted", "unclear", { day });
     }
     const next: BookingState = { ...state, step: "awaiting_day", doctorId: doctor.id };
-    if (c.day) return offerSlots(db, ctx, next, c.day, now);
+    if (day) return offerSlots(db, ctx, next, day, now);
     await setState(db, ctx.conversation.id, next);
     return { text: `What day works for you to see ${doctor.name}?`,
              escalated: false, intent: "book" };
@@ -396,12 +487,19 @@ async function continueBooking(
 
   if (state.step === "awaiting_slot" && state.offered?.length) {
     if (c.slotIndex === null) {
+      // A time we could never book is worth saying out loud. Re-showing the
+      // same list is what the patient already could not find their time in.
+      if (c.time && outsideHours(c.time)) {
+        return {
+          text: timesText(state.offered, ctx.clinic.timezone, clinicHours()),
+          escalated: false, intent: "book",
+        };
+      }
       // The classifier is instructed to return null rather than guess; a day
       // given here means they changed their mind about the day.
       if (c.day) return offerSlots(db, ctx, state, c.day, now);
-      return escalate("could not tell which offered slot the patient chose", "normal",
-        "Sorry, I could not tell which time you meant. I have asked the clinic team to help.",
-        "book");
+      return reask(timesText(state.offered, ctx.clinic.timezone),
+        "could not tell which offered slot the patient chose");
     }
     const picked = new Date(state.offered[c.slotIndex]);
     try {
@@ -432,6 +530,10 @@ async function continueBooking(
   }
 
   if (!c.day) {
+    if (c.time && outsideHours(c.time)) {
+      return { text: `${clinicHours()} What day would suit you?`,
+               escalated: false, intent: "book" };
+    }
     return { text: "Which day would suit you? You can say a date, or something like " +
                    "\"tomorrow\" or \"Friday\".", escalated: false, intent: "book" };
   }
@@ -442,19 +544,21 @@ async function offerSlots(
   db: Db, ctx: Ctx, state: BookingState, day: string, now: Date, prefix = "",
 ): Promise<Routed> {
   const slots = spread(await tools.check_availability(db, state.doctorId!, day, now), 4);
+  // The day has been acted on either way; holding it any longer would let a
+  // stale answer resurface behind a later question.
   if (slots.length === 0) {
-    await setState(db, ctx.conversation.id, { ...state, step: "awaiting_day", offered: [] });
+    await setState(db, ctx.conversation.id,
+      { ...state, step: "awaiting_day", offered: [], day: undefined });
     return {
       text: `${prefix} There is nothing free that day. What other day would work?`.trim(),
       escalated: false, intent: "book",
     };
   }
-  await setState(db, ctx.conversation.id, {
-    ...state, step: "awaiting_slot", offered: slots.map(s => s.startsAt.toISOString()),
-  });
-  const list = slots.map(s => `• ${fmtTime(s.startsAt, ctx.clinic.timezone)}`).join("\n");
+  const offered = slots.map(s => s.startsAt.toISOString());
+  await setState(db, ctx.conversation.id,
+    { ...state, step: "awaiting_slot", offered, day: undefined });
   return {
-    text: `${prefix} These times are free:\n${list}\n\nWhich one works?`.trim(),
+    text: timesText(offered, ctx.clinic.timezone, prefix),
     escalated: false, intent: "book",
   };
 }
