@@ -5,16 +5,23 @@ import { currentStaff } from "@/lib/session";
 import { audit } from "@/lib/audit";
 import { sql } from "@/lib/db";
 import { can } from "@/lib/rbac";
-import { getPatient } from "@/lib/patients";
-import { createPrescription, listPrescriptions, discontinuePrescription, InvalidPrescription } from "@/lib/prescriptions";
+import { getPatient, patientScope } from "@/lib/patients";
+import { listPrescriptions, discontinuePrescription, InvalidPrescription } from "@/lib/prescriptions";
+import { prescribeAndNotify, NotYourPatient } from "@/lib/doctor";
 
 export default async function PatientRecordPage({
   params, searchParams,
-}: { params: Promise<{ id: string }>; searchParams: Promise<{ error?: string }> }) {
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ error?: string; sent?: string; nudged?: string }>;
+}) {
   const staff = await currentStaff();
   const { id } = await params;
-  const { error } = await searchParams;
+  const { error, sent, nudged } = await searchParams;
   const actor = { kind: "staff" as const, id: staff.id };
+  const isDoctor = staff.role === "doctor";
+  // A doctor may only open one of his own patients (docs/08).
+  const scope = patientScope(staff);
 
   // One round trip for the whole record. Every query below is scoped to this
   // clinic on its own — the appointments and doctors lists by clinic_id, the
@@ -22,7 +29,7 @@ export default async function PatientRecordPage({
   // existence check to stay safe, and the check can move after them. Neon is a
   // continent away; three sequential hops here were most of the page's latency.
   const [patient, appointments, prescriptions, doctors] = await Promise.all([
-    getPatient(sql, actor, staff.role, staff.clinicId, id),
+    getPatient(sql, actor, staff.role, staff.clinicId, id, scope),
     sql<{
       id: string; starts_at: Date; status: string; doctor_name: string; reason_text: string | null;
     }[]>`
@@ -33,7 +40,9 @@ export default async function PatientRecordPage({
        order by a.starts_at desc
        limit 20`,
     listPrescriptions(sql, actor, staff.role, staff.clinicId, id),
-    sql<{ id: string; name: string }[]>`
+    // Only an admin has to say who prescribed: a doctor is the prescriber, and
+    // currentStaff() now carries his doctor_id.
+    isDoctor ? [] : sql<{ id: string; name: string }[]>`
       select id, name from doctors where clinic_id = ${staff.clinicId} order by name`,
     audit(sql, actor, "read_patient_appointments", "patients", id),
   ]);
@@ -42,31 +51,33 @@ export default async function PatientRecordPage({
   async function addPrescription(form: FormData) {
     "use server";
     const me = await currentStaff();
-    const meActor = { kind: "staff" as const, id: me.id };
     const patientId = String(form.get("patientId"));
-
-    // The patient id comes from a hidden form field, not proof of anything —
-    // re-check it resolves for this clinic before writing anything (docs/08).
-    const patient = await getPatient(sql, meActor, me.role, me.clinicId, patientId);
-    if (!patient) notFound();
-
     const durationRaw = String(form.get("durationDays") ?? "").trim();
+
+    // prescribeAndNotify re-resolves the patient under this staff member's own
+    // scope before writing: the hidden field is not proof of anything (docs/08).
+    let delivery;
     try {
-      await createPrescription(sql, meActor, me.role, {
+      ({ delivery } = await prescribeAndNotify(sql, me, {
         patientId,
-        doctorId: String(form.get("doctorId")),
+        doctorId: String(form.get("doctorId") ?? ""),
         drugName: String(form.get("drugName") ?? ""),
         dosage: String(form.get("dosage") ?? ""),
         durationDays: durationRaw ? Number(durationRaw) : undefined,
         notes: String(form.get("notes") ?? "") || undefined,
-      });
+      }));
     } catch (e) {
+      if (e instanceof NotYourPatient) notFound();
       if (e instanceof InvalidPrescription) {
         redirect(`/patients/${patientId}?error=${encodeURIComponent(e.message)}`);
       }
       throw e;
     }
+    // The record is saved either way; the redirect only says what reached the
+    // patient, so an undelivered message is never silent.
     revalidatePath(`/patients/${patientId}`);
+    redirect(`/patients/${patientId}?sent=${delivery.delivered ? "1" : delivery.reason}` +
+             (delivery.nudged ? "&nudged=1" : ""));
   }
 
   async function discontinue(form: FormData) {
@@ -79,7 +90,8 @@ export default async function PatientRecordPage({
     // Ownership check: discontinuePrescription trusts the id it's given, so we
     // must confirm both that the patient belongs to this clinic and that the
     // prescription actually belongs to that patient, before calling it (docs/08).
-    const patient = await getPatient(sql, meActor, me.role, me.clinicId, patientId);
+    const patient = await getPatient(
+      sql, meActor, me.role, me.clinicId, patientId, patientScope(me));
     if (!patient) notFound();
     const existing = await listPrescriptions(sql, meActor, me.role, me.clinicId, patientId);
     if (!existing.some(p => p.id === prescriptionId)) notFound();
@@ -88,8 +100,10 @@ export default async function PatientRecordPage({
     revalidatePath(`/patients/${patientId}`);
   }
 
+  // The clinic's own clock, not the server's — an appointment time read an hour
+  // out is worse than useless to the doctor reading it.
   const when = (at: Date) => new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium", timeStyle: "short",
+    timeZone: staff.timezone, dateStyle: "medium", timeStyle: "short",
   }).format(at);
 
   return (
@@ -106,6 +120,28 @@ export default async function PatientRecordPage({
       {error && (
         <p role="alert" className="mt-4 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
           {error}
+        </p>
+      )}
+
+      {sent === "1" && (
+        <p role="status" className="mt-4 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">
+          Prescription saved and sent to the patient on WhatsApp.
+        </p>
+      )}
+      {sent === "outside_window" && (
+        <p role="status" className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Prescription saved, but it could not be sent: WhatsApp only allows us to message a
+          patient within 24 hours of their own last message.{" "}
+          {nudged
+            ? "They have been sent a note asking them to reply, and the assistant will read this " +
+              "record back to them when they do. Call them if it cannot wait."
+            : "We could not reach them at all — please call them."}
+        </p>
+      )}
+      {sent === "send_failed" && (
+        <p role="status" className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          Prescription saved, but WhatsApp would not accept the message. Nothing was lost —
+          the record below is on file. Please tell the patient another way.
         </p>
       )}
 
@@ -185,13 +221,15 @@ export default async function PatientRecordPage({
           <form action={addPrescription} className="mt-4 space-y-3 rounded-lg border border-slate-200 bg-white p-4">
             <input type="hidden" name="patientId" value={patient.id} />
             <div className="grid grid-cols-2 gap-3">
-              <label className="block text-sm">
-                <span className="text-slate-600">Doctor</span>
-                <select name="doctorId" required
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm">
-                  {doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
-              </label>
+              {!isDoctor && (
+                <label className="block text-sm">
+                  <span className="text-slate-600">Doctor</span>
+                  <select name="doctorId" required
+                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm">
+                    {doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </label>
+              )}
               <label className="block text-sm">
                 <span className="text-slate-600">Drug name</span>
                 <input name="drugName" required
@@ -213,8 +251,12 @@ export default async function PatientRecordPage({
               <textarea name="notes" rows={2}
                 className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
             </label>
+            <p className="text-xs text-slate-500">
+              Saved exactly as typed, attributed to {isDoctor ? "you" : "the doctor named above"},
+              and sent to the patient on WhatsApp as written.
+            </p>
             <button className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800">
-              Add prescription
+              Save &amp; send to patient
             </button>
           </form>
         ) : (

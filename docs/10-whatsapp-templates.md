@@ -21,7 +21,7 @@ other way around.
 - [ ] Submit for review
 - [ ] Record the approval status in the table below
 - [ ] Confirm the approved template name in Meta matches the `TemplateName`
-      used here (`appointment_reminder`, `refill_followup`)
+      used here (`appointment_reminder`, `record_updated`, `refill_followup`)
 
 ## `appointment_reminder`
 
@@ -38,6 +38,27 @@ Sample values for submission:
 | `{{1}}` | `clinic_name` | Sunrise Clinic |
 | `{{2}}` | `doctor_name` | Dr. Rao |
 | `{{3}}` | `appointment_time` | Fri 4 Sept, 10:00 am |
+
+## `record_updated`
+
+Sent when a doctor records a prescription and the patient is **outside** the
+24-hour window, so the record itself cannot be sent (`src/lib/doctor.ts`). It
+names no drug, no dosage and no instruction — only that there is something to
+collect. The patient's reply reopens the window, and the assistant then reads
+the record back verbatim.
+
+Body text:
+
+```
+A note from {{1}}: {{2}} added a new entry to your record today. Reply to this message to have it read back to you, or call the clinic.
+```
+
+Sample values for submission:
+
+| Placeholder | Param name | Sample |
+|---|---|---|
+| `{{1}}` | `clinic_name` | Sunrise Clinic |
+| `{{2}}` | `doctor_name` | Dr. Rao |
 
 ## `refill_followup`
 
@@ -59,6 +80,7 @@ Sample values for submission:
 | Template | Submitted | Approved | Notes |
 |---|---|---|---|
 | `appointment_reminder` | No | No | Not yet submitted to Meta. |
+| `record_updated` | No | No | Not yet submitted to Meta. Needed before a prescription recorded outside the window can nudge the patient at all. |
 | `refill_followup` | No | No | Not yet submitted to Meta. |
 
 ## Why the copy reads the way it does

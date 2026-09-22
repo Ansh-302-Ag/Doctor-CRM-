@@ -1,13 +1,30 @@
+import Link from "next/link";
 import { revalidatePath } from "next/cache";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
-import { requirePermission } from "@/lib/rbac";
+import { can } from "@/lib/rbac";
 import { listEscalations, acknowledgeEscalation, resolveEscalation } from "@/lib/escalations";
 
 export default async function EscalationsPage() {
   const staff = await currentStaff();
-  requirePermission(staff.role, "escalations:read");
-  const rows = await listEscalations(sql, { kind: "staff", id: staff.id }, staff.clinicId);
+
+  // The inbox is reception's desk, not the doctor's (docs/08). listEscalations
+  // refuses him too — this is only so a doctor who follows an old bookmark gets
+  // a sentence instead of a crash.
+  if (!can(staff.role, "escalations:read")) {
+    return (
+      <section>
+        <h1 className="text-lg font-semibold text-slate-900">Escalations</h1>
+        <p className="mt-6 rounded-lg border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
+          Not available for your role. The front desk handles escalations; your day is under{" "}
+          <Link href="/queue" className="text-slate-600 underline hover:text-slate-900">My day</Link>.
+        </p>
+      </section>
+    );
+  }
+
+  const rows = await listEscalations(
+    sql, { kind: "staff", id: staff.id }, staff.role, staff.clinicId);
 
   async function acknowledge(form: FormData) {
     "use server";

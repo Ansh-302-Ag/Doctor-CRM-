@@ -54,7 +54,9 @@ export default async function CalendarPage({
   return (
     <section>
       <div className="flex items-baseline gap-4">
-        <h1 className="text-lg font-semibold text-slate-900">Appointments</h1>
+        <h1 className="text-lg font-semibold text-slate-900">
+          {staff.role === "doctor" ? "Clinic day" : "Appointments"}
+        </h1>
         <span className="text-sm text-slate-500">{day}</span>
         <nav className="ml-auto flex gap-3 text-sm">
           <Link href={`/?day=${shift(-1)}`} className="text-slate-600 hover:text-slate-900">← Previous</Link>
@@ -62,6 +64,16 @@ export default async function CalendarPage({
           <Link href={`/?day=${shift(1)}`} className="text-slate-600 hover:text-slate-900">Next →</Link>
         </nav>
       </div>
+
+      {staff.role === "doctor" && (
+        <p className="mt-1 text-sm text-slate-500">
+          Everyone&rsquo;s appointments, for context only — you can open and prescribe for your own
+          patients from{" "}
+          <Link href={`/queue?day=${day}`} className="text-slate-600 underline hover:text-slate-900">
+            My day
+          </Link>.
+        </p>
+      )}
 
       {rows.length === 0 ? (
         <p className="mt-6 rounded-lg border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">

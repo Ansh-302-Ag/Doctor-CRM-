@@ -19,7 +19,7 @@ an earlier entry — add a new one saying what changed and why.
 | Phase 3 — second clinic + hardening | **Partly done** — load test and tenant isolation covered; tabletop rehearsal outstanding |
 | Phase 4 — voice | Not started, and deliberately so |
 
-**143 tests: 136 passing, 7 skipped** against a real Postgres. The 7 skipped
+**204 tests: 197 passing, 7 skipped** against a real Postgres. The 7 skipped
 are the live Anthropic API tests in `tests/intent.live.test.ts`, which skip
 without `ANTHROPIC_API_KEY` and have still never been run, so the default
 `ANTHROPIC_MODEL` value remains unverified. All six items on the docs/08
@@ -55,7 +55,8 @@ src/lib/
   channel.ts           outbound WhatsApp, or console when unconfigured
   webhook.ts           signature verification and payload parsing
   prescriptions.ts     create/list/discontinue — doctor and admin only, clinic-scoped
-  patients.ts          patient search, record summary, name capture
+  patients.ts          patient search, record summary, name capture, doctor scoping
+  doctor.ts            the doctor's queue, and prescribe-and-send-to-the-patient
   templates.ts         WhatsApp template definitions and rendering
   reminders.ts         scheduling, send-time re-validation, retry with backoff, escalation
   throttle.ts          login lockout keyed on email
@@ -70,6 +71,7 @@ src/lib/
 src/app/
   login/               staff sign-in
   (crm)/               calendar + escalation inbox, behind the session check
+  (crm)/queue/         the doctor's own day: his appointments, and who is next
   (crm)/patients/      patient list and patient record (prescription entry)
   api/webhook/whatsapp route handler: verify, parse, handle, reply, notify
   api/cron/reminders   scheduler endpoint, guarded by cron-auth.ts
@@ -414,10 +416,14 @@ launch, but they should not be forgotten:
   driving alerting logic.
 - A forged POST from an unauthorised role surfaces an unhandled `Forbidden`
   (500-shaped) instead of a friendly redirect. Nothing is written in that
-  path; this is a UX gap, not a safety one.
-- The prescription form's doctor dropdown lets a doctor attribute a
+  path; this is a UX gap, not a safety one. (The one case that a real user can
+  reach by hand — a doctor opening `/escalations` — now renders a sentence
+  instead; see 2026-09-22.)
+- ~~The prescription form's doctor dropdown lets a doctor attribute a
   prescription to any doctor in the clinic, because `currentStaff()` doesn't
-  expose `doctor_id`.
+  expose `doctor_id`.~~ Fixed 2026-09-22 — see the session at the end of this
+  file. `currentStaff()` carries `doctorId`, and a doctor no longer sees the
+  dropdown at all.
 - `recordFailure`'s cleanup `DELETE` has no email predicate, so it can't use
   the index — a sequential scan per failed login. Fine at clinic scale.
 - Template text and `docs/10-whatsapp-templates.md` are kept in sync by prose
@@ -581,3 +587,86 @@ reason `repeatedly unclear, before consent`. Two tests cover both halves.
 Also moved the test database from a repo-local `.pgdata/` to the system temp
 directory. Disposable test data does not belong in the working tree, and a run
 killed mid-flight left a `postmaster.pid` behind that blocked the next start.
+
+
+## Session — 2026-09-22: the CRM split by role, and the doctor's own screens
+
+The user's words: *"if it is send to human escalation it should go to
+receptionist(portal) and not to doctor portal. Doctor should only be able to
+his bookings - who is next in line - to select the current patient and
+prescribe his medicine -- the dosage and that all will go to his whatsapp in a
+structured message"*.
+
+### Escalations left the doctor's screen
+
+`rbac.ts` handed `doctor` the whole staff permission list, so the inbox was in
+front of everyone. `escalations:read` and `escalations:resolve` are now
+receptionist and admin only; the doctor keeps `escalations:create`, because the
+agent-facing rule that anything clinical reaches a human is unchanged.
+`listEscalations` takes the role and calls `requirePermission` itself, so the
+refusal is in the library rather than in the page that happens to call it, and
+the page renders "Not available for your role" instead of an unhandled 500.
+docs/08's matrix was rewritten to match.
+
+### `currentStaff()` carries `doctor_id`
+
+One extra column on a query that already joined `staff_users`. It closes the
+gap logged in "Deferred minors": the prescription form had a doctor dropdown
+because nothing knew which doctor was signed in, so a doctor could attribute
+his prescription to a colleague. A doctor now sees no dropdown and the
+attribution is his own; an admin, who has no doctor row, still picks one.
+
+### The doctor's day (`/queue`)
+
+His own booked appointments for the day, in time order, with the next one —
+the first still-booked appointment that has not started — ringed and labelled.
+Each row opens that patient's record. Sign-in sends a doctor here rather than
+to the clinic calendar, which stays available, read-only, so he can see how
+busy the place is without being able to act on anyone else's patient.
+
+The scoping is in the query, not the markup: `patientScope()` restricts a
+doctor's patient list and every record he can open to people with an
+appointment with him at this clinic. An id in a URL still proves nothing.
+
+### Prescribing sends the record to the patient's WhatsApp
+
+`prescribeAndNotify` writes the row first and messages afterwards, and no send
+failure is allowed to propagate: the record is the point, and losing it to a
+502 from Meta would be the worst outcome available. The message is assembled
+by reading the stored row back, so what the patient is told is by construction
+what was stored — drug, dosage, duration, notes, exactly as typed, plus who
+prescribed it, when, and the clinic's number for questions. It states; it never
+advises.
+
+**The 24-hour window.** WhatsApp permits free-form text only within 24 hours
+of the patient's own last message, and docs/01 forbids clinical content in a
+template, so a prescription can only go out free-form, inside the window.
+`deliver()` works that out from the `messages` table (the patient's latest
+inbound, via their conversations). Inside it, the record is sent. Outside it,
+the prescription is still recorded and the patient gets `record_updated` — a
+new template that names no drug, no dose and no instruction, only that there
+is an entry to collect. Their reply reopens the window, and the existing
+`check_prescription_record` path then reads the record back verbatim. That is
+the whole recovery: no new table, no new job, no drug name in a template.
+Either way the doctor is told on screen exactly what reached the patient, and
+"not delivered" is never silent. The channel's `delivered: false` (an
+unconfigured deployment) counts as not delivered, too.
+
+### Also
+
+- Appointment times on the patient list and patient record were formatted in
+  the server's timezone rather than the clinic's — visible as soon as a doctor
+  compared his queue with a record. Both now use `staff.timezone`.
+- 17 new tests in `tests/doctor.test.ts`: the RBAC split, queue scoping and the
+  "next" marker, cross-doctor and cross-clinic patient access, attribution,
+  both sides of the 24-hour window, and that a failed send neither rolls back
+  nor hides the record.
+
+### Not done, on purpose
+
+- No per-doctor appointment writing rules: a doctor can still reschedule
+  anything his clinic can, as before. Nothing asked for that to change.
+- The nudge is sent once. If it fails, the audit trail says so and the doctor
+  is told; it is not retried through `reminders`, because that table's types
+  are appointment/refill and a third one is a migration for a case the pilot
+  has not hit yet.

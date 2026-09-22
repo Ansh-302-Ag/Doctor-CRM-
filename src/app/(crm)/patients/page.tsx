@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
-import { searchPatients } from "@/lib/patients";
+import { searchPatients, patientScope } from "@/lib/patients";
 
 export default async function PatientsPage({
   searchParams,
@@ -9,17 +9,27 @@ export default async function PatientsPage({
   const staff = await currentStaff();
   const { q } = await searchParams;
 
+  // A doctor's list is his own patients — scoped in the query, not just hidden
+  // in the page (docs/08). Reception and admin see the whole clinic.
   const patients = await searchPatients(
     sql, { kind: "staff", id: staff.id }, staff.role, staff.clinicId, q ?? "",
+    patientScope(staff),
   );
 
   const when = (at: Date | null) => at === null ? "—" : new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium", timeStyle: "short",
+    timeZone: staff.timezone, dateStyle: "medium", timeStyle: "short",
   }).format(at);
 
   return (
     <section>
-      <h1 className="text-lg font-semibold text-slate-900">Patients</h1>
+      <h1 className="text-lg font-semibold text-slate-900">
+        {staff.role === "doctor" ? "My patients" : "Patients"}
+      </h1>
+      {staff.role === "doctor" && (
+        <p className="mt-1 text-sm text-slate-500">
+          Everyone who has had an appointment with you at this clinic.
+        </p>
+      )}
 
       <form method="GET" className="mt-4 flex gap-2">
         <input
@@ -37,7 +47,9 @@ export default async function PatientsPage({
 
       {patients.length === 0 ? (
         <p className="mt-6 rounded-lg border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
-          {q ? "No patients match that search." : "No patients yet."}
+          {q ? "No patients match that search."
+             : staff.role === "doctor" ? "No patients have been booked with you yet."
+             : "No patients yet."}
         </p>
       ) : (
         <div className="mt-4 overflow-x-auto rounded-lg border border-slate-200 bg-white">

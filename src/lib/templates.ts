@@ -10,7 +10,7 @@
  * Templates never carry clinical content (docs/01). A reminder says an event is
  * coming up; it does not tell anyone what to do about their health.
  */
-export type TemplateName = "appointment_reminder" | "refill_followup";
+export type TemplateName = "appointment_reminder" | "refill_followup" | "record_updated";
 
 export type TemplateSpec = {
   name: TemplateName;
@@ -29,6 +29,19 @@ export const TEMPLATES: Record<TemplateName, TemplateSpec> = {
       "Reminder from {{1}}: you have an appointment with {{2}} on {{3}}. " +
       "Reply CANCEL if you can no longer make it.",
     params: ["clinic_name", "doctor_name", "appointment_time"],
+  },
+  /** Sent when a prescription was recorded outside the 24-hour window, so the
+   *  record itself could not be sent (src/lib/doctor.ts). It carries no drug,
+   *  no dosage and no instruction — only that there is something to collect —
+   *  and the patient's reply reopens the window, after which the agent reads
+   *  the record back verbatim. */
+  record_updated: {
+    name: "record_updated",
+    language: "en",
+    bodyText:
+      "A note from {{1}}: {{2}} added a new entry to your record today. " +
+      "Reply to this message to have it read back to you, or call the clinic.",
+    params: ["clinic_name", "doctor_name"],
   },
   refill_followup: {
     name: "refill_followup",

@@ -11,8 +11,17 @@ still holds.
 |---|---|---|---|---|---|---|
 | AI agent (service account) | limited fields only | yes | yes (via tools only) | yes (read-only) | **no** | can create, not resolve |
 | Receptionist | yes | yes | yes | yes | **no** | yes |
-| Doctor | yes | yes | yes | yes | yes | yes |
+| Doctor | **his own patients only** | yes (whole clinic, read-only) | yes | yes | yes | **no** — can raise one, cannot work the queue |
 | Admin | yes | yes | yes | yes | yes | yes |
+
+The doctor's row is narrower than the others on purpose. An escalation is a
+front-desk job: it is a patient waiting on a human reply, and putting it in
+front of the doctor as well only splits responsibility for answering it. And
+"his own patients" is a filter in the query, not a hidden link — a doctor's
+patient list, and every record he can open, is restricted to people who have
+an appointment with him at this clinic (`patientScope` in
+`src/lib/patients.ts`). He can still see the whole clinic's day, read-only, so
+he knows how busy the place is.
 
 Enforce this at the **database role level** (Postgres GRANT/REVOKE),
 not only in application code — an application bug should not be able

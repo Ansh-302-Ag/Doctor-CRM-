@@ -8,6 +8,22 @@ import type { Db } from "./db";
 import { audit, type Actor } from "./audit";
 import { requirePermission, type Role } from "./rbac";
 
+/**
+ * Which patients a signed-in staff member may see. A doctor is limited to his
+ * own — people who have an appointment with him here; reception and admin see
+ * the whole clinic. Returning null means "the whole clinic".
+ */
+export const patientScope = (staff: { role: Role; doctorId: string | null }) =>
+  staff.role === "doctor" ? staff.doctorId : null;
+
+/** The doctor-scope filter, as a SQL fragment so both queries below stay one
+ *  statement. Empty when the caller sees the whole clinic. */
+const ownedBy = (db: Db, doctorId: string | null | undefined) =>
+  doctorId
+    ? db`and exists (select 1 from appointments a
+                      where a.patient_id = p.id and a.doctor_id = ${doctorId})`
+    : db``;
+
 export type PatientSummary = {
   id: string; name: string | null; phone: string;
   consent_status: "pending" | "granted" | "withdrawn";
@@ -16,6 +32,7 @@ export type PatientSummary = {
 
 export async function searchPatients(
   db: Db, actor: Actor, role: Role, clinicId: string, query: string,
+  doctorId?: string | null,
 ): Promise<PatientSummary[]> {
   requirePermission(role, "patients:read");
   const q = query.trim();
@@ -37,6 +54,7 @@ export async function searchPatients(
         from patients p
        where p.clinic_id = ${clinicId} and p.deleted_at is null
          and (${q === ""} or p.name ilike ${like} or p.phone ilike ${like})
+         ${ownedBy(db, doctorId)}
        order by p.name nulls last, p.created_at desc
        limit 100`,
     audit(db, actor, "search_patients", "patients", null),
@@ -46,6 +64,7 @@ export async function searchPatients(
 
 export async function getPatient(
   db: Db, actor: Actor, role: Role, clinicId: string, patientId: string,
+  doctorId?: string | null,
 ): Promise<PatientSummary | null> {
   requirePermission(role, "patients:read");
   // Same as above: read and audit go out together. The audit row is written
@@ -61,7 +80,8 @@ export async function getPatient(
                where r.patient_id = p.id and r.status = 'active'
              )::int as active_prescriptions
         from patients p
-       where p.id = ${patientId} and p.clinic_id = ${clinicId} and p.deleted_at is null`,
+       where p.id = ${patientId} and p.clinic_id = ${clinicId} and p.deleted_at is null
+         ${ownedBy(db, doctorId)}`,
     audit(db, actor, "read_patient", "patients", patientId),
   ]);
   return row ?? null;

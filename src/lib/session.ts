@@ -57,15 +57,21 @@ export async function signOut() {
 export const currentStaff = cache(async () => {
   const user = await requireUser();
   const [row] = await sql<{
-    id: string; clinic_id: string; name: string; role: Role; timezone: string;
+    id: string; clinic_id: string; name: string; role: Role;
+    doctor_id: string | null; timezone: string;
   }[]>`
-    select u.id, u.clinic_id, u.name, u.role, c.timezone
+    select u.id, u.clinic_id, u.name, u.role, u.doctor_id, c.timezone
       from staff_users u
       join clinics c on c.id = u.clinic_id
      where u.id = ${user.id}`;
   if (!row) redirect("/login");
   return {
     id: row.id, clinicId: row.clinic_id, name: row.name, role: row.role,
+    // Set exactly when the role is 'doctor' (the staff_users check constraint).
+    // Without it the prescription form had to ask which doctor was prescribing,
+    // which let a doctor attribute his own prescription to a colleague.
+    doctorId: row.doctor_id,
     timezone: row.timezone,
   };
 });
+

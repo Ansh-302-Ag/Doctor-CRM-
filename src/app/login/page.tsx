@@ -8,7 +8,7 @@ export default async function LoginPage({
 }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
   const session = await getSession();
-  if (session.user) redirect("/");
+  if (session.user) redirect(session.user.role === "doctor" ? "/queue" : "/");
 
   async function login(form: FormData) {
     "use server";
@@ -24,7 +24,8 @@ export default async function LoginPage({
     }
     if (!user) redirect("/login?error=1");
     await signIn(user);
-    redirect("/");
+    // A doctor's home is his own queue; everyone else's is the clinic calendar.
+    redirect(user.role === "doctor" ? "/queue" : "/");
   }
 
   return (

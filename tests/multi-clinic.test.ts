@@ -33,7 +33,7 @@ test("patient search and lookup are scoped", async () => {
 
 test("the escalation inbox shows only this clinic's escalations", async () => {
   await escalationAtOtherClinic();
-  assert.equal((await listEscalations(db, A(), f.clinicId)).length, 0);
+  assert.equal((await listEscalations(db, A(), "receptionist", f.clinicId)).length, 0);
 });
 
 test("a stranger's escalation cannot be acknowledged or resolved", async () => {

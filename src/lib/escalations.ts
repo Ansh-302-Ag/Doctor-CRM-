@@ -2,7 +2,10 @@ import type { Db } from "./db";
 import { audit, type Actor } from "./audit";
 import { requirePermission, type Role } from "./rbac";
 
-export async function listEscalations(db: Db, actor: Actor, clinicId: string) {
+/** The inbox itself. A doctor has no inbox (docs/08) and is refused here, not
+ *  merely in the navigation — the page is reachable by typing the URL. */
+export async function listEscalations(db: Db, actor: Actor, role: Role, clinicId: string) {
+  requirePermission(role, "escalations:read");
   // Reading this list means reading every escalated patient's name and number,
   // so it is audited — but the audit row does not depend on the read, so the
   // two go out together rather than one after the other, saving a round trip.
