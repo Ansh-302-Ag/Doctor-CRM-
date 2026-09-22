@@ -5,18 +5,42 @@ const scryptAsync = promisify(scrypt) as (
   pw: string, salt: Buffer, len: number, opts: { N: number; r: number; p: number; maxmem: number },
 ) => Promise<Buffer>;
 
-/** OWASP's floor for scrypt. The cost is stored in the hash, so raising it
- *  later re-hashes new passwords without invalidating existing ones. */
-const N = 1 << 17, r = 8, p = 1;
-const KEY_LENGTH = 64;
-const maxmem = 256 * N * r;      // node's default cap is too small for N=2^17
+/** OWASP's floor for scrypt. The cost is stored in the hash, so changing it
+ *  re-hashes new passwords without invalidating existing ones — which is also
+ *  what lets the test suite turn it down.
+ *
+ *  At the production cost one hash takes ~285 ms, and the suite hashes twice
+ *  per fixture in ~180 tests: about 100 seconds spent proving node's scrypt
+ *  still works. Tests set SCRYPT_COST low and keep one case at the real cost.
+ *  A weak cost in production is a silent, serious downgrade, so it is refused
+ *  rather than warned about. */
+const MIN_PRODUCTION_COST = 17;
+
+function cost(): number {
+  const raw = process.env.SCRYPT_COST;
+  if (raw === undefined) return MIN_PRODUCTION_COST;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 22) {
+    throw new Error(`SCRYPT_COST must be an integer between 1 and 22, got ${raw}`);
+  }
+  if (n < MIN_PRODUCTION_COST && process.env.NODE_ENV === "production") {
+    throw new Error(
+      `SCRYPT_COST=${n} is below the production floor of ${MIN_PRODUCTION_COST}. ` +
+      `Passwords hashed at that cost are materially easier to crack.`);
+  }
+  return n;
+}
+
+const r = 8, p = 1;
+const KEY_LENGTH = 64;   // node's default maxmem is too small for N=2^17, so derive() sets it
 
 const derive = (password: string, salt: Buffer, params: { N: number; r: number; p: number }) =>
   scryptAsync(password, salt, KEY_LENGTH, { ...params, maxmem: 256 * params.N * params.r });
 
 export async function hashPassword(password: string): Promise<string> {
+  const N = 1 << cost();
   const salt = randomBytes(16);
-  const key = await scryptAsync(password, salt, KEY_LENGTH, { N, r, p, maxmem });
+  const key = await derive(password, salt, { N, r, p });
   return `scrypt:${N}:${r}:${p}:${salt.toString("hex")}:${key.toString("hex")}`;
 }
 

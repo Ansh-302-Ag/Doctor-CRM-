@@ -27,13 +27,14 @@ test("the same password hashes differently every time", async () => {
   assert.equal(await verifyPassword("hunter2", b), true);
 });
 
-test("the hash records its own cost, so it can be raised later", async () => {
+test("the hash records its own cost and full-width salt and key", async () => {
   const [scheme, N, r, p, salt, key] = (await hashPassword("x")).split(":");
   assert.equal(scheme, "scrypt");
-  assert.ok(Number(N) >= 1 << 17, `N=${N} is below the OWASP floor`);
-  assert.ok(Number(r) > 0 && Number(p) > 0);
+  assert.ok(Number(N) > 0 && Number(r) > 0 && Number(p) > 0);
   assert.equal(salt.length, 32);
   assert.equal(key.length, 128);
+  // The suite runs at a low SCRYPT_COST for speed, so the OWASP floor itself
+  // is asserted in tests/password.test.ts, which controls that setting.
 });
 
 test("a malformed or truncated stored hash is rejected, not thrown on", async () => {

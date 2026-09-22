@@ -35,13 +35,18 @@ const run = (cmd: string, args: string[], env: NodeJS.ProcessEnv) =>
 
 // `npm test -- tests/booking.test.ts` runs one file; no argument runs them all.
 const files = process.argv.slice(2);
+// Password hashing at the production cost is ~285 ms and the suite hashes
+// twice per fixture — about 100 s of the run. tests/password.test.ts still
+// covers the real cost.
+const TEST_ENV = { SCRYPT_COST: "12" };
+
 const testArgs = ["--test", "--test-concurrency=1", "--env-file=.env.local",
   ...(files.length ? files : ["tests/*.test.ts"])];
 
 async function main(): Promise<number> {
   if (process.env.TEST_DATABASE_URL) {
     console.log("[test] using TEST_DATABASE_URL from the environment");
-    return run("npx", ["tsx", ...testArgs], process.env);
+    return run("npx", ["tsx", ...testArgs], { ...process.env, ...TEST_ENV });
   }
 
   console.log("[test] starting a local Postgres (no TEST_DATABASE_URL set)");
@@ -73,7 +78,7 @@ async function main(): Promise<number> {
 
     // `await` matters: `return run(...)` would let the finally below stop
     // Postgres the moment the child is spawned, not when it finishes.
-    const testCode = await run("npx", ["tsx", ...testArgs], { ...process.env, TEST_DATABASE_URL: LOCAL_URL });
+    const testCode = await run("npx", ["tsx", ...testArgs], { ...process.env, ...TEST_ENV, TEST_DATABASE_URL: LOCAL_URL });
     return testCode;
   } finally {
     await pg.stop().catch(() => {});
