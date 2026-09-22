@@ -11,6 +11,17 @@ export const CONSENT_NOTICE =
   "to book your visits, send reminders, and keep the doctor's record. You can " +
   "withdraw anytime by replying DELETE. Reply YES to agree.";
 
+/**
+ * The first words a patient ever reads from the clinic. A bare consent notice
+ * opening with "Before we book..." answers a question they did not ask, so say
+ * who is writing and what this can do, then ask.
+ */
+export const introduction = (clinicName: string) =>
+  `Hello! I am the booking assistant for ${clinicName}. I can book, move or ` +
+  `cancel your appointments, and read back what the doctor has already ` +
+  `prescribed for you. For anything medical, a member of the clinic team ` +
+  `will answer you themselves.\n\n${CONSENT_NOTICE}`;
+
 export class ConsentRequired extends Error {
   constructor() { super("consent has not been granted"); this.name = "ConsentRequired"; }
 }

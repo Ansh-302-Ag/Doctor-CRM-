@@ -514,7 +514,7 @@ from the development machine, Neon us-east-2 is **279 ms per round trip** and
 to verify — the single biggest tax on the work in this repo.
 
 `scripts/test.mts` now starts a throwaway Postgres (the `embedded-postgres`
-dev dependency, data in the gitignored `.pgdata/`), migrates it, runs the suite
+dev dependency, data in the gitignored the system temp directory), migrates it, runs the suite
 against it and shuts it down. `TEST_DATABASE_URL` still wins when set, so
 `npm run test:neon` keeps the old path — which is still the run to trust before
 a release, because it is the only one that exercises the real database.
@@ -551,3 +551,33 @@ probably halve the suite again.
   finished work.
 - The full test suite has never been run green end to end on the local path.
 - Everything in the previous session's "Still owed before launch" list.
+
+### Fix: a greeting no longer escalates (2026-09-22)
+
+The first live WhatsApp test found it immediately. "hello" from a new patient
+came back as *"Sorry, I did not follow that — I have passed it to the clinic
+team"*. The database reason was `intent unclear, before consent`.
+
+The pre-consent branch in `route()` escalated any `unclear` intent, on the
+reasoning recorded in its comment: "an un-understood message from someone we
+have never met still reaches a human." That is wrong here for two reasons.
+The deterministic screen runs *before* the consent gate, so anything clinical
+or urgent already escalates regardless of consent — this branch was never the
+safety net it claimed to be. And "hi"/"hello"/"namaste" is how nearly every
+WhatsApp conversation in India opens, so in practice it escalated **every
+patient's very first message** and answered the most common path in the
+product with an apology.
+
+Now an unreadable message before consent gets an introduction — who is
+writing, what the assistant can do, that anything medical goes to a person,
+then the consent notice. `introduction()` in `src/lib/consent.ts`; the bare
+`CONSENT_NOTICE` opening "Before we book…" answered a question the patient had
+not asked.
+
+To avoid trading an escalation for an infinite loop, `GreetingState` counts
+consecutive unreadable pre-consent messages; the third one escalates with
+reason `repeatedly unclear, before consent`. Two tests cover both halves.
+
+Also moved the test database from a repo-local `.pgdata/` to the system temp
+directory. Disposable test data does not belong in the working tree, and a run
+killed mid-flight left a `postmaster.pid` behind that blocked the next start.

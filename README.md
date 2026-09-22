@@ -164,7 +164,7 @@ npm run test:neon                # against TEST_DATABASE_URL instead
 npm run typecheck
 ```
 
-`npm test` starts a disposable Postgres (data in the gitignored `.pgdata/`),
+`npm test` starts a disposable Postgres (data in the gitignored the system temp directory),
 migrates it, runs the suite and shuts it down. A remote database costs a
 round trip per query — from India that was ~280 ms, which made a full run take
 minutes. Setting `TEST_DATABASE_URL` still wins and is what `test:neon` uses;

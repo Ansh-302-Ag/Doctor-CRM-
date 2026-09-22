@@ -417,3 +417,38 @@ test("a clinical message replayed on the resumed consent path never reaches the 
     select reason from escalations order by created_at desc limit 1`;
   assert.match(esc.reason, /clinical/);
 });
+
+test("a greeting from a new patient is introduced, not escalated", async () => {
+  // The regression this guards: "hello" from someone we have never met used to
+  // classify as `unclear`, and the pre-consent branch handed it straight to a
+  // human — so every patient's very first message escalated.
+  const stranger = { phone: "+919000000031" };
+  const hello = await say("hello", stranger);
+
+  assert.equal(hello!.escalated, false);
+  assert.match(hello!.text, /booking assistant for/);
+  assert.match(hello!.text, new RegExp(CONSENT_NOTICE.slice(0, 40).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal((await escalations()).length, 0, "a greeting must not reach a human");
+
+  // Saying YES still works from there, and nothing was stashed to replay.
+  const yes = await say("YES", stranger);
+  assert.equal(yes!.escalated, false);
+  const [p] = await db<{ consent_status: string }[]>`
+    select consent_status from patients where phone = ${stranger.phone}`;
+  assert.equal(p.consent_status, "granted");
+});
+
+test("a patient who stays unreadable before consent does reach a human", async () => {
+  // The introduction must not become a loop the patient can never escape.
+  const stranger = { phone: "+919000000032" };
+  for (const body of ["hello", "???"]) {
+    const r = await say(body, stranger);
+    assert.equal(r!.escalated, false, `"${body}" should still be answered`);
+  }
+  const third = await say("?!?", stranger);
+  assert.equal(third!.escalated, true);
+
+  const rows = await escalations();
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].reason, /repeatedly unclear, before consent/);
+});

@@ -21,7 +21,7 @@ import {
   classifyWithClaude, ClassifierUnavailable,
   type Classifier, type Classification,
 } from "./intent";
-import { CONSENT_NOTICE, recordConsent, withdrawAndDelete, ConsentRequired } from "../consent";
+import { CONSENT_NOTICE, introduction, recordConsent, withdrawAndDelete, ConsentRequired } from "../consent";
 import { BookingError } from "../booking";
 import { setPatientName } from "../patients";
 
@@ -40,11 +40,21 @@ type BookingState = {
 /** What the patient asked for before we stopped to collect consent, so the
  *  request can be honoured rather than dropped once they agree. */
 type PendingState = { pending: string };
-type ConversationState = BookingState | PendingState | Record<string, never>;
+/** How many times someone we have not met yet has sent something we could not
+ *  read. The consent notice answers the first couple; past that they are stuck
+ *  going in circles and a human should look. */
+type GreetingState = { unclearBeforeConsent: number };
+type ConversationState =
+  BookingState | PendingState | GreetingState | Record<string, never>;
 
 const isBooking = (s: ConversationState): s is BookingState =>
   "flow" in s && s.flow === "booking";
 const isPending = (s: ConversationState): s is PendingState => "pending" in s;
+const isGreeting = (s: ConversationState): s is GreetingState =>
+  "unclearBeforeConsent" in s;
+
+/** Two unreadable messages earn an introduction; the third earns a person. */
+const MAX_UNCLEAR_BEFORE_CONSENT = 2;
 
 const fmtTime = (at: Date, tz: string) =>
   new Intl.DateTimeFormat("en-GB", {
@@ -118,7 +128,7 @@ async function inTransaction(
 }
 
 type Ctx = {
-  clinic: { id: string; timezone: string; phone: string };
+  clinic: { id: string; name: string; timezone: string; phone: string };
   patient: { id: string; consent_status: string; name: string | null };
   conversation: { id: string; state: ConversationState };
 };
@@ -183,7 +193,21 @@ async function route(
     // human. Consent governs storing and acting on their data, not whether we
     // are allowed to notice they need help (docs/01).
     if (c.intent === "unclear") {
-      return escalate("intent unclear, before consent", "normal",
+      // The deterministic screen above already caught anything clinical or
+      // urgent, consent or no consent — so an unreadable message from someone
+      // we have never met is almost always a greeting ("hi", "hello",
+      // "namaste"), which is how nearly every WhatsApp conversation opens.
+      // Introducing ourselves is the useful reply. Handing a stranger's
+      // "hello" to a nurse is not, and it used to happen to every single
+      // patient on their very first message.
+      const seen = isGreeting(state) ? state.unclearBeforeConsent : 0;
+      if (seen < MAX_UNCLEAR_BEFORE_CONSENT) {
+        await setState(db, ctx.conversation.id, { unclearBeforeConsent: seen + 1 });
+        return { text: introduction(ctx.clinic.name), escalated: false,
+                 intent: "consent_requested" };
+      }
+      // Still going nowhere after being introduced twice: they need a person.
+      return escalate("repeatedly unclear, before consent", "normal",
         templates.unclear(ctx.clinic.phone), "unclear");
     }
     if (c.intent === "consent_yes") {
@@ -457,8 +481,10 @@ const clearState = (db: Db, id: string) =>
 
 /** Find or create the patient and conversation this message belongs to. */
 async function context(db: Db, msg: InboundMessage): Promise<Ctx> {
-  const [clinic] = await db<{ id: string; timezone: string; phone: string }[]>`
-    select id, timezone, coalesce(phone, 'the clinic') as phone
+  const [clinic] = await db<
+    { id: string; name: string; timezone: string; phone: string }[]>`
+    select id, coalesce(name, 'the clinic') as name, timezone,
+           coalesce(phone, 'the clinic') as phone
       from clinics where id = ${msg.clinicId}`;
   if (!clinic) throw new Error(`unknown clinic ${msg.clinicId}`);
 

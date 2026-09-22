@@ -12,12 +12,16 @@
  */
 import { spawn } from "node:child_process";
 import { existsSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import EmbeddedPostgres from "embedded-postgres";
 import postgres from "postgres";
 
 const repo = join(import.meta.dirname, "..");
-const DATA_DIR = join(repo, ".pgdata");
+// Disposable test data belongs in the temp directory, not in the working tree:
+// nothing to gitignore, and no stale pid file sitting in the repo after a run
+// that was killed.
+const DATA_DIR = join(tmpdir(), "doctor-crm-test-pg");
 const PORT = 55432;
 const LOCAL_URL = `postgresql://postgres:devpass@127.0.0.1:${PORT}/clinic_test`;
 
@@ -50,10 +54,10 @@ async function main(): Promise<number> {
     onLog: () => {},
   });
 
-  // A previous run killed mid-flight leaves a stale lock that blocks startup.
-  // The data is disposable by construction, so removing it beats asking.
-  const stale = join(DATA_DIR, "postmaster.pid");
-  if (existsSync(stale)) rmSync(stale);
+  // A run killed mid-flight leaves a pid file behind. Postgres clears that
+  // itself when the process it names is gone, so this is a convenience, not a
+  // requirement — on a filesystem that will not let us unlink it, carry on.
+  try { rmSync(join(DATA_DIR, "postmaster.pid"), { force: true }); } catch { /* postgres will */ }
   if (!existsSync(join(DATA_DIR, "PG_VERSION"))) await pg.initialise();
 
   await pg.start();
