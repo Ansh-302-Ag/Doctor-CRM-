@@ -24,6 +24,24 @@ Then, in `.env.local`:
    network. Set it only if you want the suite to run against a real remote
    database, in which case make it a *separate* database from development: the
    suite truncates every table it touches.
+3. For development, run Postgres beside the app rather than reaching across the
+   internet for it:
+
+   ```bash
+   npm run db      # leave this terminal open
+   ```
+
+   It starts a Postgres on `127.0.0.1:55433`, creates the `clinic` and
+   `clinic_test` databases, and keeps the data in `.pgdata/` between restarts.
+   `.env.local` points at it out of the box. A remote database costs a round
+   trip per query — measured at 279 ms to Neon's us-east-2 from India, and one
+   inbound WhatsApp message makes about a dozen sequential queries, so that was
+   three to four seconds of every reply.
+
+   On Windows, run it from a **normal** terminal: Postgres refuses to start
+   under administrator rights, by design. A `.pgdata` created on one operating
+   system cannot be opened by another — delete it and re-run if you move
+   machines; the script says so when it happens.
 
 ```bash
 npm run migrate

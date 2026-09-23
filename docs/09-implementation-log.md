@@ -670,3 +670,123 @@ unconfigured deployment) counts as not delivered, too.
   is told; it is not retried through `reminders`, because that table's types
   are appointment/refill and a third one is a migration for a case the pilot
   has not hit yet.
+
+---
+
+## Session — 2026-09-22/23: live WhatsApp testing, and what it found
+
+The gateway went live against a real phone. Everything below was found by
+using it, not by reading it.
+
+### The agent was losing the conversation (`69507ef`)
+
+A real patient conversation went wrong in six places. Three root causes:
+
+**The classifier was never told what the agent was waiting for.** `ClassifyInput`
+carried the doctor list, the offered times and today's date, but not the step.
+So a bare "Dr. Rao", sent immediately after "Which doctor would you like to
+see?", classified as `unclear`. It now carries `step`, and the prompt says what
+a valid answer to each question looks like.
+
+**An `unclear` message escalated instead of re-asking, and escalating wiped the
+booking state.** The patient lost everything and started over, twice, in one
+conversation. Now a single `reask()` re-asks whatever question is outstanding,
+counts consecutive misses, and only escalates on the third; `escalate()` no
+longer clears state at all. `templates.unclear` — which carries "call 112" — is
+no longer reachable for an ordinary unreadable message, which is why "ok thank
+you" used to produce emergency text.
+
+**A collected day was silently dropped.** "Sunday" was taken, then the name
+question ran, and the day never came back. `BookingState` carries `day` now,
+and the name and consent detours no longer reset the rest of the flow.
+
+Also: offers are numbered (`1.`/`2.`/…) and the prompt says `slot_index` is a
+zero-based index into that list — "3rd one" was booking the **1st** slot. A
+phrase naming no day ("I am free") returns `day: null`. An out-of-hours request
+is answered with the clinic's real hours, built from `OPEN_HOUR`/`CLOSE_HOUR`
+so it cannot drift. And `requireTimezone()` now throws instead of letting
+`Intl` fall back to the server's zone — a missing timezone silently shifted
+every time by 5h30m for an IST clinic.
+
+### The test suite was 100 seconds of password hashing (`f8d44fb`)
+
+`scrypt` at N=2^17 takes ~285 ms by design, and the fixtures hash twice per
+test across ~180 tests. That, not the database, is why the suite had to be
+chunked across shell calls. `SCRYPT_COST` now drives it, defaulting to the
+OWASP floor when unset; the runner sets it low, a weak value is refused
+outright under `NODE_ENV=production`, and `tests/password.test.ts` covers the
+real cost, the floor, and a hash carrying its own parameters so changing the
+setting locks nobody out.
+
+**The whole suite now runs in ~32 seconds in one command.**
+
+### The doctor has his own side now (`291e92d`)
+
+Escalations were visible to every role because `doctor` inherited the whole
+`STAFF` list. They move to an `INBOX` list held by receptionist and admin only.
+`currentStaff()` returns `doctor_id`, which closes the bug recorded above — the
+prescription form no longer asks which doctor is prescribing, so a doctor can
+no longer attribute his own prescription to a colleague.
+
+`src/lib/doctor.ts` adds his queue for the day with who is next, scoped in the
+query to his own patients, and prescribing that reaches the patient on
+WhatsApp. The 24-hour rule shapes that: free-form is only allowed within 24
+hours of the patient's own last message, and docs/01 forbids a template
+carrying clinical content, so outside the window a prescription cannot be sent
+at all. Inside it, the message is read back out of the stored record rather
+than the form, so what the patient is told is by construction what was saved.
+Outside it, the patient gets a content-free note that there is something to
+collect; their reply reopens the window. Either way the row is committed before
+anything is sent and no send failure propagates.
+
+### The database moved off Neon (`61dd1e6`, `e2b2353`)
+
+Measured from the development machine: Neon us-east-2 is **279 ms** per round
+trip. One inbound WhatsApp message costs about a dozen sequential queries, so
+the database's distance was three to four seconds of every reply. Measured
+inbound-to-outbound in the live log: 5–13 seconds, median ~7.
+
+**Neon has no India region** — its regions are N. Virginia, Ohio, Oregon,
+Frankfurt, London, Singapore, Sydney and São Paulo, and a project cannot be
+moved between them. Singapore would be ~50–70 ms; a Postgres beside the app is
+~1 ms. So `npm run db` starts one locally (data in the gitignored `.pgdata/`),
+and `.env.local` points at it with the Neon URLs commented out rather than
+deleted.
+
+Three things cost real time getting that running, all now named by the script
+itself when it fails: a Postgres data directory is **not portable between
+operating systems**, so one created on Linux stops Windows dead; Postgres
+**refuses to run from an administrator terminal** on Windows by design, and
+`initdb` allows it, so the cluster gets created and only the start fails; and
+`embedded-postgres` reports a failed start as an undefined rejection, so the
+script now buffers Postgres's own output and prints it on failure.
+
+### Gateway lessons from real use
+
+- **Never run two gateway instances.** Two Baileys processes sharing one auth
+  directory make WhatsApp log the session out, and before that they race the
+  same Signal ratchet — which shows up as `Bad MAC`, `Closing open session in
+  favor of incoming prekey bundle`, and "Waiting for this message" bubbles on
+  the patient's phone. Recovery is: stop everything, remove the linked device
+  on the phone, delete `whatsapp-gateway/auth`, re-scan. **The gateway should
+  refuse to start when another instance holds the auth directory — not done.**
+- **`@lid` messages are still dropped.** `senderPhone()` prefers the real
+  number Baileys carries alongside the linked id and drops the message when
+  there is none, because a lid used as identity would create a second patient
+  record for someone who already exists. That was the right call, but WhatsApp
+  is moving to `@lid` by default, and a dropped message means a patient gets
+  no reply at all. The fix is to resolve the lid on the socket rather than only
+  reading it off the message. **Not done.**
+
+### Still owed
+
+- **The CRM redesign.** Branch `ui-redesign` (`7cbe77e`) holds the clinical
+  redesign on top of current `main` — design tokens in `globals.css`, a left
+  nav, per-route loading skeletons, the doctor's queue screen. It typechecks
+  and the whole suite passes with it, but **no screen has been looked at in a
+  browser**, so it is not merged.
+- The two gateway fixes above.
+- Cutting the round trips in `handleInbound` — `context()` alone does five
+  sequential queries to find a patient and a conversation. Worth much less now
+  the database is local, but still the right shape.
+- `main` is 15 commits ahead of GitHub.
