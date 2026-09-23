@@ -57,3 +57,6 @@ next-env.d.ts
 
 # verification screenshots — scaffolding, not a deliverable
 /.shots
+
+# local Postgres for development (npm run db)
+/.pgdata

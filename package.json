@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "migrate": "tsx --env-file=.env.local scripts/migrate.ts",
+    "db": "tsx scripts/local-db.mts",
     "test": "tsx scripts/test.mts",
     "test:neon": "tsx --test --test-concurrency=1 --env-file=.env.local tests/*.test.ts",
     "seed": "tsx --env-file=.env.local scripts/seed.ts",
