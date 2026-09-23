@@ -23,10 +23,12 @@ export default async function EscalationsPage() {
   if (!can(staff.role, "escalations:read")) {
     return (
       <section>
-        <h1 className="text-lg font-semibold text-slate-900">Escalations</h1>
-        <p className="mt-6 rounded-lg border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">
+        <h1 className="text-xl font-semibold tracking-tight text-ink">Escalations</h1>
+        <p className="mt-6 rounded-lg border border-dashed border-line-strong bg-surface p-10 text-center text-sm text-ink-3">
           Not available for your role. The front desk handles escalations; your day is under{" "}
-          <Link href="/queue" className="text-slate-600 underline hover:text-slate-900">My day</Link>.
+          <Link href="/queue" className="font-medium text-accent underline underline-offset-2 hover:text-accent-hover">
+            My day
+          </Link>.
         </p>
       </section>
     );
@@ -52,8 +54,17 @@ export default async function EscalationsPage() {
   }
 
   const when = (at: Date) => new Intl.DateTimeFormat("en-GB", {
-    dateStyle: "medium", timeStyle: "short",
+    timeZone: staff.timezone, dateStyle: "medium", timeStyle: "short",
   }).format(at);
+
+  /** How long it has been sitting. On this screen that is the number the
+   *  receptionist actually acts on; the clock time is the supporting detail. */
+  const ago = (at: Date) => {
+    const mins = Math.max(0, Math.round((Date.now() - at.getTime()) / 60_000));
+    if (mins < 60) return `${mins} min`;
+    const hours = Math.round(mins / 60);
+    return hours < 48 ? `${hours} h` : `${Math.round(hours / 24)} days`;
+  };
 
   // Urgency, not arrival order, decides what the eye lands on first.
   const emergencies = rows.filter(r => r.priority === "emergency" && r.status !== "resolved");
@@ -65,12 +76,12 @@ export default async function EscalationsPage() {
       {r.status === "open" && (
         <form action={acknowledge}>
           <input type="hidden" name="id" value={r.id} />
-          <button className={btnSecondary}>I&rsquo;m handling this</button>
+          <button className={btnPrimary}>I&rsquo;m handling this</button>
         </form>
       )}
       <form action={resolve}>
         <input type="hidden" name="id" value={r.id} />
-        <button className={btnPrimary}>Mark resolved</button>
+        <button className={r.status === "open" ? btnSecondary : btnPrimary}>Mark resolved</button>
       </form>
     </div>
   );
@@ -78,12 +89,12 @@ export default async function EscalationsPage() {
   const body = (r: Row) => (
     <>
       {r.last_message && (
-        <blockquote className="mt-3 border-l-2 border-line-strong pl-3 text-sm text-ink">
+        <blockquote className="mt-3 max-w-3xl break-words border-l-2 border-line-strong pl-3 text-sm text-ink">
           {r.last_message}
         </blockquote>
       )}
-      <p className="mt-3 text-xs text-ink-3">
-        <span className="font-semibold text-ink-2">Escalated because:</span> {r.reason}
+      <p className="mt-3 max-w-3xl break-words text-xs text-ink-2">
+        <span className="text-ink-3">Escalated because:</span> {r.reason}
       </p>
     </>
   );
@@ -117,6 +128,9 @@ export default async function EscalationsPage() {
               <li key={r.id} className="overflow-hidden rounded-lg border-2 border-danger bg-surface shadow-sm">
                 <p className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-danger px-4 py-2 text-xs font-bold uppercase tracking-widest text-white">
                   Emergency
+                  <span className="font-semibold normal-case tracking-normal">
+                    waiting {ago(r.created_at)}
+                  </span>
                   <span className="font-medium normal-case tracking-normal opacity-90">
                     raised {when(r.created_at)}
                   </span>
@@ -129,7 +143,7 @@ export default async function EscalationsPage() {
 
                 <div className="p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-lg font-semibold text-ink">
+                    <p className="min-w-0 break-words text-lg font-semibold text-ink">
                       {r.patient_name ?? "Unknown patient"}
                     </p>
                     <a
@@ -159,13 +173,15 @@ export default async function EscalationsPage() {
               <li key={r.id} className="rounded-lg border border-line bg-surface p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold text-ink">{r.patient_name ?? "Unknown patient"}</span>
+                    <span className="min-w-0 break-words font-semibold text-ink">{r.patient_name ?? "Unknown patient"}</span>
                     <Badge tone={r.status === "open" ? "warn" : "neutral"}>
                       {r.status === "open"
                         ? "Open"
                         : `Handled by ${r.assigned_to_name ?? "staff"}`}
                     </Badge>
-                    <span className="text-xs text-ink-3">{when(r.created_at)}</span>
+                    <span className="text-xs text-ink-3">
+                      waiting {ago(r.created_at)} · {when(r.created_at)}
+                    </span>
                   </div>
                   <a
                     href={`tel:${r.patient_phone}`}
@@ -197,7 +213,7 @@ export default async function EscalationsPage() {
                 <a href={`tel:${r.patient_phone}`} className="tabular-nums text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-accent">
                   {r.patient_phone}
                 </a>
-                <span className="text-xs text-ink-3">Escalated because: {r.reason}</span>
+                <span className="min-w-0 break-words text-xs text-ink-3">Escalated because: {r.reason}</span>
                 <span className="ml-auto text-xs text-ink-3">
                   {r.resolved_at ? `Resolved ${when(r.resolved_at)}` : "Resolved"}
                 </span>

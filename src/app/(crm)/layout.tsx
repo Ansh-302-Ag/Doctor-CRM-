@@ -35,7 +35,7 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
       {/* A rail rather than a strip: this tool stays open all day, and the
           escalation count needs somewhere it can shout. It collapses to a
           single dark bar on a small laptop — wrapping, no toggle to script. */}
-      <aside className="flex flex-wrap items-center gap-3 border-b border-rail-line bg-rail px-4 py-3 md:sticky md:top-0 md:h-dvh md:w-60 md:shrink-0 md:flex-col md:items-stretch md:gap-0 md:border-b-0 md:px-0 md:py-0">
+      <aside className="flex flex-wrap items-center gap-3 border-b border-rail-line bg-rail px-4 py-3 md:sticky md:top-0 md:h-dvh md:w-52 md:shrink-0 xl:w-60 md:flex-col md:items-stretch md:gap-0 md:border-b-0 md:px-0 md:py-0">
         <div className="flex items-center gap-2.5 md:border-b md:border-rail-line md:px-4 md:py-4">
           <span
             aria-hidden="true"
@@ -64,7 +64,7 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
         </form>
       </aside>
 
-      <main className="min-w-0 flex-1 px-4 py-6 md:px-8 md:py-8">
+      <main className="min-w-0 flex-1 px-4 py-6 md:px-6 md:py-8 xl:px-8">
         <div className="mx-auto w-full max-w-[1400px]">{children}</div>
       </main>
     </div>

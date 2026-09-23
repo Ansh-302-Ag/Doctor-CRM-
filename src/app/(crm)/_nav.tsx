@@ -34,7 +34,7 @@ export function Nav({ items, openEscalations }: { items: NavItem[]; openEscalati
                 aria-current={active ? "page" : undefined}
                 className={`flex items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                   active
-                    ? "bg-rail-active text-white"
+                    ? "bg-rail-active text-white shadow-[inset_3px_0_0_0_var(--color-accent)]"
                     : "text-rail-ink hover:bg-rail-active hover:text-white"
                 }`}
               >

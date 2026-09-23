@@ -5,6 +5,21 @@ import { audit } from "@/lib/audit";
 import { requirePermission } from "@/lib/rbac";
 import { Badge, appointmentStatus } from "./_ui";
 
+const iconProps = {
+  viewBox: "0 0 24 24", "aria-hidden": true as const, className: "size-4 shrink-0",
+  fill: "none", stroke: "currentColor", strokeWidth: "1.7",
+  strokeLinecap: "round" as const, strokeLinejoin: "round" as const,
+};
+
+/** Who put the appointment in the book. Shape as well as colour, because the
+ *  status column right next to it is already a coloured pill. */
+const AgentIcon = () => (
+  <svg {...iconProps}><path d="M12 3.5 13.7 8l4.5 1.7-4.5 1.7L12 16l-1.7-4.6L5.8 9.7 10.3 8 12 3.5ZM18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2Z" /></svg>
+);
+const StaffIcon = () => (
+  <svg {...iconProps}><path d="M19 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-7A3.5 3.5 0 0 0 5 18.5V20M12 4a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z" /></svg>
+);
+
 /** Read-only day view of the clinic's booked appointments (Phase 1, docs/07):
  *  it does not need to be pretty, it needs to be accurate. */
 export default async function CalendarPage({
@@ -133,9 +148,9 @@ export default async function CalendarPage({
         </p>
       ) : (
         <div className="mt-5 overflow-x-auto rounded-lg border border-line bg-surface">
-          <table className="w-full border-collapse text-sm">
+          <table className="w-full min-w-[740px] border-collapse text-sm">
             <thead>
-              <tr className="border-b border-line bg-subtle text-left text-xs uppercase tracking-wide text-ink-3">
+              <tr className="border-b border-line bg-subtle text-left text-xs uppercase tracking-wide whitespace-nowrap text-ink-3">
                 <th scope="col" className="px-4 py-2.5 font-semibold">Time</th>
                 <th scope="col" className="px-4 py-2.5 font-semibold">Patient</th>
                 <th scope="col" className="px-4 py-2.5 font-semibold">Doctor</th>
@@ -160,7 +175,7 @@ export default async function CalendarPage({
                       </span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="block font-medium text-ink">{r.patient_name ?? "Unnamed"}</span>
+                      <span className="block font-medium break-words text-ink">{r.patient_name ?? "Unnamed"}</span>
                       <a
                         href={`tel:${r.patient_phone}`}
                         className="text-xs tabular-nums text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-accent"
@@ -168,15 +183,21 @@ export default async function CalendarPage({
                         {r.patient_phone}
                       </a>
                     </td>
-                    <td className="px-4 py-3 text-ink-2">{r.doctor_name}</td>
-                    <td className="px-4 py-3 text-ink-2">{r.reason_text ?? "—"}</td>
+                    <td className="whitespace-nowrap px-4 py-3 text-ink-2">{r.doctor_name}</td>
+                    <td className="px-4 py-3 break-words text-ink-2">{r.reason_text ?? "—"}</td>
                     <td className="px-4 py-3">
                       <Badge tone={status.tone}>{status.label}</Badge>
                     </td>
-                    <td className="px-4 py-3">
-                      {r.created_by === "agent"
-                        ? <Badge tone="accent">AI assistant</Badge>
-                        : <Badge>Staff</Badge>}
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {r.created_by === "agent" ? (
+                        <span className="inline-flex items-center gap-1.5 font-medium text-accent">
+                          <AgentIcon />AI assistant
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-ink-2">
+                          <StaffIcon />Staff
+                        </span>
+                      )}
                     </td>
                   </tr>
                 );

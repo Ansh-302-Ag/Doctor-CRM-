@@ -137,7 +137,7 @@ export default async function PatientRecordPage({
       <header className="mt-3 rounded-lg border border-line bg-surface p-5">
         <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-5">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-ink">
+            <h1 className="text-xl font-semibold tracking-tight break-words text-ink">
               {patient.name ?? "Unnamed patient"}
             </h1>
             <a
@@ -197,8 +197,8 @@ export default async function PatientRecordPage({
       )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <div className="space-y-6">
-          <div>
+        <div className="min-w-0 space-y-6">
+          <div className="min-w-0">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-3">Appointments</h2>
             {appointments.length === 0 ? (
               <p className="mt-2 rounded-lg border border-dashed border-line-strong bg-surface p-8 text-center text-sm text-ink-3">
@@ -206,9 +206,9 @@ export default async function PatientRecordPage({
               </p>
             ) : (
               <div className="mt-2 overflow-x-auto rounded-lg border border-line bg-surface">
-                <table className="w-full border-collapse text-sm">
+                <table className="w-full min-w-[560px] border-collapse text-sm">
                   <thead>
-                    <tr className="border-b border-line bg-subtle text-left text-xs uppercase tracking-wide text-ink-3">
+                    <tr className="border-b border-line bg-subtle text-left text-xs uppercase tracking-wide whitespace-nowrap text-ink-3">
                       <th scope="col" className="px-4 py-2.5 font-semibold">When</th>
                       <th scope="col" className="px-4 py-2.5 font-semibold">Doctor</th>
                       <th scope="col" className="px-4 py-2.5 font-semibold">Status</th>
@@ -225,7 +225,7 @@ export default async function PatientRecordPage({
                           </td>
                           <td className="whitespace-nowrap px-4 py-3 text-ink-2">{a.doctor_name}</td>
                           <td className="px-4 py-3"><Badge tone={status.tone}>{status.label}</Badge></td>
-                          <td className="px-4 py-3 text-ink-2">{a.reason_text ?? "—"}</td>
+                          <td className="px-4 py-3 break-words text-ink-2">{a.reason_text ?? "—"}</td>
                         </tr>
                       );
                     })}
@@ -235,9 +235,9 @@ export default async function PatientRecordPage({
             )}
           </div>
 
-          <div>
+          <div className="min-w-0">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-3">Prescriptions</h2>
-            <p className="mt-1 text-sm text-ink-2">
+            <p className="mt-1 max-w-2xl text-sm text-ink-2">
               Stored exactly as entered. The assistant reads these back to the patient verbatim and never interprets them.
             </p>
 
@@ -257,8 +257,8 @@ export default async function PatientRecordPage({
                       }`}
                     >
                       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                        <span className="text-base font-semibold text-ink">{p.drug_name}</span>
-                        <span className="text-sm text-ink-2">{p.dosage}</span>
+                        <span className="min-w-0 break-words text-base font-semibold text-ink">{p.drug_name}</span>
+                        <span className="min-w-0 break-words text-sm text-ink-2">{p.dosage}</span>
                         {p.duration_days !== null && (
                           <span className="text-sm text-ink-3">
                             for {p.duration_days} day{p.duration_days === 1 ? "" : "s"}
@@ -269,7 +269,7 @@ export default async function PatientRecordPage({
                       <p className="mt-1.5 text-xs text-ink-3">
                         {p.doctor_name} · recorded by {p.created_by_name} · {when(p.created_at)}
                       </p>
-                      {p.notes && <p className="mt-2 text-sm text-ink">{p.notes}</p>}
+                      {p.notes && <p className="mt-2 break-words text-sm text-ink">{p.notes}</p>}
                       {p.status === "active" && canPrescribe && (
                         <form action={discontinue} className="mt-3">
                           <input type="hidden" name="patientId" value={patient.id} />
@@ -328,7 +328,7 @@ export default async function PatientRecordPage({
             </form>
           ) : (
             <p className="rounded-lg border border-dashed border-line-strong bg-surface p-4 text-sm text-ink-3">
-              Only a doctor or admin can add to the record.
+              Only a doctor or admin can add to this record. Everything on file is shown on the left.
             </p>
           )}
         </div>

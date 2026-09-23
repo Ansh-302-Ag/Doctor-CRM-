@@ -72,9 +72,9 @@ export default async function PatientsPage({
         </p>
       ) : (
         <div className="mt-5 overflow-x-auto rounded-lg border border-line bg-surface">
-          <table className="w-full border-collapse text-sm">
+          <table className="w-full min-w-[700px] border-collapse text-sm">
             <thead>
-              <tr className="border-b border-line bg-subtle text-left text-xs uppercase tracking-wide text-ink-3">
+              <tr className="border-b border-line bg-subtle text-left text-xs uppercase tracking-wide whitespace-nowrap text-ink-3">
                 <th scope="col" className="px-4 py-2.5 font-semibold">Name</th>
                 <th scope="col" className="px-4 py-2.5 font-semibold">Phone</th>
                 <th scope="col" className="px-4 py-2.5 font-semibold">Consent</th>
@@ -90,7 +90,7 @@ export default async function PatientsPage({
                     <td className="px-4 py-3">
                       <Link
                         href={`/patients/${p.id}`}
-                        className="font-medium text-ink underline decoration-line-strong underline-offset-2 hover:text-accent"
+                        className="font-medium break-words text-ink underline decoration-line-strong underline-offset-2 hover:text-accent"
                       >
                         {p.name ?? "Unnamed"}
                       </Link>

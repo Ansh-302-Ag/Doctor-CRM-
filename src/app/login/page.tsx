@@ -60,7 +60,7 @@ export default async function LoginPage({
               <label htmlFor="email" className="block text-xs font-semibold uppercase tracking-wide text-ink-3">
                 Email
               </label>
-              <input id="email" name="email" type="email" required autoComplete="username" className={field} />
+              <input id="email" name="email" type="email" required autoFocus autoComplete="username" className={field} />
             </div>
             <div>
               <label htmlFor="password" className="block text-xs font-semibold uppercase tracking-wide text-ink-3">
