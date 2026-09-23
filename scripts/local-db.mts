@@ -54,6 +54,18 @@ try {
   // embedded-postgres surfaces a start failure as an undefined rejection, which
   // tells you nothing. The overwhelmingly common cause is a second copy already
   // running, or a pid file left by one that was killed.
+  // Postgres refuses to run as an administrator on Windows, by design. It is
+  // the most likely reason on that platform and says nothing about the cluster,
+  // so name it before the disposable-data advice sends someone deleting things.
+  if (recent.some(l => /administrative permissions is not permitted/i.test(l))) {
+    console.error(
+      `\n[db] Postgres will not run from an administrator terminal — that is a\n` +
+      `     deliberate refusal on its part, not a problem with your data.\n\n` +
+      `     Open a normal PowerShell (not "Run as administrator") and try again.\n` +
+      `     The cluster in ${DATA_DIR} is fine; do not delete it.\n`);
+    process.exit(1);
+  }
+
   console.error(
     `\n[db] Postgres would not start on port ${PORT}.\n\n` +
     `  - Another copy may already be running. Stop it, or set LOCAL_DB_PORT.\n` +
