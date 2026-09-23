@@ -47,8 +47,12 @@ try {
   console.error(
     `\n[db] Postgres would not start on port ${PORT}.\n\n` +
     `  - Another copy may already be running. Stop it, or set LOCAL_DB_PORT.\n` +
-    `  - A previous run may have left a lock behind. Delete this file and retry:\n` +
-    `      ${join(DATA_DIR, "postmaster.pid")}\n`);
+    `  - Otherwise the cluster is unusable: a lock left by a run that was\n` +
+    `    killed, or a directory created by a different operating system (a\n` +
+    `    Postgres data directory is not portable between them). This data is\n` +
+    `    disposable — delete the whole directory and run this again:\n\n` +
+    `      ${DATA_DIR}\n\n` +
+    `    Then 'npm run migrate' and 'npm run seed' to rebuild it.\n`);
   if (e) console.error(e);
   process.exit(1);
 }
