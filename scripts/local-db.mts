@@ -22,13 +22,23 @@ const DATA_DIR = process.env.LOCAL_DB_DIR ?? join(repo, ".pgdata");
 const PORT = Number(process.env.LOCAL_DB_PORT ?? 55433);   // 55432 is the test database
 const DATABASES = ["clinic", "clinic_test"];
 
+/** Postgres is chatty when it works and the only witness when it does not, so
+ *  keep the last lines and print them only if something goes wrong. */
+const recent: string[] = [];
+const remember = (line: unknown) => {
+  const text = line instanceof Error ? (line.stack ?? line.message) : String(line);
+  for (const l of text.split("\n")) if (l.trim()) recent.push(l);
+  while (recent.length > 40) recent.shift();
+};
+
 const pg = new EmbeddedPostgres({
   databaseDir: DATA_DIR, user: "postgres", password: "devpass",
   port: PORT, persistent: true,
   // Without this Postgres binds a unix socket only and every TCP client sees
   // ECONNREFUSED.
   postgresFlags: ["-c", "listen_addresses=127.0.0.1"],
-  onLog: () => {},
+  onLog: remember,
+  onError: remember,
 });
 
 // A run killed mid-flight leaves a pid file naming a process that is gone.
@@ -54,6 +64,13 @@ try {
     `      ${DATA_DIR}\n\n` +
     `    Then 'npm run migrate' and 'npm run seed' to rebuild it.\n`);
   if (e) console.error(e);
+  if (recent.length) {
+    console.error("[db] what Postgres itself said:\n");
+    for (const line of recent) console.error(`    ${line}`);
+    console.error("");
+  } else {
+    console.error("[db] Postgres printed nothing at all before failing.\n");
+  }
   process.exit(1);
 }
 
