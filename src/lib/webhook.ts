@@ -23,41 +23,85 @@ export function verifySignature(rawBody: string, header: string | null): boolean
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
-const payload = z.object({
+// The envelope is checked loosely; each message and status is validated on its
+// own so one malformed entry (e.g. a username user with no `from`) cannot
+// discard its neighbours.
+const envelope = z.object({
   entry: z.array(z.object({
     changes: z.array(z.object({
       value: z.object({
-        messages: z.array(z.object({
-          from: z.string(),
-          id: z.string(),
-          type: z.string(),
-          text: z.object({ body: z.string() }).optional(),
-        })).optional(),
+        messages: z.array(z.unknown()).optional(),
+        statuses: z.array(z.unknown()).optional(),
       }),
     })),
   })),
 });
 
+const message = z.object({
+  from: z.string().min(1),
+  id: z.string(),
+  type: z.string(),
+  text: z.object({ body: z.string() }).optional(),
+  unsupported: z.object({ type: z.string().optional() }).optional(),
+}).loose();
+
+const status = z.object({
+  id: z.string(),
+  status: z.string(),
+  recipient_id: z.string().optional(),
+  errors: z.array(z.object({ code: z.number().optional(), title: z.string().optional() })).optional(),
+});
+
 export type InboundText = { phone: string; body: string; providerMessageId: string };
+export type InboundOther = { phone: string; providerMessageId: string; kind: string };
+export type FailedStatus = { messageId: string; recipient: string; code: number | null; title: string };
 
-/** Text messages only. Anything else (image, audio, location) has no tool and
- *  is surfaced to the caller as unsupported so it escalates rather than vanishing. */
+const CAPTIONED = ["image", "video", "document"];
+// Nothing to answer: no reply, no page.
+const IGNORED = ["reaction", "system"];
+
+/** Text and captioned media become texts. Everything else with no tool is
+ *  surfaced as unsupported so it escalates rather than vanishing. Messages we
+ *  cannot attribute to a phone are only counted. */
 export function parseInbound(body: unknown): {
-  texts: InboundText[]; unsupported: { phone: string; providerMessageId: string }[];
+  texts: InboundText[]; unsupported: InboundOther[]; failed: FailedStatus[]; unidentified: number;
 } {
-  const parsed = payload.safeParse(body);
-  if (!parsed.success) return { texts: [], unsupported: [] };
-
   const texts: InboundText[] = [];
-  const unsupported: { phone: string; providerMessageId: string }[] = [];
+  const unsupported: InboundOther[] = [];
+  const failed: FailedStatus[] = [];
+  let unidentified = 0;
+
+  const parsed = envelope.safeParse(body);
+  if (!parsed.success) return { texts, unsupported, failed, unidentified };
+
   for (const entry of parsed.data.entry)
-    for (const change of entry.changes)
-      for (const m of change.value.messages ?? []) {
-        if (m.type === "text" && m.text) {
-          texts.push({ phone: `+${m.from.replace(/^\+/, "")}`, body: m.text.body, providerMessageId: m.id });
+    for (const change of entry.changes) {
+      for (const raw of change.value.messages ?? []) {
+        const m = message.safeParse(raw);
+        if (!m.success) { unidentified++; continue; }
+        const { from, id, type } = m.data;
+        if (IGNORED.includes(type)) continue;
+        const phone = `+${from.replace(/^\+/, "")}`;
+        const caption = CAPTIONED.includes(type)
+          ? (m.data[type] as { caption?: unknown } | undefined)?.caption : undefined;
+        if (type === "text" && m.data.text) {
+          texts.push({ phone, body: m.data.text.body, providerMessageId: id });
+        } else if (typeof caption === "string" && caption.trim()) {
+          texts.push({ phone, body: caption, providerMessageId: id });
         } else {
-          unsupported.push({ phone: `+${m.from.replace(/^\+/, "")}`, providerMessageId: m.id });
+          const kind = type === "unsupported" ? (m.data.unsupported?.type ?? "unsupported") : type;
+          unsupported.push({ phone, providerMessageId: id, kind });
         }
       }
-  return { texts, unsupported };
+      for (const raw of change.value.statuses ?? []) {
+        const st = status.safeParse(raw);
+        if (!st.success || st.data.status !== "failed") continue;
+        const err = st.data.errors?.[0];
+        failed.push({
+          messageId: st.data.id, recipient: st.data.recipient_id ?? "",
+          code: err?.code ?? null, title: err?.title ?? "",
+        });
+      }
+    }
+  return { texts, unsupported, failed, unidentified };
 }
