@@ -32,6 +32,8 @@ const AFFIRMATIVE = new Set([
  * which sometimes reads a bare "OK" as unclear — is not asked.
  */
 export const isAffirmative = (body: string) =>
+  // "ok?" and "haan?" are a patient asking "pardon?", not agreeing.
+  !body.includes("?") &&
   AFFIRMATIVE.has(body.toLowerCase().replace(/\p{P}/gu, " ").trim().replace(/\s+/g, " "));
 
 export class ConsentRequired extends Error {

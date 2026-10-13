@@ -203,9 +203,11 @@ async function route(
   const offeredIso = (isBooking(state) && state.offered) || [];
 
   let c: Classification;
-  if (ctx.patient.consent_status !== "granted" && isAffirmative(msg.body)) {
+  if (ctx.patient.consent_status !== "granted" && isAffirmative(msg.body)
+      && await justAskedForConsent(db, ctx.conversation.id)) {
     // "OK", "haan" and a thumbs-up are consent, and the model sometimes reads
-    // them as unclear — so it is not asked.
+    // them as unclear — so it is not asked. Only as an answer to the notice: an
+    // "ok" after a withdrawal or an emergency reply agrees to nothing.
     c = { intent: "consent_yes", doctor: null, day: null, slotIndex: null, time: null, name: null };
   } else try {
     c = await classify({
@@ -296,8 +298,7 @@ async function route(
       );
       return { ...resumed, text: `Thank you. ${resumed.text}` };
     }
-    // Keep the first request: a later, vaguer message must not replace it.
-    await setState(db, ctx.conversation.id, { ...state, pending: state.pending ?? msg.body });
+    await setState(db, ctx.conversation.id, { ...state, pending: stash(state, c, msg) });
     return { text: CONSENT_NOTICE, escalated: false, intent: "consent_requested" };
   }
 
@@ -324,7 +325,7 @@ async function route(
   }
 
   if (!ctx.patient.name && (c.intent === "book" || c.intent === "reschedule")) {
-    await setState(db, ctx.conversation.id, { ...state, pending: state.pending ?? msg.body });
+    await setState(db, ctx.conversation.id, { ...state, pending: stash(state, c, msg) });
     return { text: "Before I book that — what name should I put on the appointment?",
              escalated: false, intent: "name_requested" };
   }
@@ -600,6 +601,22 @@ function spread<T>(all: T[], n: number): T[] {
   if (all.length <= n) return all;
   const step = (all.length - 1) / (n - 1);
   return Array.from({ length: n }, (_, i) => all[Math.round(i * step)]);
+}
+
+/** Which request to hold while we collect consent or a name. A vaguer message
+ *  ("1") must not replace the real one, but a correction that names a doctor or
+ *  a day ("actually Dr. Iyer on Friday") is the patient's new request. */
+const stash = (state: ConversationState, c: Classification, msg: InboundMessage) =>
+  c.doctor || c.day ? msg.body : (state.pending ?? msg.body);
+
+/** Was the last thing we said to this patient the consent notice? Both the
+ *  notice reply and introduction() end with it. */
+async function justAskedForConsent(db: Db, conversationId: string) {
+  const [last] = await db<{ body: string }[]>`
+    select body from messages
+     where conversation_id = ${conversationId} and direction = 'outbound'
+     order by created_at desc limit 1`;
+  return !!last?.body.endsWith(CONSENT_NOTICE);
 }
 
 const setState = (db: Db, id: string, state: ConversationState) =>

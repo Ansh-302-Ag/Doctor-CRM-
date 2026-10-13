@@ -700,7 +700,64 @@ test("isAffirmative accepts a plain yes whatever the case or punctuation, and no
   for (const yes of ["YES", "Ok.", " haan ji! ", "Yes, I agree", "हाँ", "हां।", "👍", "k"]) {
     assert.ok(isAffirmative(yes), yes);
   }
-  for (const no of ["no", "ok but not today", "yes please book Dr. Rao", "okay?? when", "", "👎"]) {
+  for (const no of ["no", "ok but not today", "yes please book Dr. Rao", "okay?? when", "",
+                    "👎", "haan?", "ok?"]) {
     assert.ok(!isAffirmative(no), no);
   }
+});
+
+test("DELETE then a thumbs-up does not undo the withdrawal", async () => {
+  await say("delete my data");
+  await handleInbound(db, {
+    clinicId: f.clinicId, phone: "+919000000001", body: "👍", providerMessageId: "del-ok",
+  }, new Date(), stub(() => ({})));
+
+  const [p] = await db<{ consent_status: string; deleted_at: Date | null }[]>`
+    select consent_status, deleted_at from patients where id = ${f.patientId}`;
+  assert.equal(p.consent_status, "withdrawn");
+  assert.ok(p.deleted_at, "the erasure still stands");
+});
+
+test("an 'ok' to the emergency reply is not consent", async () => {
+  const phone = "+919000000097";
+  const send = (body: string, id: string) =>
+    handleInbound(db, { clinicId: f.clinicId, phone, body, providerMessageId: id },
+      new Date(), stub(() => ({})));
+
+  const first = await send("I'm having chest pain right now", "em1");
+  assert.equal(first!.escalated, true);
+  await send("ok", "em2");
+
+  const [p] = await db<{ consent_status: string }[]>`
+    select consent_status from patients where phone = ${phone}`;
+  assert.equal(p.consent_status, "pending");
+});
+
+test("a correction during the name detour wins over the stashed request", async () => {
+  await db`insert into doctors (clinic_id, name, specialty, default_slot_minutes)
+           values (${f.clinicId}, 'Dr. Iyer', 'Paediatrics', 20)`;
+
+  const phone = "+919000000072";
+  const first = localDay(futureSlot(10, 3)), second = localDay(futureSlot(10, 5));
+  const classifier = stub(i =>
+    i.body === "yes" ? { intent: "consent_yes" } :
+    i.body === "Asha" ? { intent: "provide_name", name: "Asha" } :
+    i.body === "1" ? { intent: "book", slotIndex: 0 } :
+    i.body.startsWith("actually") ? { intent: "book", doctor: "Dr. Iyer", day: second } :
+    { intent: "book", doctor: "Dr. Rao", day: first });
+  const send = (body: string, id: string) =>
+    handleInbound(db, { clinicId: f.clinicId, phone, body, providerMessageId: id },
+      new Date(), classifier);
+
+  await send("book Dr. Rao for a checkup", "c1");
+  assert.match((await send("yes", "c2"))!.text, /what name/i);
+  assert.match((await send("actually Dr. Iyer on the day after", "c3"))!.text, /what name/i);
+
+  const named = await send("Asha", "c4");
+  assert.match(named!.text, /these times are free/i);
+
+  const booked = await send("1", "c5");
+  assert.match(booked!.text, /with Dr\. Iyer/);
+  const [a] = await db<{ starts_at: Date }[]>`select starts_at from appointments`;
+  assert.equal(localDay(a.starts_at), second);
 });
