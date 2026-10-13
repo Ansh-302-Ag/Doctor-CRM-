@@ -4,7 +4,7 @@
  */
 import test, { after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import { db, reset, seed, closeAll, type Fixture } from "./helpers";
+import { db, agentDb, reset, seed, closeAll, type Fixture } from "./helpers";
 import { processWebhook, type Senders } from "../src/lib/inbound";
 import { scripted } from "./stub-classifier";
 import type { Outbound, StaffAlert } from "../src/lib/channel";
@@ -55,6 +55,50 @@ test("an emergency that hits a processing failure still gets 112 and an urgent p
   assert.equal(r.pages().length, 1);
   assert.equal(r.pages()[0].urgent, true);
   assert.match(r.pages()[0].note, /^URGENT: /);
+  const e = await db<{ priority: string }[]>`select priority from escalations`;
+  assert.deepEqual(e.map(x => x.priority), ["emergency"]);
+});
+
+const escalationRows = () => db<{ reason: string; patient_id: string; conversation_id: string }[]>`
+  select reason, patient_id, conversation_id from escalations`;
+
+test("a reply that fails to send leaves a row in the inbox, not just a page", async () => {
+  const r = recorder({ sendThrows: true });
+  await run(envelope([text("I need an appointment with Dr. Rao")]), r);
+
+  const rows = await escalationRows();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].reason, "reply could not be delivered");
+  assert.equal(rows[0].patient_id, f.patientId);
+  assert.equal(rows[0].conversation_id, f.conversationId);
+  assert.match(r.pages()[0].note, /Open the escalation inbox\.$/);
+});
+
+test("a message that could not be processed leaves a row in the inbox", async () => {
+  // Fails inside the transaction, so everything the handler wrote is gone.
+  // Run as the restricted role the webhook really uses: the row must not need
+  // a grant the agent lacks.
+  await db`update clinics set timezone = '' where id = ${f.clinicId}`;
+  const r = recorder();
+  await processWebhook(agentDb, envelope([text("I need an appointment with Dr. Rao")]),
+    f.clinicId, r.senders, scripted);
+
+  const rows = await escalationRows();
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].reason, "message could not be processed");
+  assert.equal(rows[0].patient_id, f.patientId);
+  assert.equal(r.pages().length, 1);
+  assert.match(r.pages()[0].note, /Open the escalation inbox\.$/);
+});
+
+test("a first message that could not be processed still pages, with no row to attach", async () => {
+  const r = recorder();
+  await processWebhook(failing, envelope([
+    { from: "919000000099", id: "n1", type: "text", text: { body: "hello" } },
+  ]), f.clinicId, r.senders, scripted);
+
+  assert.equal(r.pages().length, 1);
+  assert.equal((await escalationRows()).length, 0);
 });
 
 test("a reply that fails to send does not tell the patient there was a technical issue", async () => {

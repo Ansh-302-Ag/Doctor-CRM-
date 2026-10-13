@@ -31,6 +31,24 @@ export async function processWebhook(
     await senders.notifyStaff({ clinicName: await clinicName, urgent, note });
   };
 
+  // A page carries a masked number and nothing else, so on its own it points
+  // staff at an empty inbox. A failure also leaves a row there with the
+  // patient's details. Best effort: a first-time sender whose first message
+  // failed has no record to attach it to (zero rows inserted), and nothing
+  // here may cost the page that follows.
+  const flag = async (phone: string, reason: string, urgent: boolean) => {
+    try {
+      await pool`
+        insert into escalations (conversation_id, patient_id, reason, priority)
+        select (select c.id from conversations c where c.patient_id = p.id
+                 order by c.last_message_at desc limit 1),
+               p.id, ${reason}, ${urgent ? "emergency" : "normal"}
+          from patients p where p.clinic_id = ${clinicId} and p.phone = ${phone}`;
+    } catch (e) {
+      console.error("[webhook] could not add the failure to the escalation inbox", e);
+    }
+  };
+
   for (const m of [...texts, ...unsupported]) {
     let reply: Reply | null;
     try {
@@ -42,8 +60,10 @@ export async function processWebhook(
       // The screen is pure, so it still runs when everything else failed: a
       // "chest pain" that hit a bug is still an emergency to the person paged.
       const urgent = "body" in m && screen(m.body).verdict === "emergency";
+      await flag(m.phone, "message could not be processed", urgent);
       await page(urgent,
-        `${urgent ? "URGENT: " : ""}Could not process a message from ${mask(m.phone)}. Check the server logs.`);
+        `${urgent ? "URGENT: " : ""}Could not process a message from ${mask(m.phone)}. ` +
+        `Open the escalation inbox.`);
       continue;
     }
     if (!reply) continue;                                       // duplicate delivery
@@ -59,8 +79,9 @@ export async function processWebhook(
       // The work is done (a booking may exist), so a "technical issue" message
       // would be a lie. Staff tell the patient instead.
       console.error("[webhook] reply send failed", e);
+      await flag(m.phone, "reply could not be delivered", !!reply.urgent);
       await page(!!reply.urgent,
-        `Reply to ${mask(m.phone)} could not be delivered. Contact the patient directly.`);
+        `Reply to ${mask(m.phone)} could not be delivered. Open the escalation inbox.`);
     }
   }
 
