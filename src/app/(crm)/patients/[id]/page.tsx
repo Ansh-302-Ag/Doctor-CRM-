@@ -205,7 +205,25 @@ export default async function PatientRecordPage({
                 No appointments yet.
               </p>
             ) : (
-              <div className="mt-2 overflow-x-auto rounded-lg border border-line bg-surface">
+              <>
+              {/* Below md the same rows render as cards. */}
+              <ul className="mt-2 space-y-3 md:hidden">
+                {appointments.map(a => {
+                  const status = appointmentStatus(a.status);
+                  return (
+                    <li key={a.id} className="rounded-lg border border-line bg-surface p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <span className="font-semibold tabular-nums text-ink">{when(a.starts_at)}</span>
+                        <Badge tone={status.tone}>{status.label}</Badge>
+                      </div>
+                      <p className="mt-2 text-sm text-ink-2">{a.doctor_name}</p>
+                      <p className="mt-1 text-sm break-words text-ink-2">{a.reason_text ?? "—"}</p>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              <div className="mt-2 hidden overflow-x-auto rounded-lg border border-line bg-surface md:block">
                 <table className="w-full min-w-[560px] border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-line bg-subtle text-left text-xs uppercase tracking-wide whitespace-nowrap text-ink-3">
@@ -232,6 +250,7 @@ export default async function PatientRecordPage({
                   </tbody>
                 </table>
               </div>
+              </>
             )}
           </div>
 

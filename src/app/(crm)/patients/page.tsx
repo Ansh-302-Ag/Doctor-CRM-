@@ -71,7 +71,44 @@ export default async function PatientsPage({
              : "No patients yet."}
         </p>
       ) : (
-        <div className="mt-5 overflow-x-auto rounded-lg border border-line bg-surface">
+        <>
+        {/* Below md the same rows render as cards. */}
+        <ul className="mt-5 space-y-3 md:hidden">
+          {patients.map(p => {
+            const consent = consentStatus(p.consent_status);
+            return (
+              <li key={p.id} className="rounded-lg border border-line bg-surface p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <Link
+                    href={`/patients/${p.id}`}
+                    className="min-w-0 text-lg font-semibold leading-tight break-words text-ink underline decoration-line-strong underline-offset-2 hover:text-accent"
+                  >
+                    {p.name ?? "Unnamed"}
+                  </Link>
+                  <Badge tone={consent.tone}>{consent.label}</Badge>
+                </div>
+                <a
+                  href={`tel:${p.phone}`}
+                  className="mt-1 inline-block tabular-nums text-ink-2 underline decoration-line-strong underline-offset-2 hover:text-accent"
+                >
+                  {p.phone}
+                </a>
+                <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">Next appointment</dt>
+                    <dd className="mt-0.5 tabular-nums text-ink-2">{when(p.next_appointment)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">Active prescriptions</dt>
+                    <dd className="mt-0.5 tabular-nums text-ink-2">{p.active_prescriptions}</dd>
+                  </div>
+                </dl>
+              </li>
+            );
+          })}
+        </ul>
+
+        <div className="mt-5 hidden overflow-x-auto rounded-lg border border-line bg-surface md:block">
           <table className="w-full min-w-[700px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-line bg-subtle text-left text-xs uppercase tracking-wide whitespace-nowrap text-ink-3">
@@ -118,6 +155,7 @@ export default async function PatientsPage({
             </tbody>
           </table>
         </div>
+        </>
       )}
     </section>
   );

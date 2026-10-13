@@ -20,6 +20,18 @@ const StaffIcon = () => (
   <svg {...iconProps}><path d="M19 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-7A3.5 3.5 0 0 0 5 18.5V20M12 4a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z" /></svg>
 );
 
+/** Shared by the table cell and the phone card. */
+const BookedBy = ({ by }: { by: string }) =>
+  by === "agent" ? (
+    <span className="inline-flex items-center gap-1.5 font-medium text-accent">
+      <AgentIcon />AI assistant
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1.5 text-ink-2">
+      <StaffIcon />Staff
+    </span>
+  );
+
 /** Read-only day view of the clinic's booked appointments (Phase 1, docs/07):
  *  it does not need to be pretty, it needs to be accurate. */
 export default async function CalendarPage({
@@ -147,7 +159,39 @@ export default async function CalendarPage({
           Nothing booked for this day.
         </p>
       ) : (
-        <div className="mt-5 overflow-x-auto rounded-lg border border-line bg-surface">
+        <>
+        {/* Below md the same rows render as cards: a 740px table would scroll
+            sideways on a phone. */}
+        <ul className="mt-5 space-y-3 md:hidden">
+          {rows.map(r => {
+            const status = appointmentStatus(r.status);
+            return (
+              <li key={r.id} className="rounded-lg border border-line bg-surface p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="block text-lg font-semibold tabular-nums leading-tight text-ink">
+                      {time(r.starts_at)}
+                    </span>
+                    <span className="block text-xs tabular-nums text-ink-3">to {time(r.ends_at)}</span>
+                  </div>
+                  <Badge tone={status.tone}>{status.label}</Badge>
+                </div>
+                <p className="mt-3 font-medium break-words text-ink">{r.patient_name ?? "Unnamed"}</p>
+                <a
+                  href={`tel:${r.patient_phone}`}
+                  className="text-sm tabular-nums text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-accent"
+                >
+                  {r.patient_phone}
+                </a>
+                <p className="mt-2 text-sm text-ink-2">{r.doctor_name}</p>
+                <p className="mt-1 text-sm break-words text-ink-2">{r.reason_text ?? "—"}</p>
+                <p className="mt-2 text-xs"><BookedBy by={r.created_by} /></p>
+              </li>
+            );
+          })}
+        </ul>
+
+        <div className="mt-5 hidden overflow-x-auto rounded-lg border border-line bg-surface md:block">
           <table className="w-full min-w-[740px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-line bg-subtle text-left text-xs uppercase tracking-wide whitespace-nowrap text-ink-3">
@@ -189,15 +233,7 @@ export default async function CalendarPage({
                       <Badge tone={status.tone}>{status.label}</Badge>
                     </td>
                     <td className="whitespace-nowrap px-4 py-3">
-                      {r.created_by === "agent" ? (
-                        <span className="inline-flex items-center gap-1.5 font-medium text-accent">
-                          <AgentIcon />AI assistant
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 text-ink-2">
-                          <StaffIcon />Staff
-                        </span>
-                      )}
+                      <BookedBy by={r.created_by} />
                     </td>
                   </tr>
                 );
@@ -205,6 +241,7 @@ export default async function CalendarPage({
             </tbody>
           </table>
         </div>
+        </>
       )}
     </section>
   );
