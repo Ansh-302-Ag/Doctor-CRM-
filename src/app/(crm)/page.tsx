@@ -47,7 +47,7 @@ export default async function CalendarPage({
   // The audit write doesn't depend on the appointments query (or vice versa) —
   // running them concurrently instead of one after the other saves a full
   // Neon round trip on every page load.
-  const [rows] = await Promise.all([
+  const [all] = await Promise.all([
     sql<{
       id: string; starts_at: Date; ends_at: Date; status: string;
       doctor_name: string; patient_name: string | null; patient_phone: string;
@@ -60,7 +60,7 @@ export default async function CalendarPage({
         join doctors d  on d.id = a.doctor_id
         join patients p on p.id = a.patient_id
        where a.clinic_id = ${staff.clinicId} and p.deleted_at is null
-         and a.status in ('booked','completed','no_show')
+         and a.status in ('booked','completed','no_show','cancelled')
          -- Half-open range on the raw column. The old form,
          -- (a.starts_at at time zone tz)::date = day, applied a function to the
          -- column, so no index on starts_at could ever be used. Adding the day
@@ -72,6 +72,14 @@ export default async function CalendarPage({
        order by a.starts_at`,
     audit(sql, { kind: "staff", id: staff.id }, "read_calendar", "appointments", null),
   ]);
+
+  // Cancelled rows are fetched only to be counted; the list shows what is
+  // still on the book.
+  const rows = all.filter(r => r.status !== "cancelled");
+  const stats = [
+    { label: "Booked", status: "booked" }, { label: "Completed", status: "completed" },
+    { label: "Cancelled", status: "cancelled" }, { label: "No-show", status: "no_show" },
+  ].map(x => ({ label: x.label, n: all.filter(r => r.status === x.status).length }));
 
   const time = (at: Date) => new Intl.DateTimeFormat("en-GB", {
     timeZone: staff.timezone, hour: "2-digit", minute: "2-digit", hour12: false,
@@ -154,10 +162,20 @@ export default async function CalendarPage({
         </p>
       )}
 
+      <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {stats.map(x => (
+          <div key={x.label} className="rounded-lg border border-line bg-surface px-3 py-3 sm:px-4">
+            <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">{x.label}</dt>
+            <dd className="mt-1 text-2xl font-semibold tabular-nums leading-none text-ink">{x.n}</dd>
+          </div>
+        ))}
+      </dl>
+
       {rows.length === 0 ? (
-        <p className="mt-6 rounded-lg border border-dashed border-line-strong bg-surface p-10 text-center text-sm text-ink-3">
-          Nothing booked for this day.
-        </p>
+        <div className="mt-5 rounded-lg border border-dashed border-line-strong bg-surface p-10 text-center text-sm text-ink-3">
+          <p className="font-medium text-ink-2">No appointments on this day.</p>
+          {day === today && <p className="mt-1">Patients can book on WhatsApp at any time.</p>}
+        </div>
       ) : (
         <>
         {/* Below md the same rows render as cards: a 740px table would scroll
