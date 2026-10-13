@@ -38,6 +38,25 @@ function recorder(opts: { sendThrows?: boolean } = {}) {
 const run = (payload: unknown, r: ReturnType<typeof recorder>) =>
   processWebhook(db, payload, f.clinicId, r.senders, scripted);
 
+/** The real pool, except every transaction fails: a processing failure that no
+ *  message content can route around (an emergency never reaches a timezone). */
+const failing = new Proxy(db, {
+  get: (t, k) => k === "begin"
+    ? async () => { throw new Error("database unavailable"); }
+    : Reflect.get(t, k),
+});
+
+test("an emergency that hits a processing failure still gets 112 and an urgent page", async () => {
+  const r = recorder();
+  await processWebhook(failing, envelope([text("chest pain")]), f.clinicId, r.senders, scripted);
+
+  assert.equal(r.sends().length, 1);
+  assert.match(r.sends()[0].text, /112/);
+  assert.equal(r.pages().length, 1);
+  assert.equal(r.pages()[0].urgent, true);
+  assert.match(r.pages()[0].note, /^URGENT: /);
+});
+
 test("a reply that fails to send does not tell the patient there was a technical issue", async () => {
   const r = recorder({ sendThrows: true });
   await run(envelope([text("I need an appointment with Dr. Rao")]), r);

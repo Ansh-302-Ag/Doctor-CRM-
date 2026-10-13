@@ -125,9 +125,12 @@ export const templates = {
     `team and they will get back to you shortly. If it is urgent, please call the ` +
     `clinic on ${clinicPhone}.`,
 
+  /** Sent when we could not process the message at all, so it may be the
+   *  emergency nobody screened: the emergency route goes with it (docs/01). */
   technicalFailure: () =>
     `Sorry — I am having a technical issue right now. A member of the clinic team ` +
-    `will follow up with you shortly.`,
+    `will follow up with you shortly. If this is an emergency, call 112 (or 108 ` +
+    `for an ambulance).`,
 
   /**
    * The reply when nothing matched and nothing was understood. It has to carry

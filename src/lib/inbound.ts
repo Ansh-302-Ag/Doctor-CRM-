@@ -7,7 +7,7 @@
 import type { Pool } from "./db";
 import { handleInbound, type Reply } from "./agent";
 import type { Classifier } from "./agent/intent";
-import { templates } from "./agent/screen";
+import { screen, templates } from "./agent/screen";
 import { parseInbound } from "./webhook";
 import { mask, type Outbound, type StaffAlert } from "./channel";
 
@@ -39,7 +39,11 @@ export async function processWebhook(
       // Nothing was answered, so telling the patient there was a problem is true.
       console.error("[webhook] inbound handling failed", e);
       await senders.sendMessage({ to: m.phone, text: templates.technicalFailure() }).catch(() => {});
-      await page(false, `Could not process a message from ${mask(m.phone)}. Check the server logs.`);
+      // The screen is pure, so it still runs when everything else failed: a
+      // "chest pain" that hit a bug is still an emergency to the person paged.
+      const urgent = "body" in m && screen(m.body).verdict === "emergency";
+      await page(urgent,
+        `${urgent ? "URGENT: " : ""}Could not process a message from ${mask(m.phone)}. Check the server logs.`);
       continue;
     }
     if (!reply) continue;                                       // duplicate delivery
