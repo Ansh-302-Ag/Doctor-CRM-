@@ -10,7 +10,7 @@
  * Templates never carry clinical content (docs/01). A reminder says an event is
  * coming up; it does not tell anyone what to do about their health.
  */
-export type TemplateName = "appointment_reminder" | "refill_followup" | "record_updated";
+export type TemplateName = "appointment_reminder" | "refill_followup" | "record_updated" | "staff_alert";
 
 export type TemplateSpec = {
   name: TemplateName;
@@ -42,6 +42,16 @@ export const TEMPLATES: Record<TemplateName, TemplateSpec> = {
       "A note from {{1}}: {{2}} added a new entry to your record today. " +
       "Reply to this message to have it read back to you, or call the clinic.",
     params: ["clinic_name", "doctor_name"],
+  },
+  /** Pages the on-duty staff phone, which is outside the 24-hour window unless
+   *  it messaged the number today. Carries no patient detail at all. */
+  staff_alert: {
+    name: "staff_alert",
+    language: "en",
+    bodyText:
+      "{{1}}: a patient conversation needs a person ({{2}}). " +
+      "Please open the escalation inbox in the clinic dashboard.",
+    params: ["clinic_name", "priority"],
   },
   refill_followup: {
     name: "refill_followup",

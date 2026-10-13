@@ -21,7 +21,7 @@ other way around.
 - [ ] Submit for review
 - [ ] Record the approval status in the table below
 - [ ] Confirm the approved template name in Meta matches the `TemplateName`
-      used here (`appointment_reminder`, `record_updated`, `refill_followup`)
+      used here (`appointment_reminder`, `record_updated`, `refill_followup`, `staff_alert`)
 
 ## `appointment_reminder`
 
@@ -75,6 +75,26 @@ Sample values for submission:
 | `{{1}}` | `clinic_name` | Sunrise Clinic |
 | `{{2}}` | `drug_name` | Amoxicillin |
 
+## `staff_alert`
+
+Pages the on-duty staff phone when a conversation escalates. That phone is
+outside the 24-hour window unless it messaged the business number today, so
+free-form text would be silently dropped. It carries no patient detail.
+`priority` is the string `urgent` or `routine`.
+
+Body text:
+
+```
+{{1}}: a patient conversation needs a person ({{2}}). Please open the escalation inbox in the clinic dashboard.
+```
+
+Sample values for submission:
+
+| Placeholder | Param name | Sample |
+|---|---|---|
+| `{{1}}` | `clinic_name` | Sunrise Clinic |
+| `{{2}}` | `priority` | urgent |
+
 ## Status
 
 | Template | Submitted | Approved | Notes |
@@ -82,6 +102,7 @@ Sample values for submission:
 | `appointment_reminder` | No | No | Not yet submitted to Meta. |
 | `record_updated` | No | No | Not yet submitted to Meta. Needed before a prescription recorded outside the window can nudge the patient at all. |
 | `refill_followup` | No | No | Not yet submitted to Meta. |
+| `staff_alert` | No | No | Not yet submitted to Meta. Until approved, paging falls back to free-form text, which only reaches a phone that messaged the number in the last 24 hours. |
 
 ## Why the copy reads the way it does
 

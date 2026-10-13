@@ -11,7 +11,7 @@
  */
 import type { Db } from "./db";
 import { audit } from "./audit";
-import { sendTemplate } from "./channel";
+import { sendTemplate, notifyStaff, mask, type StaffAlert } from "./channel";
 import { renderTemplate } from "./templates";
 import { requireTimezone } from "./booking";
 
@@ -117,7 +117,7 @@ function parametersFor(r: DueReminder) {
 type RunResult = { sent: number; skipped: number; failed: number };
 
 async function sendDue(
-  db: Db, send: typeof sendTemplate, now?: Date,
+  db: Db, send: typeof sendTemplate, notify: (a: StaffAlert) => Promise<void>, now?: Date,
 ): Promise<RunResult> {
   let sent = 0, skipped = 0, failed = 0;
 
@@ -163,6 +163,10 @@ async function sendDue(
           values (${conversation?.id ?? null}, ${r.patient_id},
                   ${`reminder could not be delivered after ${MAX_ATTEMPTS} attempts: ${message}`},
                   'normal')`;
+        await notify({
+          clinicName: r.clinic_name, urgent: false,
+          note: `Reminder to ${mask(r.phone)} could not be delivered after ${MAX_ATTEMPTS} attempts.`,
+        });
         failed++;
       }
     }
@@ -173,7 +177,7 @@ async function sendDue(
 /** Send everything due. Returns counts rather than throwing, so one bad
  *  reminder never stops the batch. */
 export async function runDueReminders(
-  db: Db, deps: { send?: typeof sendTemplate; now?: Date } = {},
+  db: Db, deps: { send?: typeof sendTemplate; now?: Date; notify?: (a: StaffAlert) => Promise<void> } = {},
 ): Promise<RunResult> {
   const send = deps.send ?? sendTemplate;
   const zero: RunResult = { sent: 0, skipped: 0, failed: 0 };
@@ -191,7 +195,7 @@ export async function runDueReminders(
       select pg_try_advisory_lock(${RUN_LOCK_KEY}) as locked`;
     if (!lock.locked) return zero;
     try {
-      return await sendDue(runDb, send, deps.now);
+      return await sendDue(runDb, send, deps.notify ?? notifyStaff, deps.now);
     } finally {
       await runDb`select pg_advisory_unlock(${RUN_LOCK_KEY})`;
     }

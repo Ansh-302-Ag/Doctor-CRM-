@@ -55,14 +55,27 @@ export const mask = (phone: string) => `${"*".repeat(Math.max(0, phone.length - 
  * nobody, so an emergency waits until someone happens to look. That is a
  * deployment gap worth shouting about, not a quiet default.
  */
-export async function notifyStaff(text: string) {
+export type StaffAlert = { clinicName: string; urgent: boolean; note: string };
+
+/** Pages through the approved template (works outside the 24-hour window); if
+ *  that is rejected — e.g. not yet approved, 132001 — falls back to free text.
+ *  `note` must carry no patient message text. Never throws. */
+export async function notifyStaff(alert: StaffAlert) {
   const to = process.env.STAFF_NOTIFY_PHONE;
   if (!to) {
     console.warn("[staff-notify] STAFF_NOTIFY_PHONE is not set â€” escalation " +
                  "is visible in the CRM inbox only, and nobody has been paged.");
     return;
   }
-  await sendMessage({ to, text }).catch(e => console.error("staff notify failed", e));
+  try {
+    await sendTemplate({
+      to, name: "staff_alert",
+      parameters: [alert.clinicName, alert.urgent ? "urgent" : "routine"],
+    });
+  } catch {
+    await sendMessage({ to, text: alert.note })
+      .catch(e => console.error("[staff-notify] could not page staff", e));
+  }
 }
 
 /**

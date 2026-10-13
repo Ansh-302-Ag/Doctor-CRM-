@@ -134,10 +134,14 @@ test("a failing send is retried, then surfaced to staff", async () => {
   await due();
 
   const boom = async () => { throw new Error("network down"); };
+  const paged: { urgent: boolean; note: string }[] = [];
+  const notify = async (a: { urgent: boolean; note: string }) => { paged.push(a); };
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
-    await runDueReminders(db, { send: boom as never });
+    await runDueReminders(db, { send: boom as never, notify: notify as never });
     await due();
   }
+  assert.equal(paged.length, 1, "staff are paged once, when retries are exhausted");
+  assert.equal(paged[0].urgent, false);
 
   const [r] = await db<{ status: string; attempts: number; last_error: string }[]>`
     select status, attempts, last_error from reminders`;
