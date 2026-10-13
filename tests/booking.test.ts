@@ -31,6 +31,19 @@ test("books a slot and records who booked it", async () => {
   assert.equal(row.status, "booked");
 });
 
+test("bookAppointment reports whether a reminder was scheduled", async () => {
+  const far = await bookAppointment(db, AGENT, "agent",
+    { patientId: f.patientId, doctorId: f.doctorId, startsAt: futureSlot(10, 3) });
+  assert.equal(far.reminderScheduled, true);
+
+  // Booked two hours before the visit: the reminder's send time is already past.
+  const at = futureSlot(11, 3);
+  const near = await bookAppointment(db, AGENT, "agent",
+    { patientId: f.patientId, doctorId: f.doctorId, startsAt: at },
+    new Date(at.getTime() - 2 * 3_600_000));
+  assert.equal(near.reminderScheduled, false);
+});
+
 test("a booked slot disappears from availability", async () => {
   const at = futureSlot(10);
   const before = await checkAvailability(db, f.doctorId, localDay(at));

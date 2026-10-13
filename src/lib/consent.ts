@@ -18,9 +18,21 @@ export const CONSENT_NOTICE =
  */
 export const introduction = (clinicName: string) =>
   `Hello! I am the booking assistant for ${clinicName}. I can book, move or ` +
-  `cancel your appointments, and read back what the doctor has already ` +
-  `prescribed for you. For anything medical, a member of the clinic team ` +
-  `will answer you themselves.\n\n${CONSENT_NOTICE}`;
+  `cancel your appointments. For anything medical, a member of the clinic ` +
+  `team will answer you themselves.\n\n${CONSENT_NOTICE}`;
+
+const AFFIRMATIVE = new Set([
+  "yes", "y", "ok", "okay", "k", "sure", "agree", "i agree", "yes i agree",
+  "haan", "han", "ha", "haa", "ji", "haan ji", "ji haan", "हाँ", "हां", "👍",
+]);
+
+/**
+ * A plain "yes" in any of the ways people actually send it ("Yes, I agree.").
+ * Whole-message match only: "ok but not today" is not consent, and the model —
+ * which sometimes reads a bare "OK" as unclear — is not asked.
+ */
+export const isAffirmative = (body: string) =>
+  AFFIRMATIVE.has(body.toLowerCase().replace(/\p{P}/gu, " ").trim().replace(/\s+/g, " "));
 
 export class ConsentRequired extends Error {
   constructor() { super("consent has not been granted"); this.name = "ConsentRequired"; }

@@ -929,3 +929,57 @@ confirmation does not name the doctor; the introduction still promises to
 
 Refuted by the skeptics: template language `en` is a valid Meta code; webhook
 latency is a hardening item, not a go-live failure.
+
+---
+
+## 2026-10-13 — fixes from the dry run and the first live test (branch `live-whatsapp-fixes`)
+
+Plan: `docs/superpowers/plans/2026-10-13-live-whatsapp-fixes.md`, four tasks —
+webhook parsing, the `staff_alert` template with a text fallback, per-message
+inbound processing, and the conversation fixes. The ten defects, all fixed on
+the branch and covered by tests:
+
+1. **Staff pages dropped outside the 24-hour window** — paging sends the
+   `staff_alert` template first and falls back to free-form text; if both fail
+   it is logged with `console.error`, never thrown into the request.
+2. **`failed` delivery statuses discarded** — now logged with the recipient
+   masked and Meta's error code.
+3. **A failed send after commit misled the patient and lost the page** — the
+   patient is no longer told "technical issue" for a booking that went through,
+   the page keeps its priority, and an undeliverable reply pages staff.
+4. **A media caption skipped the safety screen** — an image or document caption
+   is handled as text, so "severe chest pain" gets the emergency template and
+   an emergency escalation.
+5. **Reactions and edits paged staff** — reactions and system messages are
+   ignored; an edit or any other unreadable message is stored, de-duplicated and
+   answered honestly, with no page.
+6. **A message with no `from` dropped the whole payload** — each message is
+   validated on its own; an unidentifiable one is counted, logged and paged once
+   without costing its neighbours.
+7. **A second message overwrote the stashed request** — the first request is
+   kept through the consent and name detours.
+8. **The confirmation promised a reminder that was never scheduled** — an
+   appointment inside the 24-hour lead time gets no reminder, and the
+   confirmation now says so by omission.
+9. **"OK" was not accepted as consent** — a whole-message "yes", "ok", "okay",
+   "k", "sure", "agree", "haan", "ji", "हाँ", "👍" and the like count without
+   asking the model; "ok but not today" does not.
+10. **The confirmation did not name the doctor** — "You are booked with Dr. Rao
+    for …".
+
+Also fixed on the way: the introduction no longer offers to read back
+prescriptions (docs/02); invalid JSON on the webhook returns 400, not 500; and
+the staff page carries no patient text, so it cannot reach Meta's 4096-character
+limit. `CONSENT_NOTICE` is unchanged, so `NOTICE_VERSION` is not bumped.
+
+**Still open:** `staff_alert` has not been submitted to Meta (docs/10), so until
+it is approved every page takes the free-form fallback, which only reaches a
+phone that messaged the number in the last 24 hours. Submit it before a real
+patient.
+
+**Deferred (minor):** redeliveries after an outage are processed as fresh
+(Meta retries for up to 7 days); the 24-hour window is measured from insert
+time, not Meta's timestamp; a transient failure before commit forfeits Meta's
+redelivery; SMS (Fast2SMS) as a second staff-alert channel. Also worth a look:
+the emergency reply now waits on the staff page, and Graph API calls have no
+timeout — a slow Graph delays emergency advice.

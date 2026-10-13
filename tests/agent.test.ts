@@ -6,7 +6,7 @@ import test, { after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { db, reset, seed, closeAll, futureSlot, localDay, type Fixture } from "./helpers";
 import { handleInbound } from "../src/lib/agent";
-import { CONSENT_NOTICE } from "../src/lib/consent";
+import { CONSENT_NOTICE, introduction, isAffirmative } from "../src/lib/consent";
 import { scripted, stub } from "./stub-classifier";
 import { ClassifierUnavailable } from "../src/lib/agent/intent";
 import { OPEN_HOUR, CLOSE_HOUR } from "../src/lib/booking";
@@ -21,13 +21,13 @@ beforeEach(async () => { await reset(); f = await seed(); seq = 0; });
 after(closeAll);
 
 /** Send a message as the consenting patient seeded above. */
-const say = (body: string, opts: { phone?: string; id?: string } = {}) =>
+const say = (body: string, opts: { phone?: string; id?: string; now?: Date } = {}) =>
   handleInbound(db, {
     clinicId: f.clinicId,
     phone: opts.phone ?? "+919000000001",
     body,
     providerMessageId: opts.id ?? `wamid.${++seq}`,
-  }, new Date(), scripted);
+  }, opts.now ?? new Date(), scripted);
 
 const escalations = () =>
   db<{ reason: string; priority: string; status: string }[]>`
@@ -610,4 +610,97 @@ test("an edited message asks the patient to send it again", async () => {
 test("an emergency reply is marked urgent and a clinical one is not", async () => {
   assert.equal((await say("I'm having chest pain right now"))!.urgent, true);
   assert.ok(!(await say("can I take paracetamol too?"))!.urgent);
+});
+
+test("a non-answer to the name question does not replace the stashed request", async () => {
+  await db`insert into doctors (clinic_id, name, specialty, default_slot_minutes)
+           values (${f.clinicId}, 'Dr. Iyer', 'Paediatrics', 20)`;
+
+  const phone = "+919000000071";
+  // The request names the doctor and the day; "1" is a stray reply to the name
+  // question that the model reads as a bare booking intent.
+  const day = localDay(futureSlot(10, 3));   // never a Sunday
+  const classifier = stub(i =>
+    i.body === "yes" ? { intent: "consent_yes" } :
+    i.body === "Asha" ? { intent: "provide_name", name: "Asha" } :
+    i.body === "1" ? { intent: "book" } :
+    { intent: "book", doctor: "Dr. Rao", day });
+  const send = (body: string, id: string) =>
+    handleInbound(db, { clinicId: f.clinicId, phone, body, providerMessageId: id },
+      new Date(), classifier);
+
+  assert.equal((await send("book Dr. Rao for a checkup", "k1"))!.text, CONSENT_NOTICE);
+  assert.match((await send("yes", "k2"))!.text, /what name/i);
+  assert.match((await send("1", "k3"))!.text, /what name/i);
+
+  const named = await send("Asha", "k4");
+  assert.match(named!.text, /these times are free/i);
+  assert.doesNotMatch(named!.text, /which doctor/i, "the original request survived the stray '1'");
+});
+
+test("'ok', 'haan' and a thumbs-up count as consent even when the model says unclear", async () => {
+  for (const [i, word] of ["ok", "haan", "👍"].entries()) {
+    const phone = `+91900000008${i}`;
+    const send = (body: string) =>
+      handleInbound(db, { clinicId: f.clinicId, phone, body, providerMessageId: `ok${i}-${body}` },
+        new Date(), stub(() => ({})));
+
+    await send("hi");
+    const r = await send(word);
+    assert.match(r!.text, /thank you/i, `"${word}" should be read as consent`);
+
+    const [p] = await db<{ consent_status: string }[]>`
+      select consent_status from patients where phone = ${phone}`;
+    assert.equal(p.consent_status, "granted", `"${word}"`);
+  }
+});
+
+test("'ok but not today' is not consent", async () => {
+  const phone = "+919000000090";
+  const send = (body: string, id: string) =>
+    handleInbound(db, { clinicId: f.clinicId, phone, body, providerMessageId: id },
+      new Date(), stub(() => ({})));
+
+  await send("hi", "nc1");
+  await send("ok but not today", "nc2");
+
+  const [p] = await db<{ consent_status: string }[]>`
+    select consent_status from patients where phone = ${phone}`;
+  assert.equal(p.consent_status, "pending");
+});
+
+test("the confirmation names the doctor and only promises a reminder that exists", async () => {
+  // A fixed Tuesday 08:00 IST: the 9:00 slot that morning is inside the 24-hour
+  // lead time, so no reminder can exist for it whatever the real clock says.
+  const now = new Date("2026-10-13T08:00:00+05:30");
+  const book = async (day: string) => {
+    await say("appointment with Dr Rao", { now });
+    const offer = await say(day, { now });
+    return say(offer!.text.match(/(\d{1,2}:\d{2})/)![1], { now });
+  };
+
+  const soon = await book("2026-10-13");
+  assert.match(soon!.text, /with Dr\. Rao/);
+  assert.doesNotMatch(soon!.text, /reminder/);
+  assert.equal((await db`select id from reminders`).length, 0);
+
+  const later = await book("2026-10-16");
+  assert.match(later!.text, /with Dr\. Rao/);
+  assert.match(later!.text, /reminder the day before/);
+  assert.equal((await db`select id from reminders where status = 'scheduled'`).length, 1);
+});
+
+test("the introduction does not offer to read prescriptions", async () => {
+  const hello = await say("hi", { phone: "+919000000095" });
+  assert.equal(hello!.text, introduction("Test Clinic"));
+  assert.doesNotMatch(hello!.text.replace(CONSENT_NOTICE, ""), /prescri/i);
+});
+
+test("isAffirmative accepts a plain yes whatever the case or punctuation, and nothing longer", () => {
+  for (const yes of ["YES", "Ok.", " haan ji! ", "Yes, I agree", "हाँ", "हां।", "👍", "k"]) {
+    assert.ok(isAffirmative(yes), yes);
+  }
+  for (const no of ["no", "ok but not today", "yes please book Dr. Rao", "okay?? when", "", "👎"]) {
+    assert.ok(!isAffirmative(no), no);
+  }
 });

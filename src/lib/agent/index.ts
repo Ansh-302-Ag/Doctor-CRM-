@@ -21,7 +21,9 @@ import {
   classifyWithClaude, ClassifierUnavailable,
   type Classifier, type Classification, type ConversationStep,
 } from "./intent";
-import { CONSENT_NOTICE, introduction, recordConsent, withdrawAndDelete, ConsentRequired } from "../consent";
+import {
+  CONSENT_NOTICE, introduction, isAffirmative, recordConsent, withdrawAndDelete, ConsentRequired,
+} from "../consent";
 import { BookingError, OPEN_HOUR, CLOSE_HOUR, OPEN_DAYS, requireTimezone } from "../booking";
 import { setPatientName } from "../patients";
 
@@ -201,7 +203,11 @@ async function route(
   const offeredIso = (isBooking(state) && state.offered) || [];
 
   let c: Classification;
-  try {
+  if (ctx.patient.consent_status !== "granted" && isAffirmative(msg.body)) {
+    // "OK", "haan" and a thumbs-up are consent, and the model sometimes reads
+    // them as unclear — so it is not asked.
+    c = { intent: "consent_yes", doctor: null, day: null, slotIndex: null, time: null, name: null };
+  } else try {
     c = await classify({
       body: msg.body,
       doctors: doctors.map(d => d.name),
@@ -290,7 +296,8 @@ async function route(
       );
       return { ...resumed, text: `Thank you. ${resumed.text}` };
     }
-    await setState(db, ctx.conversation.id, { ...state, pending: msg.body });
+    // Keep the first request: a later, vaguer message must not replace it.
+    await setState(db, ctx.conversation.id, { ...state, pending: state.pending ?? msg.body });
     return { text: CONSENT_NOTICE, escalated: false, intent: "consent_requested" };
   }
 
@@ -317,7 +324,7 @@ async function route(
   }
 
   if (!ctx.patient.name && (c.intent === "book" || c.intent === "reschedule")) {
-    await setState(db, ctx.conversation.id, { ...state, pending: msg.body });
+    await setState(db, ctx.conversation.id, { ...state, pending: state.pending ?? msg.body });
     return { text: "Before I book that — what name should I put on the appointment?",
              escalated: false, intent: "name_requested" };
   }
@@ -527,9 +534,12 @@ async function continueBooking(
             startsAt: picked, reasonText: state.reason,
           }, now);
       await clearState(db, ctx.conversation.id);
+      const doctorName = doctors.find(d => d.id === state.doctorId)?.name;
       return {
-        text: `You are booked for ${fmtTime(appt.startsAt, ctx.clinic.timezone)}. ` +
-              `We will send a reminder the day before. Reply CANCEL anytime to cancel.`,
+        text: `You are booked${doctorName ? ` with ${doctorName}` : ""} for ` +
+              `${fmtTime(appt.startsAt, ctx.clinic.timezone)}.` +
+              (appt.reminderScheduled ? " We will send a reminder the day before." : "") +
+              " Reply CANCEL anytime to cancel.",
         escalated: false, intent: "book",
       };
     } catch (e) {

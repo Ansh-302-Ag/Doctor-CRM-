@@ -29,16 +29,18 @@ export type DueReminder = {
 };
 
 export async function scheduleAppointmentReminder(
-  db: Db, appointmentId: string, patientId: string, startsAt: Date,
-): Promise<void> {
+  db: Db, appointmentId: string, patientId: string, startsAt: Date, now = new Date(),
+): Promise<boolean> {
   const sendAt = new Date(startsAt.getTime() - LEAD_TIME_MS);
   // An appointment booked inside the lead time gets no reminder — messaging
-  // someone about a visit they just booked is noise.
-  if (sendAt <= new Date()) return;
+  // someone about a visit they just booked is noise. The caller is told, so the
+  // confirmation never promises one.
+  if (sendAt <= now) return false;
   await db`
     insert into reminders (patient_id, type, related_id, send_at, template_name)
     values (${patientId}, 'appointment', ${appointmentId}, ${sendAt}, 'appointment_reminder')
     on conflict do nothing`;
+  return true;
 }
 
 export async function scheduleRefillFollowup(

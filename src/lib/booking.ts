@@ -97,7 +97,7 @@ export async function bookAppointment(
   db: Db, actor: Actor, role: Role,
   input: { patientId: string; doctorId: string; startsAt: Date; reasonText?: string },
   now = new Date(),
-): Promise<{ id: string; startsAt: Date; endsAt: Date }> {
+): Promise<{ id: string; startsAt: Date; endsAt: Date; reminderScheduled: boolean }> {
   requirePermission(role, "appointments:write");
   await assertConsent(db, input.patientId);
   if (input.startsAt <= now) {
@@ -128,8 +128,9 @@ export async function bookAppointment(
       returning id, starts_at, ends_at
     `;
     await audit(db, actor, "book_appointment", "appointments", row.id);
-    await scheduleAppointmentReminder(db, row.id, input.patientId, row.starts_at);
-    return { id: row.id, startsAt: row.starts_at, endsAt: row.ends_at };
+    const reminderScheduled =
+      await scheduleAppointmentReminder(db, row.id, input.patientId, row.starts_at, now);
+    return { id: row.id, startsAt: row.starts_at, endsAt: row.ends_at, reminderScheduled };
   } catch (e) {
     // 23P01 = exclusion_violation: the database refused a double-booking (docs/08).
     if ((e as { code?: string }).code === "23P01") {
