@@ -8,6 +8,13 @@ import { can } from "@/lib/rbac";
 import { getPatient, patientScope } from "@/lib/patients";
 import { listPrescriptions, discontinuePrescription, InvalidPrescription } from "@/lib/prescriptions";
 import { prescribeAndNotify, NotYourPatient } from "@/lib/doctor";
+import {
+  Badge, appointmentStatus, consentStatus, prescriptionStatus, btnPrimary, btnSecondary,
+} from "../../_ui";
+
+const field = "mt-1.5 w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink";
+const fieldLabel = "block text-xs font-semibold uppercase tracking-wide text-ink-3";
+const notice = "mt-4 rounded-md border px-3.5 py-2.5 text-sm";
 
 export default async function PatientRecordPage({
   params, searchParams,
@@ -106,32 +113,75 @@ export default async function PatientRecordPage({
     timeZone: staff.timezone, dateStyle: "medium", timeStyle: "short",
   }).format(at);
 
+  // Active first. "What is this patient on right now" is the question this list
+  // is opened to answer, and a long record buries it under closed rows. Stable,
+  // so each group keeps the query's newest-first order.
+  const rx = [...prescriptions].sort(
+    (a, b) => Number(b.status === "active") - Number(a.status === "active"));
+
+  const consent = consentStatus(patient.consent_status);
+  const canPrescribe = can(staff.role, "prescriptions:write");
+
   return (
     <section>
-      <div className="flex items-baseline gap-4">
-        <h1 className="text-lg font-semibold text-slate-900">{patient.name ?? "Unnamed patient"}</h1>
-        <span className="text-sm text-slate-500">{patient.phone}</span>
-        <span className="text-sm text-slate-500">Consent: {patient.consent_status}</span>
-        <Link href="/patients" className="ml-auto text-sm text-slate-600 hover:text-slate-900">
-          ← Back to patients
-        </Link>
-      </div>
+      <Link
+        href="/patients"
+        className="inline-flex items-center gap-1.5 text-sm text-ink-3 transition-colors hover:text-ink"
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14.5 5.5 8 12l6.5 6.5" />
+        </svg>
+        {isDoctor ? "My patients" : "All patients"}
+      </Link>
+
+      <header className="mt-3 rounded-lg border border-line bg-surface p-5">
+        <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-5">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight break-words text-ink">
+              {patient.name ?? "Unnamed patient"}
+            </h1>
+            <a
+              href={`tel:${patient.phone}`}
+              className="mt-1 inline-block tabular-nums text-ink-2 underline decoration-line-strong underline-offset-2 hover:text-accent"
+            >
+              {patient.phone}
+            </a>
+          </div>
+
+          <dl className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
+            <div>
+              <dt className={fieldLabel}>Consent</dt>
+              <dd className="mt-1.5"><Badge tone={consent.tone}>{consent.label}</Badge></dd>
+            </div>
+            <div>
+              <dt className={fieldLabel}>Next appointment</dt>
+              <dd className="mt-1.5 tabular-nums text-ink">
+                {patient.next_appointment ? when(patient.next_appointment) : "None booked"}
+              </dd>
+            </div>
+            <div>
+              <dt className={fieldLabel}>Active prescriptions</dt>
+              <dd className="mt-1.5 tabular-nums text-ink">{patient.active_prescriptions}</dd>
+            </div>
+          </dl>
+        </div>
+      </header>
 
       {error && (
-        <p role="alert" className="mt-4 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">
+        <p role="alert" className={`${notice} border-danger-line bg-danger-soft font-medium text-danger-ink`}>
           {error}
         </p>
       )}
 
       {sent === "1" && (
-        <p role="status" className="mt-4 rounded-md border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800">
+        <p role="status" className={`${notice} border-ok-line bg-ok-soft text-ok-ink`}>
           Prescription saved and sent to the patient on WhatsApp.
         </p>
       )}
       {sent === "outside_window" && (
-        <p role="status" className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Prescription saved, but it could not be sent: WhatsApp only allows us to message a
-          patient within 24 hours of their own last message.{" "}
+        <p role="status" className={`${notice} border-warn-line bg-warn-soft text-warn-ink`}>
+          <span className="font-semibold">Saved, but not delivered.</span>{" "}
+          WhatsApp only allows us to message a patient within 24 hours of their own last message.{" "}
           {nudged
             ? "They have been sent a note asking them to reply, and the assistant will read this " +
               "record back to them when they do. Call them if it cannot wait."
@@ -139,131 +189,149 @@ export default async function PatientRecordPage({
         </p>
       )}
       {sent === "send_failed" && (
-        <p role="status" className="mt-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-          Prescription saved, but WhatsApp would not accept the message. Nothing was lost —
-          the record below is on file. Please tell the patient another way.
+        <p role="status" className={`${notice} border-warn-line bg-warn-soft text-warn-ink`}>
+          <span className="font-semibold">Saved, but not delivered.</span>{" "}
+          WhatsApp would not accept the message. Nothing was lost — the record below is on file.
+          Please tell the patient another way.
         </p>
       )}
 
-      <div className="mt-8">
-        <h2 className="text-sm font-semibold text-slate-900">Appointments</h2>
-        {appointments.length === 0 ? (
-          <p className="mt-2 rounded-lg border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
-            No appointments yet.
-          </p>
-        ) : (
-          <div className="mt-2 overflow-x-auto rounded-lg border border-slate-200 bg-white">
-            <table className="w-full text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-left text-slate-600">
-                <tr>
-                  <th className="px-4 py-2 font-medium">When</th>
-                  <th className="px-4 py-2 font-medium">Doctor</th>
-                  <th className="px-4 py-2 font-medium">Status</th>
-                  <th className="px-4 py-2 font-medium">Reason (as given)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {appointments.map(a => (
-                  <tr key={a.id}>
-                    <td className="whitespace-nowrap px-4 py-2 font-mono text-slate-900">{when(a.starts_at)}</td>
-                    <td className="px-4 py-2 text-slate-700">{a.doctor_name}</td>
-                    <td className="px-4 py-2 text-slate-600">{a.status}</td>
-                    <td className="px-4 py-2 text-slate-600">{a.reason_text ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="min-w-0 space-y-6">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-3">Appointments</h2>
+            {appointments.length === 0 ? (
+              <p className="mt-2 rounded-lg border border-dashed border-line-strong bg-surface p-8 text-center text-sm text-ink-3">
+                No appointments yet.
+              </p>
+            ) : (
+              <div className="mt-2 overflow-x-auto rounded-lg border border-line bg-surface">
+                <table className="w-full min-w-[560px] border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-line bg-subtle text-left text-xs uppercase tracking-wide whitespace-nowrap text-ink-3">
+                      <th scope="col" className="px-4 py-2.5 font-semibold">When</th>
+                      <th scope="col" className="px-4 py-2.5 font-semibold">Doctor</th>
+                      <th scope="col" className="px-4 py-2.5 font-semibold">Status</th>
+                      <th scope="col" className="px-4 py-2.5 font-semibold">Reason (as given)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-line">
+                    {appointments.map(a => {
+                      const status = appointmentStatus(a.status);
+                      return (
+                        <tr key={a.id} className="transition-colors hover:bg-subtle">
+                          <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-ink">
+                            {when(a.starts_at)}
+                          </td>
+                          <td className="whitespace-nowrap px-4 py-3 text-ink-2">{a.doctor_name}</td>
+                          <td className="px-4 py-3"><Badge tone={status.tone}>{status.label}</Badge></td>
+                          <td className="px-4 py-3 break-words text-ink-2">{a.reason_text ?? "—"}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      <div className="mt-8">
-        <h2 className="text-sm font-semibold text-slate-900">Prescriptions</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Stored exactly as entered. The assistant reads these back to the patient verbatim and never interprets them.
-        </p>
-
-        {prescriptions.length === 0 ? (
-          <p className="mt-2 rounded-lg border border-dashed border-slate-300 p-6 text-center text-sm text-slate-500">
-            No prescriptions on record.
-          </p>
-        ) : (
-          <ul className="mt-2 space-y-3">
-            {prescriptions.map(p => (
-              <li key={p.id} className="rounded-lg border border-slate-200 bg-white p-4 text-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-slate-900">{p.drug_name}</span>
-                  <span className="text-slate-600">{p.dosage}</span>
-                  {p.duration_days !== null && (
-                    <span className="text-slate-500">for {p.duration_days} day{p.duration_days === 1 ? "" : "s"}</span>
-                  )}
-                  <span className="ml-auto rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{p.status}</span>
-                </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  {p.doctor_name} · recorded by {p.created_by_name} · {when(p.created_at)}
-                </p>
-                {p.notes && <p className="mt-2 text-slate-700">{p.notes}</p>}
-                {p.status === "active" && can(staff.role, "prescriptions:write") && (
-                  <form action={discontinue} className="mt-3">
-                    <input type="hidden" name="patientId" value={patient.id} />
-                    <input type="hidden" name="prescriptionId" value={p.id} />
-                    <button className="rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
-                      Discontinue
-                    </button>
-                  </form>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {can(staff.role, "prescriptions:write") ? (
-          <form action={addPrescription} className="mt-4 space-y-3 rounded-lg border border-slate-200 bg-white p-4">
-            <input type="hidden" name="patientId" value={patient.id} />
-            <div className="grid grid-cols-2 gap-3">
-              {!isDoctor && (
-                <label className="block text-sm">
-                  <span className="text-slate-600">Doctor</span>
-                  <select name="doctorId" required
-                    className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm">
-                    {doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
-                </label>
-              )}
-              <label className="block text-sm">
-                <span className="text-slate-600">Drug name</span>
-                <input name="drugName" required
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
-              </label>
-              <label className="block text-sm">
-                <span className="text-slate-600">Dosage</span>
-                <input name="dosage" required
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
-              </label>
-              <label className="block text-sm">
-                <span className="text-slate-600">Duration (days)</span>
-                <input name="durationDays" type="number" min={1}
-                  className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
-              </label>
-            </div>
-            <label className="block text-sm">
-              <span className="text-slate-600">Notes</span>
-              <textarea name="notes" rows={2}
-                className="mt-1 w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
-            </label>
-            <p className="text-xs text-slate-500">
-              Saved exactly as typed, attributed to {isDoctor ? "you" : "the doctor named above"},
-              and sent to the patient on WhatsApp as written.
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-3">Prescriptions</h2>
+            <p className="mt-1 max-w-2xl text-sm text-ink-2">
+              Stored exactly as entered. The assistant reads these back to the patient verbatim and never interprets them.
             </p>
-            <button className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800">
-              Save &amp; send to patient
-            </button>
-          </form>
-        ) : (
-          <p className="mt-4 text-sm text-slate-500">
-            Only a doctor or admin can add to the record.
-          </p>
-        )}
+
+            {rx.length === 0 ? (
+              <p className="mt-2 rounded-lg border border-dashed border-line-strong bg-surface p-8 text-center text-sm text-ink-3">
+                No prescriptions on record.
+              </p>
+            ) : (
+              <ul className="mt-3 space-y-3">
+                {rx.map(p => {
+                  const status = prescriptionStatus(p.status);
+                  return (
+                    <li
+                      key={p.id}
+                      className={`rounded-lg border bg-surface p-4 ${
+                        p.status === "active" ? "border-l-4 border-line border-l-ok" : "border-line"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                        <span className="min-w-0 break-words text-base font-semibold text-ink">{p.drug_name}</span>
+                        <span className="min-w-0 break-words text-sm text-ink-2">{p.dosage}</span>
+                        {p.duration_days !== null && (
+                          <span className="text-sm text-ink-3">
+                            for {p.duration_days} day{p.duration_days === 1 ? "" : "s"}
+                          </span>
+                        )}
+                        <span className="ml-auto"><Badge tone={status.tone}>{status.label}</Badge></span>
+                      </div>
+                      <p className="mt-1.5 text-xs text-ink-3">
+                        {p.doctor_name} · recorded by {p.created_by_name} · {when(p.created_at)}
+                      </p>
+                      {p.notes && <p className="mt-2 break-words text-sm text-ink">{p.notes}</p>}
+                      {p.status === "active" && canPrescribe && (
+                        <form action={discontinue} className="mt-3">
+                          <input type="hidden" name="patientId" value={patient.id} />
+                          <input type="hidden" name="prescriptionId" value={p.id} />
+                          <button className={btnSecondary}>Discontinue</button>
+                        </form>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+
+        <div className="lg:sticky lg:top-8 lg:self-start">
+          {canPrescribe ? (
+            <form action={addPrescription} className="rounded-lg border border-line bg-surface">
+              <input type="hidden" name="patientId" value={patient.id} />
+              <h2 className="border-b border-line px-4 py-3 text-sm font-semibold text-ink">
+                Add prescription
+              </h2>
+              <div className="space-y-4 p-4">
+                {!isDoctor && (
+                  <div>
+                    <label htmlFor="doctorId" className={fieldLabel}>Doctor</label>
+                    <select id="doctorId" name="doctorId" required className={field}>
+                      {doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
+                  </div>
+                )}
+                <div>
+                  <label htmlFor="drugName" className={fieldLabel}>Drug name</label>
+                  <input id="drugName" name="drugName" required autoComplete="off" className={field} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label htmlFor="dosage" className={fieldLabel}>Dosage</label>
+                    <input id="dosage" name="dosage" required autoComplete="off" placeholder="1 tablet twice daily" className={field} />
+                  </div>
+                  <div>
+                    <label htmlFor="durationDays" className={fieldLabel}>Duration (days)</label>
+                    <input id="durationDays" name="durationDays" type="number" min={1} inputMode="numeric" className={field} />
+                  </div>
+                </div>
+                <div>
+                  <label htmlFor="notes" className={fieldLabel}>Notes</label>
+                  <textarea id="notes" name="notes" rows={3} className={field} />
+                </div>
+                <p className="text-xs leading-relaxed text-ink-3">
+                  Saved exactly as typed, attributed to {isDoctor ? "you" : "the doctor named above"},
+                  and sent to the patient on WhatsApp as written.
+                </p>
+                <button className={`${btnPrimary} w-full`}>Save &amp; send to patient</button>
+              </div>
+            </form>
+          ) : (
+            <p className="rounded-lg border border-dashed border-line-strong bg-surface p-4 text-sm text-ink-3">
+              Only a doctor or admin can add to this record. Everything on file is shown on the left.
+            </p>
+          )}
+        </div>
       </div>
     </section>
   );
