@@ -58,7 +58,7 @@ export const mask = (phone: string) => `${"*".repeat(Math.max(0, phone.length - 
 export type StaffAlert = { clinicName: string; urgent: boolean; note: string };
 
 /** Pages through the approved template (works outside the 24-hour window); if
- *  that is rejected — e.g. not yet approved, 132001 — falls back to free text.
+ *  that is rejected â€” e.g. not yet approved, 132001 â€” falls back to free text.
  *  `note` must carry no patient message text. Never throws. */
 export async function notifyStaff(alert: StaffAlert) {
   const to = process.env.STAFF_NOTIFY_PHONE;
