@@ -71,6 +71,11 @@ export default async function EscalationsPage() {
                   </span>
                 )}
                 <span className="font-medium text-slate-900">{r.patient_name ?? "Unknown patient"}</span>
+                {r.consentWithdrawn && (
+                  <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">
+                    consent withdrawn
+                  </span>
+                )}
                 <a href={`tel:${r.patient_phone}`} className="text-slate-500 underline">{r.patient_phone}</a>
                 <span className="text-slate-400">·</span>
                 <span className="text-slate-500">{when(r.created_at)}</span>

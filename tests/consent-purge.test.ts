@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { db, reset, seed, closeAll, futureSlot, type Fixture } from "./helpers";
 import { withdrawAndDelete, purgeDeletedPatients, PURGE_AFTER_DAYS } from "../src/lib/consent";
 import { bookAppointment } from "../src/lib/booking";
+import { listEscalations } from "../src/lib/escalations";
 
 let f: Fixture;
 beforeEach(async () => { await reset(); f = await seed(); });
@@ -11,6 +12,19 @@ after(closeAll);
 const age = (id: string) =>
   db`update patients set deleted_at = now() - (${PURGE_AFTER_DAYS + 1} * interval '1 day')
       where id = ${id}`;
+
+test("a withdrawn patient's open escalation stays in the inbox, marked", async () => {
+  // An emergency from someone who has just sent DELETE is still an emergency:
+  // the page is masked, so the inbox is the only place staff can find them.
+  await db`insert into escalations (conversation_id, patient_id, reason, priority, status, resolved_at)
+           values (${f.conversationId}, ${f.patientId}, 'chest pain', 'emergency', 'open', null),
+                  (${f.conversationId}, ${f.patientId}, 'old question', 'normal', 'resolved', now())`;
+  await withdrawAndDelete(db, { kind: "agent" }, f.patientId);
+
+  const rows = await listEscalations(
+    db, { kind: "staff", id: f.receptionistId }, "receptionist", f.clinicId);
+  assert.deepEqual(rows.map(r => [r.reason, r.consentWithdrawn]), [["chest pain", true]]);
+});
 
 test("a patient inside the retention window is not purged", async () => {
   await withdrawAndDelete(db, { kind: "agent" }, f.patientId);

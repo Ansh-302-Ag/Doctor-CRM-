@@ -17,9 +17,11 @@ export async function listEscalations(db: Db, actor: Actor, role: Role, clinicId
       created_at: Date; resolved_at: Date | null;
       patient_name: string | null; patient_phone: string;
       assigned_to_name: string | null; last_message: string | null;
+      consentWithdrawn: boolean;
     }[]>`
       select e.id, e.reason, e.priority, e.status, e.created_at, e.resolved_at,
              p.name as patient_name, p.phone as patient_phone,
+             p.deleted_at is not null as "consentWithdrawn",
              s.name as assigned_to_name,
              (select m.body from messages m
                where m.conversation_id = e.conversation_id and m.direction = 'inbound'
@@ -27,7 +29,11 @@ export async function listEscalations(db: Db, actor: Actor, role: Role, clinicId
         from escalations e
         join patients p on p.id = e.patient_id
         left join staff_users s on s.id = e.assigned_to
-       where p.clinic_id = ${clinicId} and p.deleted_at is null
+       -- A patient who withdrew consent is hidden once their escalation is
+       -- closed, not before: an emergency sent alongside DELETE is paged with a
+       -- masked number, so this inbox is the only place staff can find them.
+       where p.clinic_id = ${clinicId}
+         and (p.deleted_at is null or e.status <> 'resolved')
        order by (e.status <> 'resolved') desc,
                 (e.priority = 'emergency') desc,
                 e.created_at desc
