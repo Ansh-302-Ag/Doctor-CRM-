@@ -147,10 +147,13 @@ async function inTransaction(
   }
   await db`update conversations set last_message_at = now() where id = ${ctx.conversation.id}`;
 
-  // Nothing to screen or classify in a message we cannot read, and nothing to
-  // page anyone about: asking the patient to type it is the whole answer.
+  // Nothing to screen or classify in a message we cannot read, so asking the
+  // patient to type it is the answer — with the emergency route, since it may
+  // be the emergency we cannot see. A voice-only patient would loop on that
+  // forever, so it counts toward the same three-in-a-row as unclear text.
   const reply: Routed = msg.kind
-    ? { text: unreadable(msg.kind), escalated: false, intent: "unreadable" }
+    ? await reaskIn(db, ctx, unreadable(msg.kind, ctx.clinic.phone),
+        "repeatedly unreadable messages (voice/photo)", "unreadable")
     : await route(db, msg, ctx, now, classify);
 
   await db`insert into messages (conversation_id, direction, body, intent_classified)
@@ -158,10 +161,11 @@ async function inTransaction(
   return { text: reply.text, escalated: reply.escalated, urgent: reply.urgent };
 }
 
-function unreadable(kind: string) {
-  return kind === "edit"
+function unreadable(kind: string, clinicPhone: string) {
+  return (kind === "edit"
     ? "Edited messages can't be read here. Please send your message again as a new message."
-    : `I can only read typed messages. Please type what you need, for example "book an appointment".`;
+    : `I can only read typed messages. Please type what you need, for example "book an appointment".`) +
+    ` If it is urgent, call 112 (or 108 for an ambulance), or call the clinic on ${clinicPhone}.`;
 }
 
 type Ctx = {
@@ -171,20 +175,46 @@ type Ctx = {
 };
 type Routed = { text: string; escalated: boolean; urgent?: boolean; intent?: string };
 
+async function escalateIn(
+  db: Db, ctx: Ctx, reason: string, priority: "normal" | "emergency", text: string, intent?: string,
+): Promise<Routed> {
+  // Deliberately does NOT clear the conversation state. A human stepping in
+  // does not mean the doctor, day and times the patient already gave are
+  // thrown away — they used to be, and the patient started over every time.
+  await tools.escalate_to_human({
+    db, conversationId: ctx.conversation.id, patientId: ctx.patient.id, reason, priority,
+  });
+  return { text, escalated: true, urgent: priority === "emergency", intent };
+}
+
+/**
+ * We could not read an answer to the question we are waiting on. Ask it
+ * again — an unreadable message is not a reason to hand the conversation to
+ * a nurse, it is a reason to repeat the question. Three in a row is a
+ * conversation going nowhere, and that is.
+ */
+async function reaskIn(
+  db: Db, ctx: Ctx, question: string, reason: string, intent = "unclear",
+  keep: ConversationState = {},
+): Promise<Routed> {
+  const state = ctx.conversation.state;
+  const seen = (state.unclear ?? 0) + 1;
+  const stuck = seen > MAX_UNCLEAR;
+  // Anything the message did tell us is kept either way — a message that
+  // answers one question and misses another must not cost us the answer.
+  await setState(db, ctx.conversation.id,
+    { ...state, ...keep, unclear: stuck ? 0 : seen });
+  if (stuck) {
+    return escalateIn(db, ctx, `${reason} (${seen} messages in a row)`, "normal",
+      templates.unclear(ctx.clinic.phone), "unclear");
+  }
+  return { text: question, escalated: false, intent };
+}
+
 async function route(
   db: Db, msg: InboundMessage, ctx: Ctx, now: Date, classify: Classifier,
 ): Promise<Routed> {
-  const escalate = async (
-    reason: string, priority: "normal" | "emergency", text: string, intent?: string,
-  ): Promise<Routed> => {
-    // Deliberately does NOT clear the conversation state. A human stepping in
-    // does not mean the doctor, day and times the patient already gave are
-    // thrown away — they used to be, and the patient started over every time.
-    await tools.escalate_to_human({
-      db, conversationId: ctx.conversation.id, patientId: ctx.patient.id, reason, priority,
-    });
-    return { text, escalated: true, urgent: priority === "emergency", intent };
-  };
+  const escalate: Escalate = (...a) => escalateIn(db, ctx, ...a);
 
   // 2. The safety screen runs before the model and cannot be overridden.
   const verdict = screen(msg.body);
@@ -231,31 +261,10 @@ async function route(
   }
 
   // The count below is of CONSECUTIVE misses, so this message clears it up
-  // front; reask() writes it straight back if this one is another miss.
+  // front; reask() writes it straight back (from the count it started with) if
+  // this one is another miss.
   if (state.unclear) await setState(db, ctx.conversation.id, { ...state, unclear: 0 });
-
-  /**
-   * We could not read an answer to the question we are waiting on. Ask it
-   * again — an unreadable message is not a reason to hand the conversation to
-   * a nurse, it is a reason to repeat the question. Three in a row is a
-   * conversation going nowhere, and that is.
-   */
-  const reask = async (
-    question: string, reason: string, intent = "unclear",
-    keep: ConversationState = {},
-  ): Promise<Routed> => {
-    const seen = (state.unclear ?? 0) + 1;
-    const stuck = seen > MAX_UNCLEAR;
-    // Anything the message did tell us is kept either way — a message that
-    // answers one question and misses another must not cost us the answer.
-    await setState(db, ctx.conversation.id,
-      { ...state, ...keep, unclear: stuck ? 0 : seen });
-    if (stuck) {
-      return escalate(`${reason} (${seen} messages in a row)`, "normal",
-        templates.unclear(ctx.clinic.phone), "unclear");
-    }
-    return { text: question, escalated: false, intent };
-  };
+  const reask: Reask = (...a) => reaskIn(db, ctx, ...a);
 
   // 3. Consent gate. Nothing proceeds past here without a recorded 'granted'.
   if (c.intent === "delete_my_data") {

@@ -9,6 +9,7 @@ import { handleInbound } from "../src/lib/agent";
 import { CONSENT_NOTICE, introduction, isAffirmative } from "../src/lib/consent";
 import { scripted, stub } from "./stub-classifier";
 import { ClassifierUnavailable } from "../src/lib/agent/intent";
+import { templates } from "../src/lib/agent/screen";
 import { OPEN_HOUR, CLOSE_HOUR } from "../src/lib/booking";
 
 /** Same rendering the agent uses, so the assertion tracks the real schedule. */
@@ -605,6 +606,33 @@ test("an edited message asks the patient to send it again", async () => {
     clinicId: f.clinicId, phone: "+919000000001", body: "", providerMessageId: "e1", kind: "edit",
   }, new Date(), scripted);
   assert.match(r!.text, /Edited messages can't be read here/);
+});
+
+const unreadableFrom = (id: string, kind = "audio") =>
+  handleInbound(db, {
+    clinicId: f.clinicId, phone: "+919000000001", body: "", providerMessageId: id, kind,
+  }, new Date(), scripted);
+
+test("the reply to a voice note carries the emergency route", async () => {
+  // A voice note cannot be screened, so it may be the emergency we never read.
+  for (const [id, kind] of [["a1", "audio"], ["a2", "edit"]]) {
+    const r = await unreadableFrom(id, kind);
+    assert.match(r!.text, /112/, kind);
+    assert.match(r!.text, /\+911140000000/, kind);
+  }
+});
+
+test("three unreadable messages in a row reach a human, like three unclear ones", async () => {
+  assert.equal((await unreadableFrom("a1"))!.escalated, false);
+  assert.equal((await unreadableFrom("a2"))!.escalated, false);
+  const third = await unreadableFrom("a3");
+  assert.equal(third!.escalated, true);
+  assert.equal(third!.text, templates.unclear("+911140000000"));
+
+  const rows = await escalations();
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].reason, /repeatedly unreadable messages \(voice\/photo\)/);
+  assert.equal(rows[0].priority, "normal");
 });
 
 test("an emergency reply is marked urgent and a clinical one is not", async () => {
