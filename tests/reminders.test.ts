@@ -6,6 +6,7 @@ import {
 } from "../src/lib/reminders";
 import { bookAppointment, cancelAppointment, rescheduleAppointment } from "../src/lib/booking";
 import { createPrescription, discontinuePrescription } from "../src/lib/prescriptions";
+import type { StaffAlert } from "../src/lib/channel";
 
 let f: Fixture;
 const STAFF = () => ({ kind: "staff" as const, id: f.receptionistId });
@@ -14,10 +15,17 @@ const DOCTOR = () => ({ kind: "staff" as const, id: f.doctorUserId });
 beforeEach(async () => { await reset(); f = await seed(); });
 after(closeAll);
 
-/** A send that records what it was asked to deliver instead of calling Meta. */
+/** A send that records what it was asked to deliver instead of calling Meta,
+ *  and a pager that records instead of reaching the real staff phone. Every
+ *  run passes both: the defaults use whatever credentials .env.local holds. */
 const recorder = () => {
   const sent: { to: string; name: string; parameters: string[] }[] = [];
-  return { sent, send: async (m: typeof sent[number]) => { sent.push(m); return { delivered: true }; } };
+  const paged: StaffAlert[] = [];
+  return {
+    sent, paged,
+    send: async (m: typeof sent[number]) => { sent.push(m); return { delivered: true }; },
+    notify: async (a: StaffAlert) => { paged.push(a); },
+  };
 };
 const due = () => db`update reminders set send_at = now() - interval '1 minute'
                       where status = 'scheduled'`;
@@ -73,13 +81,13 @@ test("a due appointment reminder is sent as a template, once", async () => {
   await due();
 
   const rec = recorder();
-  assert.deepEqual(await runDueReminders(db, { send: rec.send as never }),
+  assert.deepEqual(await runDueReminders(db, { send: rec.send as never, notify: rec.notify }),
     { sent: 1, skipped: 0, failed: 0 });
   assert.equal(rec.sent[0].name, "appointment_reminder");
   assert.equal(rec.sent[0].to, "+919000000001");
   assert.ok(rec.sent[0].parameters.includes("Dr. Rao"));
 
-  assert.deepEqual(await runDueReminders(db, { send: rec.send as never }),
+  assert.deepEqual(await runDueReminders(db, { send: rec.send as never, notify: rec.notify }),
     { sent: 0, skipped: 0, failed: 0 }, "a sent reminder is not resent");
   assert.equal(rec.sent.length, 1);
 });
@@ -93,7 +101,7 @@ test("a reminder for a cancelled appointment is not sent", async () => {
   await db`update appointments set status = 'cancelled' where id = ${appt.id}`;
 
   const rec = recorder();
-  assert.deepEqual(await runDueReminders(db, { send: rec.send as never }),
+  assert.deepEqual(await runDueReminders(db, { send: rec.send as never, notify: rec.notify }),
     { sent: 0, skipped: 1, failed: 0 });
   assert.equal(rec.sent.length, 0);
 });
@@ -108,7 +116,7 @@ test("a reminder for a discontinued prescription is not sent", async () => {
   await discontinuePrescription(db, DOCTOR(), "doctor", f.clinicId, id);
 
   const rec = recorder();
-  assert.deepEqual(await runDueReminders(db, { send: rec.send as never }),
+  assert.deepEqual(await runDueReminders(db, { send: rec.send as never, notify: rec.notify }),
     { sent: 0, skipped: 1, failed: 0 });
   assert.equal(rec.sent.length, 0, "a discontinued drug must never be reminded about");
 
@@ -124,7 +132,7 @@ test("a reminder for a withdrawn patient is not sent", async () => {
             where id = ${f.patientId}`;
 
   const rec = recorder();
-  assert.equal((await runDueReminders(db, { send: rec.send as never })).sent, 0);
+  assert.equal((await runDueReminders(db, { send: rec.send as never, notify: rec.notify })).sent, 0);
   assert.equal(rec.sent.length, 0);
 });
 
@@ -134,10 +142,9 @@ test("a failing send is retried, then surfaced to staff", async () => {
   await due();
 
   const boom = async () => { throw new Error("network down"); };
-  const paged: { urgent: boolean; note: string }[] = [];
-  const notify = async (a: { urgent: boolean; note: string }) => { paged.push(a); };
+  const { paged, notify } = recorder();
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
-    await runDueReminders(db, { send: boom as never, notify: notify as never });
+    await runDueReminders(db, { send: boom as never, notify });
     await due();
   }
   assert.equal(paged.length, 1, "staff are paged once, when retries are exhausted");
@@ -167,10 +174,12 @@ test("an exhausted reminder still escalates for a patient with no conversation",
   await due();
 
   const boom = async () => { throw new Error("network down"); };
+  const { paged, notify } = recorder();
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
-    await runDueReminders(db, { send: boom as never });
+    await runDueReminders(db, { send: boom as never, notify });
     await due();
   }
+  assert.equal(paged.length, 1);
 
   const [r] = await db<{ status: string }[]>`
     select status from reminders where patient_id = ${patient.id}`;
@@ -195,8 +204,8 @@ test("two overlapping runs do not double-send one reminder", async () => {
   };
 
   const [a, b] = await Promise.all([
-    runDueReminders(db, { send: slowSend as never }),
-    runDueReminders(db, { send: slowSend as never }),
+    runDueReminders(db, { send: slowSend as never, notify: rec.notify }),
+    runDueReminders(db, { send: slowSend as never, notify: rec.notify }),
   ]);
 
   assert.equal(rec.sent.length, 1, "only one overlapping run may send the reminder");
