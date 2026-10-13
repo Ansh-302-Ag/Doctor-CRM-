@@ -983,3 +983,48 @@ time, not Meta's timestamp; a transient failure before commit forfeits Meta's
 redelivery; SMS (Fast2SMS) as a second staff-alert channel. Also worth a look:
 the emergency reply now waits on the staff page, and Graph API calls have no
 timeout — a slow Graph delays emergency advice.
+
+---
+
+## 2026-10-13 — the live WhatsApp fixes, and the CRM made professional
+
+**Branch live-whatsapp-fixes → merged into main (local).** Plan
+`docs/superpowers/plans/2026-10-13-live-whatsapp-fixes.md`, executed task by
+task with a review after each and a whole-branch review at the end (four
+lenses, every finding put to two skeptics). Beyond the four planned tasks the
+final review added: unreadable messages (voice, photo, edit) carry 112 and the
+clinic's number and escalate after three; every technical-failure reply
+carries 112; a failed reply or failed processing leaves a row in the inbox; a
+withdrawn patient's open escalation stays visible; a captioned attachment is
+acknowledged as unread; `staff_alert` no longer starts with a variable; no
+test can page the real staff phone. The worst find was not in a test at all:
+a Windows-1252 dash in a comment of `channel.ts` stopped Turbopack compiling
+the app and the webhook — `tests/source-encoding.test.ts` now guards every
+source file. Consent counts only as an answer to the notice, whether the yes
+comes from the word list or the model. Two narrow consent cases are deferred:
+an undelivered notice followed by a bare "ok", and booking state surviving a
+DELETE (it is purged with the patient).
+
+**Branch ui-polish.** The old `ui-redesign` branch (never reviewed until now)
+merged onto the fixes, then plan `docs/superpowers/plans/2026-10-13-ui-polish.md`:
+escalations show the message that raised them and a plain-language reason;
+`Doctor-CRM` branding with the clinic's name; a bottom tab bar on phones;
+lists become cards below `md`; the calendar and the doctor's day carry
+summary counts and a next-patient card. The whole-branch review (including
+the redesign's 1,300 lines) found no data or role leaks; its fixes: an empty
+or malformed `?day=` no longer crashes the day screens (`validDay`), the
+clinic name on the dark rail meets AA contrast, copy corrections.
+
+**Operational notes learned the hard way.**
+- `git worktree remove --force` on a worktree whose `node_modules` is a
+  junction deletes *through* the junction; remove the junction with
+  `rmdir` first.
+- A dev server that outlives an `npm install` serves stale Tailwind CSS
+  (a new `sm:` class simply missing). Restart it.
+- Groq's `gpt-oss-20b` sometimes refuses the forced tool call (`tool_use_failed`);
+  the message then escalates as a technical failure. An Anthropic key, or a
+  non-forced retry, would fix it — not yet decided.
+
+**Still owed:** the prescription change for Meta's health-information policy
+(docs/02); Meta approval of all four templates (`staff_alert` copy changed);
+deployment.
