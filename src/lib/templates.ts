@@ -44,12 +44,13 @@ export const TEMPLATES: Record<TemplateName, TemplateSpec> = {
     params: ["clinic_name", "doctor_name"],
   },
   /** Pages the on-duty staff phone, which is outside the 24-hour window unless
-   *  it messaged the number today. Carries no patient detail at all. */
+   *  it messaged the number today. Carries no patient detail at all. Opens on
+   *  fixed words because Meta rejects a body that starts with a variable. */
   staff_alert: {
     name: "staff_alert",
     language: "en",
     bodyText:
-      "{{1}}: a patient conversation needs a person ({{2}}). " +
+      "Clinic alert for {{1}}: a patient conversation needs a person ({{2}}). " +
       "Please open the escalation inbox in the clinic dashboard.",
     params: ["clinic_name", "priority"],
   },

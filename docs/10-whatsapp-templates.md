@@ -85,7 +85,7 @@ free-form text would be silently dropped. It carries no patient detail.
 Body text:
 
 ```
-{{1}}: a patient conversation needs a person ({{2}}). Please open the escalation inbox in the clinic dashboard.
+Clinic alert for {{1}}: a patient conversation needs a person ({{2}}). Please open the escalation inbox in the clinic dashboard.
 ```
 
 Sample values for submission:

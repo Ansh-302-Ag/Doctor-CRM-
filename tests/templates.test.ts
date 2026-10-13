@@ -12,6 +12,14 @@ test("every template's parameter list matches its body placeholders", () => {
   }
 });
 
+test("no template body starts or ends with a placeholder", () => {
+  // Meta rejects a template whose body opens or closes on a variable.
+  for (const spec of Object.values(TEMPLATES)) {
+    assert.doesNotMatch(spec.bodyText, /^\s*\{\{\d+\}\}|\{\{\d+\}\}\s*$/,
+      `${spec.name}: body must not start or end with {{n}}`);
+  }
+});
+
 test("rendering substitutes parameters in the declared order", () => {
   const r = renderTemplate("appointment_reminder", {
     clinic_name: "Sunrise Clinic", doctor_name: "Dr. Rao", appointment_time: "Fri 4 Sept, 10:00 am",
