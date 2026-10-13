@@ -40,8 +40,11 @@ export default async function LoginPage({
               <path d="M12 6v12M6 12h12" />
             </svg>
           </span>
-          <span className="text-lg font-semibold text-white">Clinic CRM</span>
+          <span className="text-lg font-semibold text-white">Doctor-CRM</span>
         </div>
+        <p className="mt-2 text-center text-sm text-rail-ink">
+          Appointments, patients and WhatsApp for your clinic
+        </p>
 
         <form action={login} className="mt-6 rounded-xl border border-line bg-surface p-7 shadow-lg">
           <h1 className="text-lg font-semibold text-ink">Sign in</h1>

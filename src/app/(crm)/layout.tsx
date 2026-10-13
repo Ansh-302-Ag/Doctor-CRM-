@@ -30,30 +30,44 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
     redirect("/login");
   }
 
+  const wordmark = (
+    <div className="flex min-w-0 items-center gap-2.5">
+      <span
+        aria-hidden="true"
+        className="grid size-8 shrink-0 place-items-center rounded-md bg-accent text-white"
+      >
+        <svg viewBox="0 0 24 24" className="size-4.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+          <path d="M12 6v12M6 12h12" />
+        </svg>
+      </span>
+      <span className="min-w-0 leading-tight">
+        <span className="block text-sm font-semibold tracking-tight text-white">Doctor-CRM</span>
+        <span className="block truncate text-xs text-ink-3">{staff.clinicName}</span>
+      </span>
+    </div>
+  );
+
   return (
     <div className="min-h-dvh md:flex">
+      {/* Phone: a slim top bar (brand + sign out) and, in <Nav>, a fixed bottom
+          tab bar. md and up: the rail below. */}
+      <header className="flex items-center justify-between gap-3 border-b border-rail-line bg-rail px-4 py-2.5 md:hidden">
+        {wordmark}
+        <form action={logout} className="shrink-0">
+          <button className="rounded-md border border-rail-line px-3 py-1.5 text-sm font-medium text-rail-ink transition-colors hover:bg-rail-active hover:text-white">
+            Sign out
+          </button>
+        </form>
+      </header>
+
       {/* A rail rather than a strip: this tool stays open all day, and the
-          escalation count needs somewhere it can shout. It collapses to a
-          single dark bar on a small laptop — wrapping, no toggle to script. */}
-      <aside className="flex flex-wrap items-center gap-3 border-b border-rail-line bg-rail px-4 py-3 md:sticky md:top-0 md:h-dvh md:w-52 md:shrink-0 xl:w-60 md:flex-col md:items-stretch md:gap-0 md:border-b-0 md:px-0 md:py-0">
-        <div className="flex items-center gap-2.5 md:border-b md:border-rail-line md:px-4 md:py-4">
-          <span
-            aria-hidden="true"
-            className="grid size-8 shrink-0 place-items-center rounded-md bg-accent text-white"
-          >
-            <svg viewBox="0 0 24 24" className="size-4.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-              <path d="M12 6v12M6 12h12" />
-            </svg>
-          </span>
-          <span className="text-sm font-semibold tracking-tight text-white">Clinic CRM</span>
-        </div>
+          escalation count needs somewhere it can shout. */}
+      <aside className="hidden md:sticky md:top-0 md:flex md:h-dvh md:w-52 md:shrink-0 md:flex-col border-r border-rail-line bg-rail xl:w-60">
+        <div className="border-b border-rail-line px-4 py-4">{wordmark}</div>
 
-        <Nav items={items} openEscalations={Number(open.count)} />
+        <Nav variant="rail" items={items} openEscalations={Number(open.count)} />
 
-        <form
-          action={logout}
-          className="ml-auto flex items-center gap-3 md:ml-0 md:flex-col md:items-stretch md:gap-2 md:border-t md:border-rail-line md:p-3"
-        >
+        <form action={logout} className="flex flex-col gap-2 border-t border-rail-line p-3">
           <span className="leading-tight">
             <span className="block text-sm font-medium text-white">{staff.name}</span>
             <span className="block text-[11px] capitalize text-rail-ink">{staff.role}</span>
@@ -64,9 +78,11 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
         </form>
       </aside>
 
-      <main className="min-w-0 flex-1 px-4 py-6 md:px-6 md:py-8 xl:px-8">
+      <main className="min-w-0 flex-1 px-4 py-6 pb-24 md:px-6 md:py-8 md:pb-8 xl:px-8">
         <div className="mx-auto w-full max-w-[1400px]">{children}</div>
       </main>
+
+      <Nav variant="tabs" items={items} openEscalations={Number(open.count)} />
     </div>
   );
 }

@@ -58,9 +58,9 @@ export const currentStaff = cache(async () => {
   const user = await requireUser();
   const [row] = await sql<{
     id: string; clinic_id: string; name: string; role: Role;
-    doctor_id: string | null; timezone: string;
+    doctor_id: string | null; timezone: string; clinic_name: string;
   }[]>`
-    select u.id, u.clinic_id, u.name, u.role, u.doctor_id, c.timezone
+    select u.id, u.clinic_id, u.name, u.role, u.doctor_id, c.timezone, c.name as clinic_name
       from staff_users u
       join clinics c on c.id = u.clinic_id
      where u.id = ${user.id}`;
@@ -72,6 +72,7 @@ export const currentStaff = cache(async () => {
     // which let a doctor attribute his own prescription to a colleague.
     doctorId: row.doctor_id,
     timezone: row.timezone,
+    clinicName: row.clinic_name,
   };
 });
 

@@ -16,19 +16,79 @@ const ICONS = {
 
 export type NavItem = { href: string; label: string; icon: keyof typeof ICONS };
 
-/** The rail's active state needs the current path, and a layout is not
- *  re-rendered on navigation between its children — so this one small piece
- *  is a client component. Which items exist is decided on the server. */
-export function Nav({ items, openEscalations }: { items: NavItem[]; openEscalations: number }) {
+const Icon = ({ name, className }: { name: NavItem["icon"]; className: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    className={className}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.6"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d={ICONS[name]} />
+  </svg>
+);
+
+/** The active state needs the current path, and a layout is not re-rendered on
+ *  navigation between its children — so this one small piece is a client
+ *  component. Which items exist is decided on the server.
+ *
+ *  Two presentations of the same items: "rail" is the md+ sidebar list, "tabs"
+ *  is the fixed bottom bar on a phone (hidden from md up). */
+export function Nav({
+  items, openEscalations, variant,
+}: { items: NavItem[]; openEscalations: number; variant: "rail" | "tabs" }) {
   const path = usePathname();
+  const isActive = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
+  const badge = (cls: string) => (
+    <span className={`rounded-full bg-danger px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-white ${cls}`}>
+      {openEscalations}
+      <span className="sr-only"> open escalations</span>
+    </span>
+  );
+
+  if (variant === "tabs") {
+    return (
+      <nav
+        aria-label="Main"
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-rail-line bg-rail pb-[env(safe-area-inset-bottom)] md:hidden"
+      >
+        <ul className="flex">
+          {items.map((item) => {
+            const active = isActive(item.href);
+            return (
+              <li key={item.href} className="min-w-0 flex-1">
+                <Link
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={`relative flex flex-col items-center gap-0.5 px-1 py-2 text-[11px] font-medium transition-colors ${
+                    active ? "bg-rail-active text-white" : "text-rail-ink hover:text-white"
+                  }`}
+                >
+                  <span className="relative">
+                    <Icon name={item.icon} className="size-5" />
+                    {item.href === "/escalations" && openEscalations > 0 &&
+                      badge("absolute -right-3 -top-1.5 min-w-4 text-center leading-none")}
+                  </span>
+                  <span className="max-w-full truncate">{item.label}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+    );
+  }
 
   return (
-    <nav aria-label="Main" className="order-last w-full md:order-none md:flex-1 md:p-3">
-      <ul className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">
+    <nav aria-label="Main" className="flex-1 p-3">
+      <ul className="flex flex-col gap-1">
         {items.map((item) => {
-          const active = item.href === "/" ? path === "/" : path.startsWith(item.href);
+          const active = isActive(item.href);
           return (
-            <li key={item.href} className="md:w-full">
+            <li key={item.href}>
               <Link
                 href={item.href}
                 aria-current={active ? "page" : undefined}
@@ -38,25 +98,9 @@ export function Nav({ items, openEscalations }: { items: NavItem[]; openEscalati
                     : "text-rail-ink hover:bg-rail-active hover:text-white"
                 }`}
               >
-                <svg
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                  className="size-[18px] shrink-0"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d={ICONS[item.icon]} />
-                </svg>
+                <Icon name={item.icon} className="size-[18px] shrink-0" />
                 {item.label}
-                {item.href === "/escalations" && openEscalations > 0 && (
-                  <span className="ml-auto rounded-full bg-danger px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-white">
-                    {openEscalations}
-                    <span className="sr-only"> open escalations</span>
-                  </span>
-                )}
+                {item.href === "/escalations" && openEscalations > 0 && badge("ml-auto")}
               </Link>
             </li>
           );
