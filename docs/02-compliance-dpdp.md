@@ -100,3 +100,85 @@ compromised or logged upstream, the blast radius is small: it sees
 booking-relevant text, not a full medical dossier, on every single
 call. See `05-agent-tools-and-flows.md` for how tool scoping enforces
 this.
+
+## WhatsApp platform policy and Indian law — research, 2026-10-12
+
+Recorded after a web review of Meta's policy and Indian regulation. This is
+engineering research, not legal advice; every item below still goes to
+counsel before the first paying clinic.
+
+### Meta: AI on WhatsApp is allowed, for our kind of assistant
+
+Since 15 January 2026 Meta's WhatsApp Business Solution terms prohibit
+*general-purpose* AI assistants (ChatGPT-style products whose primary
+function is the AI). Business-specific automation — booking, order status,
+support — stays allowed, including when an LLM powers it, provided it stays
+on the business's own topic and hands off everything else. Our agent fits:
+a fixed tool set, and everything off-topic escalates. Meta decides "primary
+functionality" at its sole discretion, so menu mode (no model in the patient
+path) is the lower-risk default.
+
+The WhatsApp Business Messaging Policy (last updated 2026-09-23) also
+requires "prompt, clear, and direct escalation paths", naming in-chat
+transfer to a human agent. `escalate_to_human` and the inbox satisfy this.
+
+### Meta: the health-information clause — a real conflict
+
+The same policy, §3: *"Don't use WhatsApp for telemedicine or to send or
+request any health related information."*
+
+| Feature | Assessment | Decision |
+|---|---|---|
+| Booking, reminders, tokens, "now serving" | Logistics, not health information | Keep |
+| Prescription contents sent on WhatsApp (`prescribeAndNotify`, `src/lib/doctor.ts`) | Sends health information — directly against §3 | **Change**: send a "your prescription is ready" notice with a secure OTP-gated link; never the drug or dosage |
+| Reading a prescription back in chat (`get_prescription_summary`, "My prescription") | Same | **Change**: same link, not the contents |
+| Asking for a reason for visit (`reason_text`) | Requests health information | Make optional, or stop asking on WhatsApp |
+| Patient volunteers symptoms ("chest pain") | Not requested by us; we only escalate | Keep |
+
+The risk is not a fine but the **clinic's number being banned**. Until the
+change ships, the prescribe-and-send path must not be used with real
+patients. This supersedes the "prescriptions go to the patient's WhatsApp"
+decision recorded in docs/09 (2026-09-22).
+
+### Meta: opt-in and templates
+
+- Businesses may only message people who opted in to receive messages. The
+  consent notice must say plainly that the patient agrees to appointment
+  messages on WhatsApp.
+- Inside the 24-hour customer-service window any reply (text, buttons,
+  lists) is allowed without approval. Outside it, only approved templates.
+  Every clinic-initiated message — reminders, delayed confirmations, queue
+  updates, "prescription ready" — needs a Utility template, per clinic WABA.
+- Utility templates inside an open window are free; outside it about
+  ₹0.13 each in India (Meta pricing, July 2025 onward).
+
+### India: Telemedicine Practice Guidelines (2020)
+
+AI/ML platforms may not counsel patients or prescribe medicines; they may
+only support a registered doctor. Already our core rule (docs/01) and
+enforced at the database level (docs/08).
+
+### India: DPDP Rules 2025 timing and gaps
+
+The Rules were notified on 13 November 2025; most operational duties apply
+18 months later (about May 2027). Gaps against them, beyond what this file
+already covers:
+
+- Reasonable security safeguards: field-level encryption and staff
+  multi-factor login are not built.
+- Breach notification to patients and the Data Protection Board — confirm
+  the timeline in the Rules text (secondary sources say 72 hours) and put it
+  in `docs/runbooks/breach.md`.
+- A data-processing agreement with each clinic: the clinic is the data
+  fiduciary, we process on its behalf.
+- The consent notice must disclose that message text is processed by an AI
+  provider outside India (Anthropic or Groq) when AI mode is on.
+
+### Sources
+
+- WhatsApp Business Messaging Policy — https://whatsappbusiness.com/policy/
+- respond.io, "Not all chatbots are banned" — https://respond.io/blog/whatsapp-general-purpose-chatbots-ban
+- Meta, WhatsApp pricing — https://developers.facebook.com/docs/whatsapp/pricing
+- MediaNama, Telemedicine Practice Guidelines summary — https://www.medianama.com/2020/03/223-summary-india-telemedicine-guidelines/
+- EY, DPDP Act and Rules 2025 — https://www.ey.com/content/dam/ey-unified-site/ey-com/en-in/pdf/2025/11/ey-india-dpdp-act-2023-and-rules-2025-pov.pdf
+- KPMG, DPDP in healthcare — https://assets.kpmg.com/content/dam/kpmgsites/in/pdf/2025/12/the-privacy-prescription-impact-of-dpdp-act-and-rules-in-healthcare-and-life-sciences-sector.pdf.coredownload.pdf

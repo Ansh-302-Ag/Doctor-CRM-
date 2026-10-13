@@ -13,7 +13,6 @@
     "test:neon": "tsx --test --test-concurrency=1 --env-file=.env.local tests/*.test.ts",
     "seed": "tsx --env-file=.env.local scripts/seed.ts",
     "sim": "tsx --env-file=.env.local scripts/sim.ts",
-    "gateway": "node --env-file=.env.local whatsapp-gateway/index.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

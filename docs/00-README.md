@@ -14,6 +14,9 @@ the first time; after that, jump to whatever you're working on.
 | 06 | tech-stack-and-cost.md | Concrete stack choices + cost model |
 | 07 | mvp-roadmap.md | Phased build plan, what NOT to build yet |
 | 08 | security-and-error-handling.md | RBAC, encryption, audit logs, failure modes, testing bar |
+| 09 | implementation-log.md | What is actually built, decisions made while building, what is still owed |
+| 10 | whatsapp-templates.md | The WhatsApp template text submitted to Meta |
+| 11 | product-overview.md | What Doctor-CRM does, feature by feature — AI chat and menu modes, dashboard, safety |
 
 ## Why this document set exists
 

@@ -790,3 +790,142 @@ script now buffers Postgres's own output and prints it on failure.
   sequential queries to find a patient and a conversation. Worth much less now
   the database is local, but still the right shape.
 - `main` is 15 commits ahead of GitHub.
+
+---
+
+## Session — 2026-09-25: the database moves to Neon Singapore
+
+The Singapore database mentioned above had never actually been created — the
+only Neon project was the original `aws-us-east-2` one. Now it exists:
+project `super-truth-39272047` ("Doctor CRM Singapore"), region
+`aws-ap-southeast-1`, Postgres 18 (same major as the local cluster).
+
+- All ten migrations applied, seeded (`Sunrise Clinic`, new `CLINIC_ID`).
+- `clinic_agent` has a fresh random password; the local one only ever guarded
+  a database on 127.0.0.1.
+- Verified from outside: the agent role connects and is refused (`42501`) on
+  inserting a prescription and on deleting from `audit_log`.
+- Measured **~90 ms** per round trip over the pooled endpoint, against 279 ms
+  for us-east-2 — roughly a second per WhatsApp reply instead of three to four.
+  Local Postgres is still ~1 ms; `.env.local` keeps those lines commented as
+  `LOCAL (was):` for switching back, and the pre-change file is in
+  `.env.local.bak-local`.
+
+The us-east-2 project is untouched. Delete it once nothing points at it.
+
+---
+
+## Session — 2026-09-30: Baileys removed, the app is on Meta's Cloud API
+
+A Meta WhatsApp Business account exists now, so the unofficial gateway is gone:
+`whatsapp-gateway/`, `tests/gateway-contract.test.ts`, the `gateway` npm
+script, and the `WHATSAPP_API_BASE` override in `src/lib/channel.ts` —
+including the branch that sent templates as plain text. `sendTemplate` now
+always sends a real Meta template, so reminders fail until Meta approves them
+(docs/10). The Graph API moves from v21.0 (unavailable 2027-01-21) to v26.0.
+The README's "real phone" section now describes the Meta webhook setup.
+
+`.env.local` has blank `WHATSAPP_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` /
+`WHATSAPP_APP_SECRET` and a generated `WHATSAPP_VERIFY_TOKEN`. Until the blanks
+are filled, sends are simulated and every webhook POST is rejected.
+
+### A timezone bug the Linux VM had been hiding
+
+On this Windows machine (IST), 11 tests failed: every slot `checkAvailability`
+offered was 5h30m early, so no booking could land. postgres.js serialises a
+parameter Postgres types as `timestamp` with `new Date(str).toISOString()`,
+which reads a zone-less string in the *host's* zone. Correct on a UTC server,
+wrong on any developer laptop in India — including `npm run dev` driving live
+WhatsApp. Fixed with a `::text` cast in `booking.ts`, so Postgres alone does the
+conversion. The new test in `tests/booking.test.ts` sets `TZ` to New York, fails
+without the fix and passes with it.
+
+### Tests now run on Neon Singapore `neondb_test`
+
+Both shells in this environment are elevated, and Postgres refuses to start as
+an administrator, so `npm test` cannot start its throwaway cluster here. The
+Singapore project has a `neondb_test` database (its URL is commented in
+`.env.local`), which runs the whole suite in about 7 minutes.
+
+---
+
+## 2026-10-12 — compliance research: one feature has to change
+
+A web review of Meta's WhatsApp Business Messaging Policy and Indian
+regulation is recorded in `docs/02-compliance-dpdp.md` ("WhatsApp platform
+policy and Indian law"). Outcome:
+
+- **The AI assistant is allowed.** Meta's 2026 ban covers general-purpose AI
+  chatbots, not a booking assistant scoped to one business with a human
+  handoff.
+- **Sending prescription contents on WhatsApp conflicts with Meta's policy**
+  ("don't … send or request any health related information"). This reverses
+  the 2026-09-22 decision to send the record to the patient. Planned change:
+  a "your prescription is ready" Utility template plus a secure OTP-gated
+  link; reading back in chat goes the same way; `reason_text` becomes
+  optional. Not built — it touches prescription handling, so it gets a plan
+  and tests first. **Until then, do not use prescribe-and-send with real
+  patients.**
+- **Templates are required** for every clinic-initiated message outside the
+  24-hour window, approved per clinic WhatsApp account.
+- **New DPDP gaps logged:** field-level encryption, staff MFA, breach
+  timeline in the runbook, per-clinic processing agreements, and disclosure
+  of the AI provider in the consent notice.
+
+Also decided (user, 2026-10-12): Doctor-CRM is built as a real product, not
+to the college semester plan. College gets documents and a demo on request.
+
+---
+
+## 2026-10-13 — pre-live dry run (no Meta credentials yet)
+
+Two tracks: a local dry run (dev server on :3100, real Singapore database,
+HMAC-signed Meta-shaped payloads with a throwaway app secret, sends simulated),
+and a 46-agent check of the WhatsApp code against Meta's v26 docs, each finding
+put to two skeptics. Test patient and its audit rows deleted afterwards.
+
+**Found and fixed on the spot:** every `/api/*` route returned 404 in
+`next dev` — a stale `.next` cache from 23 Sept. Deleting `.next` fixed it.
+Meta's verification would have failed on its first request. If the webhook
+404s again, delete `.next` first.
+
+**Verified working:** the GET handshake echoes the challenge; bad signatures get
+401; status receipts are ignored with 200; consent → doctor → day → slot →
+booked; IST slot times correct; "when is my appointment"; duplicate delivery
+of the same wamid is a no-op; clinical and emergency messages (including
+Hinglish) escalate with the right priority, in ~1 s with no model call; AI
+steps take 1.7–4 s each through Groq; `npx cloudflared` runs (2026.10.0).
+
+**Bugs found — not yet fixed** (none blocks a first live test; all should be
+fixed before a real patient):
+
+1. Staff alerts are free-form text, so Meta drops them once the staff phone
+   has not messaged the number for 24 hours — and the send still returns 200,
+   so nothing is logged. Needs a `staff_alert` template or SMS.
+2. `failed` delivery statuses are discarded, so any send that Meta accepts and
+   then fails (131047 outside the window, 131026 undeliverable) counts as
+   delivered — reminders, prescriptions and staff pages alike.
+3. If sending the reply fails after the transaction committed, the patient is
+   told "technical issue" although the booking went through, and an
+   escalation's staff page loses its body and priority.
+4. A photo or document caption ("severe chest pain…") skips `screen()`: the
+   patient gets "I can only read text", with no emergency template and no
+   emergency escalation.
+5. A 👍 reaction or an edited message gets "I can only read text" and pages
+   staff (seen in the dry run: 4 non-text messages → 4 staff pages). Unsupported
+   messages are also never stored, never escalated, and not deduplicated.
+6. A message with no `from` (WhatsApp username users, first contact) fails the
+   zod schema for the whole payload, which is then dropped with a 200 — no
+   reply, no page, no row.
+7. While asking for consent or a name, a second message overwrites the stashed
+   request (`index.ts:278`, `:305`): "book Dr. Rao tomorrow" then "1" then the
+   name → the agent asks "which doctor?" again, with `reason: "1"`.
+
+Minor: redelivered webhooks after an outage are processed as fresh (Meta
+retries up to 7 days); invalid JSON returns 500; the staff page can exceed
+4096 characters; the 24-hour window is measured from insert time; the booking
+confirmation does not name the doctor; the introduction still promises to
+"read back what the doctor has already prescribed" (docs/02 says change it).
+
+Refuted by the skeptics: template language `en` is a valid Meta code; webhook
+latency is a hardening item, not a go-live failure.
