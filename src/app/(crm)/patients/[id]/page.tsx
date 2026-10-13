@@ -355,7 +355,7 @@ export default async function PatientRecordPage({
             </form>
           ) : (
             <p className="rounded-lg border border-dashed border-line-strong bg-surface p-4 text-sm text-ink-3">
-              Only a doctor or admin can add to this record. Everything on file is shown on the left.
+              Only a doctor or admin can add to this record. Everything on file is shown on this page.
             </p>
           )}
         </div>

@@ -42,7 +42,7 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
       </span>
       <span className="min-w-0 leading-tight">
         <span className="block text-sm font-semibold tracking-tight text-white">Doctor-CRM</span>
-        <span className="block truncate text-xs text-ink-3">{staff.clinicName}</span>
+        <span className="block truncate text-xs text-rail-ink">{staff.clinicName}</span>
       </span>
     </div>
   );

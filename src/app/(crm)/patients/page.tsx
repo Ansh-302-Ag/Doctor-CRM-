@@ -31,7 +31,9 @@ export default async function PatientsPage({
             {staff.role === "doctor" ? "My patients" : "Patients"}
           </h1>
           <p className="mt-1 text-sm text-ink-2">
-            {q
+            {patients.length === 100
+              ? "Showing the first 100 — search to narrow"
+              : q
               ? `${patients.length} ${patients.length === 1 ? "match" : "matches"} for “${q}”`
               : staff.role === "doctor"
                 ? `${patients.length} seen by you at this clinic`

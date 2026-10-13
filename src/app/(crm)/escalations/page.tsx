@@ -111,7 +111,7 @@ export default async function EscalationsPage() {
       <header>
         <h1 className="text-xl font-semibold tracking-tight text-ink">Escalations</h1>
         <p className="mt-1 max-w-2xl text-sm text-ink-2">
-          Everything the assistant refused to answer. Reply to the patient directly, then close it here.
+          Messages the assistant handed to a person. Contact the patient directly, then close it here.
         </p>
         <p className="mt-1 text-sm font-medium text-ink-2">
           {emergencies.length + waiting.length} waiting · {emergencies.length} emergency
@@ -189,7 +189,7 @@ export default async function EscalationsPage() {
                     <Badge tone={r.status === "open" ? "warn" : "neutral"}>
                       {r.status === "open"
                         ? "Open"
-                        : `Handled by ${r.assigned_to_name ?? "staff"}`}
+                        : `${r.assigned_to_name ?? "Staff"} is handling this`}
                     </Badge>
                     <span className="text-xs text-ink-3">
                       waiting {ago(r.created_at)} · {when(r.created_at)}

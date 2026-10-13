@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { validDay } from "@/lib/valid-day";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { doctorQueue, nextInQueue } from "@/lib/doctor";
@@ -20,7 +21,7 @@ export default async function QueuePage({
   if (staff.role !== "doctor" || !staff.doctorId) notFound();
 
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: staff.timezone }).format(new Date());
-  const day = (await searchParams).day ?? today;
+  const day = validDay((await searchParams).day, today);
 
   const rows = await doctorQueue(
     sql, { kind: "staff", id: staff.id }, staff.clinicId, staff.doctorId, day, staff.timezone);
@@ -85,6 +86,7 @@ export default async function QueuePage({
               id="day"
               type="date"
               name="day"
+              required
               defaultValue={day}
               className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm text-ink"
             />

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { validDay } from "@/lib/valid-day";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { audit } from "@/lib/audit";
@@ -42,7 +43,7 @@ export default async function CalendarPage({
 
   // The clinic's timezone rides along on currentStaff() — see src/lib/session.ts.
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: staff.timezone }).format(new Date());
-  const day = (await searchParams).day ?? today;
+  const day = validDay((await searchParams).day, today);
 
   // The audit write doesn't depend on the appointments query (or vice versa) —
   // running them concurrently instead of one after the other saves a full
@@ -139,6 +140,7 @@ export default async function CalendarPage({
               id="day"
               type="date"
               name="day"
+              required
               defaultValue={day}
               className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm text-ink"
             />

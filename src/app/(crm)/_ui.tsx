@@ -32,6 +32,8 @@ const APPOINTMENT: Record<string, Label> = {
   booked: { label: "Booked", tone: "accent" },
   completed: { label: "Completed", tone: "ok" },
   no_show: { label: "No show", tone: "warn" },
+  cancelled: { label: "Cancelled", tone: "neutral" },
+  rescheduled: { label: "Rescheduled", tone: "neutral" },
 };
 
 const CONSENT: Record<string, Label> = {
