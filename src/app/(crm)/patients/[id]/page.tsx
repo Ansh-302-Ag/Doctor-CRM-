@@ -216,8 +216,16 @@ export default async function PatientRecordPage({
                         <span className="font-semibold tabular-nums text-ink">{when(a.starts_at)}</span>
                         <Badge tone={status.tone}>{status.label}</Badge>
                       </div>
-                      <p className="mt-2 text-sm text-ink-2">{a.doctor_name}</p>
-                      <p className="mt-1 text-sm break-words text-ink-2">{a.reason_text ?? "—"}</p>
+                      <dl className="mt-3 space-y-2 text-sm">
+                        <div>
+                          <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">Doctor</dt>
+                          <dd className="mt-0.5 text-ink-2">{a.doctor_name}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">Reason (as given)</dt>
+                          <dd className="mt-0.5 break-words text-ink-2">{a.reason_text ?? "—"}</dd>
+                        </div>
+                      </dl>
                     </li>
                   );
                 })}

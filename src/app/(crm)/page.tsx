@@ -183,8 +183,16 @@ export default async function CalendarPage({
                 >
                   {r.patient_phone}
                 </a>
-                <p className="mt-2 text-sm text-ink-2">{r.doctor_name}</p>
-                <p className="mt-1 text-sm break-words text-ink-2">{r.reason_text ?? "—"}</p>
+                <dl className="mt-3 space-y-2 text-sm">
+                  <div>
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">Doctor</dt>
+                    <dd className="mt-0.5 text-ink-2">{r.doctor_name}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">Reason (as given)</dt>
+                    <dd className="mt-0.5 break-words text-ink-2">{r.reason_text ?? "—"}</dd>
+                  </div>
+                </dl>
                 <p className="mt-2 text-xs"><BookedBy by={r.created_by} /></p>
               </li>
             );
