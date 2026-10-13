@@ -67,9 +67,12 @@ export async function checkAvailability(
 
   // Let Postgres resolve local time to instants — it already knows the DST rules.
   const pad = (h: number) => String(h).padStart(2, "0");
+  // `::text` first: a parameter typed `timestamp` is serialised by postgres.js
+  // via `new Date(str)`, which reads the string in the HOST's zone — right only
+  // on a UTC server, 5h30m off on an IST laptop.
   const [bounds] = await db<{ open: Date; close: Date }[]>`
-    select (${`${day} ${pad(OPEN_HOUR)}:00:00`}::timestamp at time zone ${doctor.timezone}) as open,
-           (${`${day} ${pad(CLOSE_HOUR)}:00:00`}::timestamp at time zone ${doctor.timezone}) as close
+    select (${`${day} ${pad(OPEN_HOUR)}:00:00`}::text::timestamp at time zone ${doctor.timezone}) as open,
+           (${`${day} ${pad(CLOSE_HOUR)}:00:00`}::text::timestamp at time zone ${doctor.timezone}) as close
   `;
   if (!OPEN_DAYS.has(localPart(bounds.open, doctor.timezone, "weekday"))) return [];
 

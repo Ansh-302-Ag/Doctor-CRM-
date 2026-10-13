@@ -266,3 +266,17 @@ test("the calendar's day range matches the local date, across DST", async () => 
     assert.deepEqual(await range(c.day), await byDate(c.day), `${c.day}: disagrees with the date cast`);
   }
 });
+
+test("the first slot is 09:00 at the clinic whatever zone the server runs in", async () => {
+  // The bug: a `timestamp` parameter was parsed in the host's zone, so on an
+  // IST laptop every slot came out 5h30m early and none could be booked.
+  const prev = process.env.TZ;
+  process.env.TZ = "America/New_York";
+  try {
+    const day = localDay(futureSlot(10));
+    const [first] = await checkAvailability(db, f.doctorId, day);
+    assert.equal(first.startsAt.toISOString(), `${day}T03:30:00.000Z`);   // 09:00 IST
+  } finally {
+    if (prev === undefined) delete process.env.TZ; else process.env.TZ = prev;
+  }
+});
