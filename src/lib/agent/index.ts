@@ -202,12 +202,15 @@ async function route(
     select id, name from doctors where clinic_id = ${ctx.clinic.id} order by name`;
   const offeredIso = (isBooking(state) && state.offered) || [];
 
+  // Consent counts only as an answer to the notice, however it is read: a "yes"
+  // after a withdrawal or an emergency reply agrees to nothing.
+  const justAsked = ctx.patient.consent_status !== "granted"
+    && await justAskedForConsent(db, ctx.conversation.id);
+
   let c: Classification;
-  if (ctx.patient.consent_status !== "granted" && isAffirmative(msg.body)
-      && await justAskedForConsent(db, ctx.conversation.id)) {
+  if (justAsked && isAffirmative(msg.body)) {
     // "OK", "haan" and a thumbs-up are consent, and the model sometimes reads
-    // them as unclear — so it is not asked. Only as an answer to the notice: an
-    // "ok" after a withdrawal or an emergency reply agrees to nothing.
+    // them as unclear — so it is not asked.
     c = { intent: "consent_yes", doctor: null, day: null, slotIndex: null, time: null, name: null };
   } else try {
     c = await classify({
@@ -267,7 +270,9 @@ async function route(
     // An un-understood message from someone we have never met still reaches a
     // human. Consent governs storing and acting on their data, not whether we
     // are allowed to notice they need help (docs/01).
-    if (c.intent === "unclear") {
+    // A "yes" to a question we did not just ask is as unclear as any other
+    // message: show the notice, so there is something for them to agree to.
+    if (c.intent === "unclear" || (c.intent === "consent_yes" && !justAsked)) {
       // The deterministic screen above already caught anything clinical or
       // urgent, consent or no consent — so an unreadable message from someone
       // we have never met is almost always a greeting ("hi", "hello",

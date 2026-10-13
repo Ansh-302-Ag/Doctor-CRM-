@@ -761,3 +761,45 @@ test("a correction during the name detour wins over the stashed request", async 
   const [a] = await db<{ starts_at: Date }[]>`select starts_at from appointments`;
   assert.equal(localDay(a.starts_at), second);
 });
+
+// The model path: these messages are not plain yeses, so the classifier — not
+// isAffirmative — is what reads them as consent.
+const modelSaysYes = stub(() => ({ intent: "consent_yes" }));
+const modelSend = (phone: string, body: string, id: string) =>
+  handleInbound(db, { clinicId: f.clinicId, phone, body, providerMessageId: id },
+    new Date(), modelSaysYes);
+
+test("a model-classified yes after DELETE does not undo the withdrawal", async () => {
+  await say("delete my data");
+  const r = await modelSend("+919000000001", "yes please do that", "mdel-yes");
+
+  const [p] = await db<{ consent_status: string; deleted_at: Date | null }[]>`
+    select consent_status, deleted_at from patients where id = ${f.patientId}`;
+  assert.equal(p.consent_status, "withdrawn");
+  assert.ok(p.deleted_at, "the erasure still stands");
+  assert.ok(r!.text.includes(CONSENT_NOTICE), "the patient is shown the notice");
+});
+
+test("a model-classified yes to the emergency reply is not consent", async () => {
+  const phone = "+919000000098";
+  assert.equal((await modelSend(phone, "I'm having chest pain right now", "mem1"))!.escalated, true);
+  const r = await modelSend(phone, "yes please do that", "mem2");
+
+  const [p] = await db<{ consent_status: string }[]>`
+    select consent_status from patients where phone = ${phone}`;
+  assert.equal(p.consent_status, "pending");
+  assert.ok(r!.text.includes(CONSENT_NOTICE), "the patient is shown the notice");
+});
+
+test("a model-classified yes in answer to the notice is consent", async () => {
+  const phone = "+919000000099";
+  // The first message is itself read as a yes, but nothing has been asked yet.
+  const first = await modelSend(phone, "yes please do that", "mok1");
+  assert.ok(first!.text.includes(CONSENT_NOTICE));
+  const second = await modelSend(phone, "yes please do that", "mok2");
+  assert.match(second!.text, /thank you/i);
+
+  const [p] = await db<{ consent_status: string }[]>`
+    select consent_status from patients where phone = ${phone}`;
+  assert.equal(p.consent_status, "granted");
+});
