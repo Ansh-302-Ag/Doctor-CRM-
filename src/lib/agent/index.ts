@@ -25,7 +25,9 @@ import { CONSENT_NOTICE, introduction, recordConsent, withdrawAndDelete, Consent
 import { BookingError, OPEN_HOUR, CLOSE_HOUR, OPEN_DAYS, requireTimezone } from "../booking";
 import { setPatientName } from "../patients";
 
-export type Reply = { text: string; escalated: boolean };
+/** `urgent` is set when the escalation was an emergency, so the page that
+ *  follows can say so; the patient-facing text is the same either way. */
+export type Reply = { text: string; escalated: boolean; urgent?: boolean };
 
 type BookingState = {
   flow: "booking";
@@ -93,6 +95,8 @@ export type InboundMessage = {
   phone: string;
   body: string;
   providerMessageId: string;
+  /** Set for a message we cannot read (image, voice, edit...); absent = typed text. */
+  kind?: string;
 };
 
 /**
@@ -130,21 +134,32 @@ async function inTransaction(
   if (seen) return null;
 
   const ctx = await context(db, msg);
+  const body = msg.kind ? `[${msg.kind}]` : msg.body;
 
   try {
     await db`insert into messages (conversation_id, direction, body, provider_message_id)
-             values (${ctx.conversation.id}, 'inbound', ${msg.body}, ${msg.providerMessageId})`;
+             values (${ctx.conversation.id}, 'inbound', ${body}, ${msg.providerMessageId})`;
   } catch (e) {
     if ((e as { code?: string }).code === "23505") return null;   // raced duplicate
     throw e;
   }
   await db`update conversations set last_message_at = now() where id = ${ctx.conversation.id}`;
 
-  const reply = await route(db, msg, ctx, now, classify);
+  // Nothing to screen or classify in a message we cannot read, and nothing to
+  // page anyone about: asking the patient to type it is the whole answer.
+  const reply: Routed = msg.kind
+    ? { text: unreadable(msg.kind), escalated: false, intent: "unreadable" }
+    : await route(db, msg, ctx, now, classify);
 
   await db`insert into messages (conversation_id, direction, body, intent_classified)
            values (${ctx.conversation.id}, 'outbound', ${reply.text}, ${reply.intent ?? null})`;
-  return { text: reply.text, escalated: reply.escalated };
+  return { text: reply.text, escalated: reply.escalated, urgent: reply.urgent };
+}
+
+function unreadable(kind: string) {
+  return kind === "edit"
+    ? "Edited messages can't be read here. Please send your message again as a new message."
+    : `I can only read typed messages. Please type what you need, for example "book an appointment".`;
 }
 
 type Ctx = {
@@ -152,7 +167,7 @@ type Ctx = {
   patient: { id: string; consent_status: string; name: string | null };
   conversation: { id: string; state: ConversationState };
 };
-type Routed = { text: string; escalated: boolean; intent?: string };
+type Routed = { text: string; escalated: boolean; urgent?: boolean; intent?: string };
 
 async function route(
   db: Db, msg: InboundMessage, ctx: Ctx, now: Date, classify: Classifier,
@@ -166,7 +181,7 @@ async function route(
     await tools.escalate_to_human({
       db, conversationId: ctx.conversation.id, patientId: ctx.patient.id, reason, priority,
     });
-    return { text, escalated: true, intent };
+    return { text, escalated: true, urgent: priority === "emergency", intent };
   };
 
   // 2. The safety screen runs before the model and cannot be overridden.

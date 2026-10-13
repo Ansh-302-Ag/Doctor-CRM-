@@ -587,3 +587,27 @@ test("a clinic with no timezone fails loudly instead of quietly using the server
   await db`update clinics set timezone = '' where id = ${f.clinicId}`;
   await assert.rejects(say("I need an appointment with Dr. Rao"), /timezone is missing/);
 });
+
+test("a message we cannot read is stored and answered without classifying or escalating", async () => {
+  const boom = async () => { throw new Error("must not classify"); };
+  const r = await handleInbound(db, {
+    clinicId: f.clinicId, phone: "+919000000001", body: "", providerMessageId: "v1", kind: "voice",
+  }, new Date(), boom);
+  assert.match(r!.text, /only read typed messages/);
+  assert.equal(r!.escalated, false);
+  assert.equal((await escalations()).length, 0);
+  const [m] = await db<{ body: string }[]>`select body from messages where direction = 'inbound'`;
+  assert.equal(m.body, "[voice]");
+});
+
+test("an edited message asks the patient to send it again", async () => {
+  const r = await handleInbound(db, {
+    clinicId: f.clinicId, phone: "+919000000001", body: "", providerMessageId: "e1", kind: "edit",
+  }, new Date(), scripted);
+  assert.match(r!.text, /Edited messages can't be read here/);
+});
+
+test("an emergency reply is marked urgent and a clinical one is not", async () => {
+  assert.equal((await say("I'm having chest pain right now"))!.urgent, true);
+  assert.ok(!(await say("can I take paracetamol too?"))!.urgent);
+});
