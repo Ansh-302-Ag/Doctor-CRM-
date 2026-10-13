@@ -138,6 +138,40 @@ test("an image without caption gets the typed-messages reply, once, and pages no
   assert.deepEqual(rows.map(x => x.body), ["[image]"]);
 });
 
+test("a captioned photo or file is answered, and the reply says it went unseen", async () => {
+  // A patient who sends a report with "is this ok" must not think it was read.
+  const r = recorder();
+  await run(envelope([
+    { from: "919000000001", id: "c1", type: "image",
+      image: { id: "x", caption: "I need an appointment with Dr. Rao" } },
+    { from: "919000000001", id: "c2", type: "document",
+      document: { id: "y", caption: "tomorrow" } },
+  ]), r);
+
+  const [photo, file] = r.sends().map(m => m.text);
+  assert.ok(photo.endsWith(
+    "\n\n(I could not open the attached image. I can only read the text you typed.)"), photo);
+  assert.ok(file.endsWith(
+    "\n\n(I could not open the attached file. I can only read the text you typed.)"), file);
+  const stored = await db<{ body: string }[]>`
+    select body from messages where direction = 'outbound' order by created_at`;
+  assert.deepEqual(stored.map(m => m.body), [photo, file], "what is stored is what was sent");
+});
+
+test("a yes to a consent notice that carried the attachment note is still consent", async () => {
+  const r = recorder();
+  const from = "919000000077";
+  await run(envelope([
+    { from, id: "n1", type: "image", image: { id: "x", caption: "I need an appointment with Dr. Rao" } },
+  ]), r);
+  assert.match(r.sends()[0].text, /could not open the attached image/);
+  await run(envelope([{ from, id: "n2", type: "text", text: { body: "yes" } }]), r);
+
+  const [p] = await db<{ consent_status: string }[]>`
+    select consent_status from patients where phone = ${"+" + from}`;
+  assert.equal(p.consent_status, "granted");
+});
+
 test("a reaction produces no reply and no page", async () => {
   const r = recorder();
   await run(envelope([

@@ -52,7 +52,9 @@ const status = z.object({
   errors: z.array(z.object({ code: z.number().optional(), title: z.string().optional() })).optional(),
 });
 
-export type InboundText = { phone: string; body: string; providerMessageId: string };
+/** `attachment` is the media type when the text was a caption: we read the
+ *  words, never the photo or file, and the reply has to say so. */
+export type InboundText = { phone: string; body: string; providerMessageId: string; attachment?: string };
 export type InboundOther = { phone: string; providerMessageId: string; kind: string };
 export type FailedStatus = { messageId: string; recipient: string; code: number | null; title: string };
 
@@ -87,7 +89,7 @@ export function parseInbound(body: unknown): {
         if (type === "text" && m.data.text) {
           texts.push({ phone, body: m.data.text.body, providerMessageId: id });
         } else if (typeof caption === "string" && caption.trim()) {
-          texts.push({ phone, body: caption, providerMessageId: id });
+          texts.push({ phone, body: caption, providerMessageId: id, attachment: type });
         } else {
           const kind = type === "unsupported" ? (m.data.unsupported?.type ?? "unsupported") : type;
           unsupported.push({ phone, providerMessageId: id, kind });

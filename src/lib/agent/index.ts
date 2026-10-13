@@ -99,6 +99,8 @@ export type InboundMessage = {
   providerMessageId: string;
   /** Set for a message we cannot read (image, voice, edit...); absent = typed text. */
   kind?: string;
+  /** The media type when `body` is a caption (image, video, document). */
+  attachment?: string;
 };
 
 /**
@@ -156,9 +158,17 @@ async function inTransaction(
         "repeatedly unreadable messages (voice/photo)", "unreadable")
     : await route(db, msg, ctx, now, classify);
 
+  // A caption is answered, but a patient who sent a report with "is this ok"
+  // must not believe the report was looked at. Added before storing, so the
+  // record holds exactly what was sent.
+  const text = msg.attachment
+    ? `${reply.text}\n\n(I could not open the attached ${
+        msg.attachment === "document" ? "file" : msg.attachment}. I can only read the text you typed.)`
+    : reply.text;
+
   await db`insert into messages (conversation_id, direction, body, intent_classified)
-           values (${ctx.conversation.id}, 'outbound', ${reply.text}, ${reply.intent ?? null})`;
-  return { text: reply.text, escalated: reply.escalated, urgent: reply.urgent };
+           values (${ctx.conversation.id}, 'outbound', ${text}, ${reply.intent ?? null})`;
+  return { text, escalated: reply.escalated, urgent: reply.urgent };
 }
 
 function unreadable(kind: string, clinicPhone: string) {
@@ -624,13 +634,14 @@ const stash = (state: ConversationState, c: Classification, msg: InboundMessage)
   c.doctor || c.day ? msg.body : (state.pending ?? msg.body);
 
 /** Was the last thing we said to this patient the consent notice? Both the
- *  notice reply and introduction() end with it. */
+ *  notice reply and introduction() end with it — unless the note about an
+ *  unopened attachment follows, so it is looked for, not anchored. */
 async function justAskedForConsent(db: Db, conversationId: string) {
   const [last] = await db<{ body: string }[]>`
     select body from messages
      where conversation_id = ${conversationId} and direction = 'outbound'
      order by created_at desc limit 1`;
-  return !!last?.body.endsWith(CONSENT_NOTICE);
+  return !!last?.body.includes(CONSENT_NOTICE);
 }
 
 const setState = (db: Db, id: string, state: ConversationState) =>

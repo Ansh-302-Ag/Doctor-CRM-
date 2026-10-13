@@ -74,6 +74,7 @@ test("a media caption is read as text", () => {
     { from: "919000000001", id: "w2", type: "image", image: { id: "m2" } },
   ]));
   assert.equal(texts[0].body, "severe chest pain");
+  assert.equal(texts[0].attachment, "image", "so the reply can say the image went unseen");
   assert.equal(unsupported[0].kind, "image");
 });
 
