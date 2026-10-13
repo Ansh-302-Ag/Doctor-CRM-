@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { can } from "@/lib/rbac";
-import { listEscalations, acknowledgeEscalation, resolveEscalation } from "@/lib/escalations";
+import { listEscalations, acknowledgeEscalation, resolveEscalation, describeReason } from "@/lib/escalations";
 import { Badge, btnPrimary, btnSecondary } from "../_ui";
 
 type Row = Awaited<ReturnType<typeof listEscalations>>[number];
@@ -86,18 +86,25 @@ export default async function EscalationsPage() {
     </div>
   );
 
-  const body = (r: Row) => (
-    <>
-      {r.last_message && (
-        <blockquote className="mt-3 max-w-3xl break-words border-l-2 border-line-strong pl-3 text-sm text-ink">
-          {r.last_message}
-        </blockquote>
-      )}
-      <p className="mt-3 max-w-3xl break-words text-xs text-ink-2">
-        <span className="text-ink-3">Escalated because:</span> {r.reason}
-      </p>
-    </>
-  );
+  const body = (r: Row) => {
+    const why = describeReason(r.reason);
+    return (
+      <>
+        {r.trigger_message && (
+          <blockquote className="mt-3 max-w-3xl break-words border-l-2 border-line-strong pl-3 text-sm text-ink">
+            {r.trigger_message}
+          </blockquote>
+        )}
+        <div className="mt-3 max-w-3xl text-xs text-ink-2">
+          <Badge tone={why.tone}>{why.label}</Badge>
+          <details className="mt-2">
+            <summary className="cursor-pointer text-ink-3 hover:text-ink">Details</summary>
+            <p className="mt-1 break-words">{why.detail}</p>
+          </details>
+        </div>
+      </>
+    );
+  };
 
   return (
     <section>
@@ -105,6 +112,9 @@ export default async function EscalationsPage() {
         <h1 className="text-xl font-semibold tracking-tight text-ink">Escalations</h1>
         <p className="mt-1 max-w-2xl text-sm text-ink-2">
           Everything the assistant refused to answer. Reply to the patient directly, then close it here.
+        </p>
+        <p className="mt-1 text-sm font-medium text-ink-2">
+          {emergencies.length + waiting.length} waiting · {emergencies.length} emergency
         </p>
       </header>
 
@@ -215,7 +225,7 @@ export default async function EscalationsPage() {
                 <a href={`tel:${r.patient_phone}`} className="tabular-nums text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-accent">
                   {r.patient_phone}
                 </a>
-                <span className="min-w-0 break-words text-xs text-ink-3">Escalated because: {r.reason}</span>
+                <span className="min-w-0 break-words text-xs text-ink-3" title={r.reason}>{describeReason(r.reason).label}</span>
                 <span className="ml-auto text-xs text-ink-3">
                   {r.resolved_at ? `Resolved ${when(r.resolved_at)}` : "Resolved"}
                 </span>

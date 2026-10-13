@@ -2,6 +2,29 @@ import type { Db } from "./db";
 import { audit, type Actor } from "./audit";
 import { requirePermission, type Role } from "./rbac";
 
+/** Structurally a subset of the CRM's `Tone` (src/app/(crm)/_ui.tsx); src/lib
+ *  cannot import from src/app, so it is spelled out here. */
+export type ReasonTone = "danger" | "warn" | "neutral";
+
+const REASONS: [prefix: string, label: string, tone: ReasonTone][] = [
+  ["emergency signal", "Emergency", "danger"],
+  ["clinical question", "Medical question", "warn"],
+  ["repeatedly unreadable", "Voice note or photo — couldn't read it", "warn"],
+  ["repeatedly unclear", "Couldn't understand the request", "neutral"],
+  ["intent unclear", "Couldn't understand the request", "neutral"],
+  ["classifier unavailable", "Assistant couldn't process this message", "neutral"],
+  ["reply could not be delivered", "Our reply didn't reach the patient", "warn"],
+  ["message could not be processed", "Message couldn't be processed", "warn"],
+  ["reminder could not be delivered", "Reminder didn't reach the patient", "warn"],
+];
+
+/** The stored reason is an internal string; staff get a plain label, and the
+ *  raw text stays available as `detail`. First prefix match wins. */
+export function describeReason(reason: string): { label: string; tone: ReasonTone; detail: string } {
+  const hit = REASONS.find(([prefix]) => reason.startsWith(prefix));
+  return { label: hit?.[1] ?? "Needs a person", tone: hit?.[2] ?? "neutral", detail: reason };
+}
+
 /** The inbox itself. A doctor has no inbox (docs/08) and is refused here, not
  *  merely in the navigation — the page is reachable by typing the URL. */
 export async function listEscalations(db: Db, actor: Actor, role: Role, clinicId: string) {
@@ -16,7 +39,7 @@ export async function listEscalations(db: Db, actor: Actor, role: Role, clinicId
       id: string; reason: string; priority: string; status: string;
       created_at: Date; resolved_at: Date | null;
       patient_name: string | null; patient_phone: string;
-      assigned_to_name: string | null; last_message: string | null;
+      assigned_to_name: string | null; trigger_message: string | null;
       consentWithdrawn: boolean;
     }[]>`
       select e.id, e.reason, e.priority, e.status, e.created_at, e.resolved_at,
@@ -25,7 +48,10 @@ export async function listEscalations(db: Db, actor: Actor, role: Role, clinicId
              s.name as assigned_to_name,
              (select m.body from messages m
                where m.conversation_id = e.conversation_id and m.direction = 'inbound'
-               order by m.created_at desc limit 1) as last_message
+                 -- the message that raised it, not whatever came after; <= because
+                 -- an escalation and its message can share a transaction timestamp
+                 and m.created_at <= e.created_at
+               order by m.created_at desc limit 1) as trigger_message
         from escalations e
         join patients p on p.id = e.patient_id
         left join staff_users s on s.id = e.assigned_to
