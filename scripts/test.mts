@@ -18,6 +18,11 @@ import EmbeddedPostgres from "embedded-postgres";
 import postgres from "postgres";
 
 const repo = join(import.meta.dirname, "..");
+
+// The clinic_agent password the migrations set comes from .env.local, and the
+// agent connection string below must use the same one. Variables already in
+// the environment (CI sets AGENT_DB_PASSWORD) are never overwritten.
+if (existsSync(join(repo, ".env.local"))) process.loadEnvFile(join(repo, ".env.local"));
 // Disposable test data belongs in the temp directory, not in the working tree:
 // nothing to gitignore, and no stale pid file sitting in the repo after a run
 // that was killed.
@@ -40,13 +45,30 @@ const files = process.argv.slice(2);
 // covers the real cost.
 const TEST_ENV = { SCRYPT_COST: "12" };
 
+/**
+ * Every database variable the app reads, pointed at the test database. Some
+ * test files import src/lib/db.ts (through auth.ts or a route), which connects
+ * from DATABASE_URL* at import time. Without this, those connections came from
+ * .env.local — the development database — and on CI, which has no .env.local
+ * values, the import threw. Explicit env wins over --env-file in Node, so
+ * .env.local can no longer reach the dev database from a test.
+ */
+const dbEnv = (url: string) => ({
+  TEST_DATABASE_URL: url,
+  DATABASE_URL: url,
+  DATABASE_URL_POOLED: url,
+  AGENT_DATABASE_URL: url.replace(/^postgresql:\/\/[^@]+@/,
+    `postgresql://clinic_agent:${encodeURIComponent(process.env.AGENT_DB_PASSWORD ?? "devagentpass")}@`),
+});
+
 const testArgs = ["--test", "--test-concurrency=1", "--env-file=.env.local",
   ...(files.length ? files : ["tests/*.test.ts"])];
 
 async function main(): Promise<number> {
   if (process.env.TEST_DATABASE_URL) {
     console.log("[test] using TEST_DATABASE_URL from the environment");
-    return run("npx", ["tsx", ...testArgs], { ...process.env, ...TEST_ENV });
+    return run("npx", ["tsx", ...testArgs],
+      { ...process.env, ...TEST_ENV, ...dbEnv(process.env.TEST_DATABASE_URL) });
   }
 
   console.log("[test] starting a local Postgres (no TEST_DATABASE_URL set)");
@@ -78,7 +100,7 @@ async function main(): Promise<number> {
 
     // `await` matters: `return run(...)` would let the finally below stop
     // Postgres the moment the child is spawned, not when it finishes.
-    const testCode = await run("npx", ["tsx", ...testArgs], { ...process.env, ...TEST_ENV, TEST_DATABASE_URL: LOCAL_URL });
+    const testCode = await run("npx", ["tsx", ...testArgs], { ...process.env, ...TEST_ENV, ...dbEnv(LOCAL_URL) });
     return testCode;
   } finally {
     await pg.stop().catch(() => {});
