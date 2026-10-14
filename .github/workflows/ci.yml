@@ -1,0 +1,75 @@
+# CI on every push and pull request; CD to the always-on dev server on a green
+# push to main.
+#
+# CD runs on a self-hosted runner installed on the dev server itself (label
+# `doctor-crm-dev`), so the server never has to accept inbound SSH. The runner
+# calls scripts/deploy.sh, which updates the app directory, migrates, builds,
+# restarts, health-checks, and rolls back the code if the new build is unhealthy.
+#
+# Repository settings the server needs (Settings → Secrets and variables →
+# Actions → Variables), set once when the runner is installed:
+#   APP_DIR      absolute path of the app's own clone on the server (holds .env.local)
+#   RESTART_CMD  the command that restarts the app, e.g. `sudo systemctl restart doctor-crm`
+#   APP_PORT     optional; the port `next start` listens on (default 3000)
+
+name: CI/CD
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Superseded runs on feature branches are cancelled; on main they are not,
+  # because cancelling mid-deploy would leave the server half-updated.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test:
+    name: Typecheck and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # The test runner starts a throwaway Postgres and migrates it; migration
+      # 002 needs a password for the clinic_agent role. CI-only, never a real one.
+      AGENT_DB_PASSWORD: ci-only-agent-password
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The npm scripts pass --env-file=.env.local, and Node refuses a missing
+      # env file. CI has no secrets to put in it — every test sets what it needs.
+      - name: Empty env file
+        run: touch .env.local
+
+      - run: npx tsc --noEmit
+
+      - run: npm test
+
+  deploy-dev:
+    name: Deploy to dev server
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, doctor-crm-dev]
+    environment: dev
+    timeout-minutes: 30
+    # One deploy at a time; a newer push waits rather than racing the build.
+    concurrency:
+      group: deploy-dev
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy
+        shell: bash
+        env:
+          APP_DIR: ${{ vars.APP_DIR }}
+          RESTART_CMD: ${{ vars.RESTART_CMD }}
+          APP_PORT: ${{ vars.APP_PORT }}
+        run: bash scripts/deploy.sh "${{ github.sha }}"
