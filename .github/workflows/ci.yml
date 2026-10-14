@@ -34,9 +34,9 @@ jobs:
       # 002 needs a password for the clinic_agent role. CI-only, never a real one.
       AGENT_DB_PASSWORD: ci-only-agent-password
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -64,7 +64,7 @@ jobs:
       group: deploy-dev
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Deploy
         shell: bash
