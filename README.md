@@ -177,6 +177,26 @@ The suite is the docs/08 bar, not a smoke test: concurrent bookings of one
 slot, the agent's role being refused a prescription write, a duplicate webhook
 delivery, a clinical question mid-booking, consent not yet granted.
 
+## CI/CD
+
+`.github/workflows/ci.yml` runs `npx tsc --noEmit` and `npm test` on every push
+and pull request (GitHub's Ubuntu runners, where the throwaway Postgres starts
+fine). A green push to `main` then deploys to the always-on dev server:
+
+- the `deploy-dev` job runs on a **self-hosted runner on that server**, labelled
+  `doctor-crm-dev`, so the server needs no inbound SSH;
+- it calls `scripts/deploy.sh <sha>`, which checks out the commit in the app's own
+  clone (`APP_DIR`, which holds `.env.local`), runs `npm ci`, migrations and
+  `npm run build`, restarts the app (`RESTART_CMD`) and waits for `/login` to
+  answer 200 — and if it doesn't, rebuilds and restarts the previous commit.
+  Migrations are forward-only and are not undone.
+
+One-time setup on the server: install the runner with the `doctor-crm-dev`
+label, and set the repository variables `APP_DIR`, `RESTART_CMD` and optionally
+`APP_PORT` (Settings → Secrets and variables → Actions → Variables). Create the
+`dev` environment in Settings → Environments if you want deploys to need an
+approval.
+
 ## Where things are
 
 | Path | What |
