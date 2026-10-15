@@ -188,16 +188,26 @@ test("cancelling works and frees the slot", async () => {
   assert.equal((await db`select id from appointments where status = 'booked'`).length, 0);
 });
 
-test("reading the prescription record repeats it verbatim and offers no advice", async () => {
-  await db`insert into prescriptions (patient_id, doctor_id, drug_name, dosage, duration_days, created_by)
+test("'my prescription' sends a secure link, never the record", async () => {
+  await db`insert into prescriptions (patient_id, doctor_id, drug_name, dosage, duration_days, notes, created_by)
            values (${f.patientId}, ${f.doctorId}, 'Amoxicillin', '500mg twice daily', 5,
-                   ${f.doctorUserId})`;
+                   'after food', ${f.doctorUserId})`;
 
   const r = await say("what is my prescription");
-  assert.match(r!.text, /Amoxicillin/);
-  assert.match(r!.text, /500mg twice daily/);
+  assert.match(r!.text, /\/r\/[A-Za-z0-9_-]{43}(?![\w-])/);
+  for (const s of ["Amoxicillin", "500mg", "twice daily", "5 days", "after food"]) {
+    assert.ok(!r!.text.includes(s), `the reply must not carry "${s}"`);
+  }
+  assert.doesNotMatch(r!.text, /\b(dosage|tablet|medicine|drug)\b/i);
   assert.match(r!.text, /speak to the clinic team/i);
   assert.equal(r!.escalated, false);
+  assert.equal((await db`select 1 from record_links where patient_id = ${f.patientId}`).length, 1);
+});
+
+test("'my prescription' with nothing active creates no link", async () => {
+  const r = await say("what is my prescription");
+  assert.match(r!.text, /no active prescriptions/i);
+  assert.equal((await db`select 1 from record_links`).length, 0);
 });
 
 test("'when is my appointment' reads back, it does not start a booking", async () => {
@@ -893,11 +903,13 @@ test("cancelling an appointment staff just moved gets a plain reply, not an esca
                    ${new Date(futureSlot(10, 3).getTime() + 30 * 60_000)}, 'agent')`;
   // Losing the race = the guarded update matching no row. A trigger that swallows
   // the update reproduces that deterministically, between the agent's read and write.
-  await db.unsafe(`create function test_swallow_cancel() returns trigger language plpgsql as
-    $$ begin if new.status = 'cancelled' then return null; end if; return new; end $$`);
-  await db.unsafe(`create trigger test_swallow_cancel before update on appointments
-    for each row execute function test_swallow_cancel()`);
+  await db.unsafe(`drop trigger if exists test_swallow_cancel on appointments`);
+  await db.unsafe(`drop function if exists test_swallow_cancel()`);
   try {
+    await db.unsafe(`create or replace function test_swallow_cancel() returns trigger language plpgsql as
+      $$ begin if new.status = 'cancelled' then return null; end if; return new; end $$`);
+    await db.unsafe(`create trigger test_swallow_cancel before update on appointments
+      for each row execute function test_swallow_cancel()`);
     const r = await say("cancel");
     assert.equal(r!.escalated, false);
     assert.match(r!.text, /no longer booked/i);
@@ -905,7 +917,7 @@ test("cancelling an appointment staff just moved gets a plain reply, not an esca
     const [c] = await db`select state from conversations where id = ${f.conversationId}`;
     assert.deepEqual(c.state, {});
   } finally {
-    await db.unsafe(`drop trigger test_swallow_cancel on appointments`);
-    await db.unsafe(`drop function test_swallow_cancel()`);
+    await db.unsafe(`drop trigger if exists test_swallow_cancel on appointments`);
+    await db.unsafe(`drop function if exists test_swallow_cancel()`);
   }
 });

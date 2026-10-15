@@ -412,19 +412,15 @@ async function route(
     }
 
     case "check_prescription_record": {
-      const rows = await tools.get_prescription_summary(db, ctx.patient.id);
-      if (rows.length === 0) {
+      // Never the record itself in chat — a secure link behind a one-time code.
+      const url = await tools.prescription_link(db, ctx.patient.id);
+      if (!url) {
         return { text: "There are no active prescriptions on your record.",
                  escalated: false, intent: c.intent };
       }
-      // Read back verbatim. No interpretation, no advice (docs/01).
-      const list = rows.map(r =>
-        `• ${r.drug_name} — ${r.dosage}` +
-        (r.duration_days ? `, ${r.duration_days} days` : "") +
-        `, recorded ${dayIn(r.created_at, ctx.clinic.timezone)}`);
       return {
-        text: `Your record shows:\n${list.join("\n")}\n\nFor any question about these, ` +
-              `please speak to the clinic team.`,
+        text: `You can view your prescriptions securely here: ${url} — the page will send ` +
+              `a code to this number. For any question about them, please speak to the clinic team.`,
         escalated: false, intent: c.intent,
       };
     }

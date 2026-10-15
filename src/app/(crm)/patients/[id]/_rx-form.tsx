@@ -284,7 +284,7 @@ export function RxForm({
         </button>
       </div>
 
-      {/* Exactly what will be stored, and sent, in order. */}
+      {/* Exactly what will be stored, in order. */}
       <div aria-live="polite" className="border-t border-accent-line bg-accent-soft/50 px-4 py-4 sm:px-5">
         <h3 className="text-sm font-semibold text-ink">Will be saved as</h3>
         {n === 0 ? (
@@ -313,8 +313,9 @@ export function RxForm({
 
       <div className="space-y-3 border-t border-line px-4 py-4 sm:px-5">
         <p className="text-xs leading-relaxed text-ink-3">
-          Saved exactly as typed, attributed to {isDoctor ? "you" : "the doctor named above"},
-          and sent to the patient as one WhatsApp message.
+          Saved exactly as typed and attributed to {isDoctor ? "you" : "the doctor named above"}.
+          The patient gets a secure link on WhatsApp to view and download it — the prescription
+          itself is never sent in chat.
         </p>
         <SaveButton buttonRef={submitRef} ready={ready} n={n} />
       </div>
@@ -331,7 +332,7 @@ function SaveButton({ buttonRef, ready, n }: {
   return (
     <button ref={buttonRef} disabled={!ready || pending} aria-busy={pending || undefined}
       className={`${btnPrimary} min-h-12 w-full text-base sm:w-auto sm:px-6`}>
-      {pending ? "Saving…" : <>Save &amp; send to patient{n > 0 && ` (${n} medicine${n === 1 ? "" : "s"})`}</>}
+      {pending ? "Saving…" : <>Save &amp; notify patient{n > 0 && ` (${n} medicine${n === 1 ? "" : "s"})`}</>}
     </button>
   );
 }

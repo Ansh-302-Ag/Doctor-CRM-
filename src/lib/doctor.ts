@@ -8,16 +8,18 @@
  *    queries here and in `patientScope` — an id in a URL proves nothing.
  * 2. The record is the point (docs/01). The prescription is stored first and
  *    the message goes out afterwards, so a WhatsApp failure can never cost the
- *    clinic the record. The message states what the doctor typed, verbatim,
- *    and adds no guidance of its own.
+ *    clinic the record. The message carries NO prescription content — Meta's
+ *    Business Messaging Policy forbids health information on WhatsApp — only a
+ *    secure link to the record, behind a one-time code (record-links.ts).
  */
 import type { Db, Pool } from "./db";
 import { audit, type Actor } from "./audit";
 import { requirePermission, type Role } from "./rbac";
 import { patientScope, getPatient } from "./patients";
 import { createPrescription, InvalidPrescription, type PrescriptionInput } from "./prescriptions";
-import { sendMessage, sendTemplate } from "./channel";
+import { inWindow, sendMessage, sendTemplate } from "./channel";
 import { renderTemplate } from "./templates";
+import { createRecordLink } from "./record-links";
 
 /** The signed-in staff member, as `currentStaff()` returns him. */
 export type StaffContext = {
@@ -71,59 +73,14 @@ export type Delivery = {
   delivered: boolean;
   /** Why it was not delivered, for the doctor's screen. */
   reason?: "outside_window" | "send_failed";
-  /** Whether the content-free "there is something to collect" template went out. */
+  /** Outside the window: whether the `prescription_ready` template (with the link) went out. */
   nudged?: boolean;
 };
-
-/** WhatsApp allows free-form text only within 24 hours of the patient's own
- *  last message (docs/10). A prescription can never go out as a template, so
- *  outside that window it cannot be sent at all. */
-export const WINDOW_MS = 24 * 60 * 60 * 1000;
-
-const when = (at: Date, timezone: string) => new Intl.DateTimeFormat("en-GB", {
-  timeZone: timezone, weekday: "short", day: "numeric", month: "short", year: "numeric",
-  hour: "numeric", minute: "2-digit", hour12: true,
-}).format(at);
 
 /** One medicine as the doctor typed it. */
 export type RxItem = {
   drugName: string; dosage: string; durationDays?: number | null; notes?: string | null;
 };
-
-/**
- * The message the patient gets. Every clinical word in it is the doctor's own,
- * copied out of the record unchanged; the only sentences this system adds say
- * who wrote it, when, and where to ask questions (docs/01).
- */
-export function prescriptionMessage(p: {
-  clinicName: string; clinicPhone: string | null; doctorName: string;
-  at: Date; timezone: string;
-} & RxItem): string {
-  return prescriptionsMessage({ ...p, items: [p] });
-}
-
-/** Several medicines from one sitting, in one message: the same header and
- *  footer, each medicine exactly as typed, a blank line between them. For one
- *  medicine this is prescriptionMessage's text, character for character. */
-export function prescriptionsMessage(p: {
-  clinicName: string; clinicPhone: string | null; doctorName: string;
-  at: Date; timezone: string; items: RxItem[];
-}): string {
-  return [
-    `${p.clinicName}`,
-    `Prescription recorded by ${p.doctorName} on ${when(p.at, p.timezone)}:`,
-    ...p.items.flatMap(i => [
-      "",
-      i.drugName,
-      `Dosage: ${i.dosage}`,
-      ...(i.durationDays ? [`Duration: ${i.durationDays} day${i.durationDays === 1 ? "" : "s"}`] : []),
-      ...(i.notes ? [`Notes: ${i.notes}`] : []),
-    ]),
-    "",
-    "This is your record exactly as your doctor entered it. For any question about it, " +
-    (p.clinicPhone ? `call the clinic on ${p.clinicPhone}.` : "call the clinic."),
-  ].join("\n");
-}
 
 type Deps = { send?: typeof sendMessage; sendT?: typeof sendTemplate; now?: Date };
 
@@ -224,6 +181,10 @@ async function prescriber(
  * The one path every prescription message takes, one medicine or several:
  * one send per sitting. Audited per prescription with the same actions as
  * ever, so "did prescription X reach the patient?" stays a single lookup.
+ *
+ * What goes out is a content-free note with a secure link (record-links.ts) —
+ * never the drug, dose, duration or notes. Inside the 24-hour window it is
+ * free-form text; outside, the same words as the `prescription_ready` template.
  */
 async function deliver(
   db: Db, actor: Actor, patientId: string, doctorId: string, ids: string[], deps: Deps,
@@ -235,64 +196,32 @@ async function deliver(
     for (const id of ids) await audit(db, actor, action, "prescriptions", id);
   };
 
-  const [row] = await db<{
-    phone: string; clinic_name: string; clinic_phone: string | null;
-    doctor_name: string; last_inbound: Date | null;
-  }[]>`
-    select p.phone, c.name as clinic_name, c.phone as clinic_phone, d.name as doctor_name,
-           (select max(m.created_at)
-              from messages m
-              join conversations cv on cv.id = m.conversation_id
-             where cv.patient_id = p.id and m.direction = 'inbound') as last_inbound
-      from patients p
-      join clinics c on c.id = p.clinic_id
-      join doctors d on d.id = ${doctorId}
-     where p.id = ${patientId}`;
-
-  const open = row.last_inbound !== null &&
-               now.getTime() - row.last_inbound.getTime() < WINDOW_MS;
+  let open = false;
   try {
+    const [row] = await db<{ phone: string; clinic_name: string; doctor_name: string }[]>`
+      select p.phone, c.name as clinic_name, d.name as doctor_name
+        from patients p
+        join clinics c on c.id = p.clinic_id
+        join doctors d on d.id = ${doctorId}
+       where p.id = ${patientId}`;
+    open = await inWindow(db, patientId, now);
+    const { url } = await createRecordLink(db, patientId, now);
+    const note = renderTemplate("prescription_ready", {
+      clinic_name: row.clinic_name, doctor_name: row.doctor_name, link: url,
+    });
+
     if (open) {
-      const full = await db<{
-        id: string; drug_name: string; dosage: string; duration_days: number | null;
-        notes: string | null; created_at: Date; timezone: string;
-      }[]>`
-        select r.id, r.drug_name, r.dosage, r.duration_days, r.notes, r.created_at, c.timezone
-          from prescriptions r
-          join patients p on p.id = r.patient_id
-          join clinics  c on c.id = p.clinic_id
-         where r.id in ${db(ids)}`;
-      // In the order the doctor wrote them.
-      full.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id));
-      // Read back out of the record rather than reusing the form values: what
-      // the patient is told is then, by construction, what was stored.
       // The channel reports delivery rather than throwing when it is not
       // configured at all. Telling the doctor his patient has it when nothing
       // left the building would be the worst kind of quiet failure.
-      const { delivered } = await send({
-        to: row.phone,
-        text: prescriptionsMessage({
-          clinicName: row.clinic_name, clinicPhone: row.clinic_phone,
-          doctorName: row.doctor_name, at: full[0].created_at, timezone: full[0].timezone,
-          items: full.map(r => ({
-            drugName: r.drug_name, dosage: r.dosage, durationDays: r.duration_days, notes: r.notes,
-          })),
-        }),
-      });
+      const { delivered } = await send({ to: row.phone, text: note.preview });
       await auditAll(delivered ? "prescription_message_sent" : "prescription_message_failed");
       return delivered ? { delivered: true }
                        : { delivered: false, reason: "send_failed", nudged: false };
     }
 
-    // Outside the window the record itself cannot be sent, and stuffing a drug
-    // name into a template is exactly what docs/01 forbids. So the patient gets
-    // a content-free note that there is something to collect; their reply
-    // reopens the window and the agent reads the record back verbatim.
-    const nudge = renderTemplate("record_updated", {
-      clinic_name: row.clinic_name, doctor_name: row.doctor_name,
-    });
     const { delivered } = await sendT(
-      { to: row.phone, name: nudge.name, parameters: nudge.parameters });
+      { to: row.phone, name: note.name, parameters: note.parameters });
     await auditAll(delivered ? "prescription_message_deferred" : "prescription_message_failed");
     return { delivered: false, reason: "outside_window", nudged: delivered };
   } catch (e) {

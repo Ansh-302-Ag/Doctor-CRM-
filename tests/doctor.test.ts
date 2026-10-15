@@ -12,8 +12,9 @@ import { getPatient, searchPatients, patientScope } from "../src/lib/patients";
 import { InvalidPrescription } from "../src/lib/prescriptions";
 import {
   doctorQueue, nextInQueue, prescribeAndNotify, prescribeManyAndNotify,
-  prescriptionMessage, prescriptionsMessage, NotYourPatient,
+  NotYourPatient,
 } from "../src/lib/doctor";
+import { renderTemplate } from "../src/lib/templates";
 
 let f: Fixture;
 let second: { doctorId: string; userId: string };
@@ -64,6 +65,16 @@ const input = () => ({
   drugName: "Amoxicillin", dosage: "500mg twice daily", durationDays: 5,
   notes: "after food",
 });
+
+/** Meta forbids health information on WhatsApp: no message or template
+ *  parameter may carry the drug, the dose, the duration or the notes. */
+function assertContentFree(text: string) {
+  for (const s of ["Amoxicillin", "500mg", "twice daily", "after food", "5 days",
+                   "Paracetamol", "Cetirizine", "1-0-1", "SOS", "finish the course"]) {
+    assert.ok(!text.includes(s), `message must not carry "${s}": ${text}`);
+  }
+  assert.doesNotMatch(text, /\b(dosage|tablet|medicine|drug)\b/i);
+}
 
 /** Records what the channel was asked to send, without sending anything. */
 function spy() {
@@ -198,7 +209,7 @@ test("a doctor cannot prescribe for someone who is not his patient", async () =>
   assert.equal(io.free.length, 0);
 });
 
-test("inside the 24-hour window the patient gets the record, verbatim", async () => {
+test("inside the 24-hour window the patient gets a secure link, never the record", async () => {
   await book(f.doctorId, f.patientId, 9);
   const now = new Date();
   await patientMessagedAgo(2, now);
@@ -207,22 +218,20 @@ test("inside the 24-hour window the patient gets the record, verbatim", async ()
   const { delivery } = await prescribeAndNotify(db, doctorStaff(), input(), { ...io, now });
 
   assert.deepEqual(delivery, { delivered: true });
-  assert.equal(io.templates.length, 0, "a prescription never goes out as a template");
+  assert.equal(io.templates.length, 0, "inside the window, free-form text");
   assert.equal(io.free.length, 1);
   const text = io.free[0].text;
-  assert.match(text, /Amoxicillin/);
-  assert.match(text, /500mg twice daily/);
-  assert.match(text, /5 days/);
-  assert.match(text, /after food/);
+  assert.match(text, /\/r\/[A-Za-z0-9_-]{43}(?![\w-])/, "carries the secure link");
   assert.match(text, /Dr\. Rao/);
-  assert.match(text, /\+911140000000/, "the clinic's own number, for questions");
-  assert.doesNotMatch(text, /\b(should|recommend|advise|safe)\b/i, "it never advises");
+  assert.match(text, /Test Clinic/);
+  assertContentFree(text);
+  const links = await db`select 1 from record_links where patient_id = ${f.patientId}`;
+  assert.equal(links.length, 1, "a link was created for this patient");
 
   const audits = await db<{ action: string }[]>`select action from audit_log`;
   assert.ok([...audits].some(a => a.action === "prescription_message_sent"));
 });
-
-test("outside the window the record is still saved, and the nudge carries no clinical content", async () => {
+test("outside the window the record is still saved, and the prescription_ready template carries only the link", async () => {
   await book(f.doctorId, f.patientId, 9);
   const now = new Date();
   await patientMessagedAgo(25, now);
@@ -234,9 +243,11 @@ test("outside the window the record is still saved, and the nudge carries no cli
   assert.deepEqual(delivery, { delivered: false, reason: "outside_window", nudged: true });
   assert.equal(io.free.length, 0, "free-form text outside the window would be refused by Meta");
   assert.equal(io.templates.length, 1);
-  assert.equal(io.templates[0].name, "record_updated");
-  assert.ok(!io.templates[0].parameters.some(p => /Amoxicillin|500mg/.test(p)),
-    "a template must never carry the drug or the dose");
+  assert.equal(io.templates[0].name, "prescription_ready");
+  assert.equal(io.templates[0].parameters.length, 3);
+  assert.match(io.templates[0].parameters[2], /\/r\//, "the link is the third parameter");
+  assertContentFree(io.templates[0].parameters.join("\n"));
+  assert.equal((await db`select 1 from record_links where patient_id = ${f.patientId}`).length, 1);
 });
 
 test("a patient who has never messaged the clinic is outside the window too", async () => {
@@ -280,19 +291,6 @@ test("a channel that reports nothing was sent is not reported as sent", async ()
   assert.deepEqual(delivery, { delivered: false, reason: "send_failed", nudged: false });
 });
 
-test("the message says who prescribed, when, and where to ask — and nothing else", () => {
-  const text = prescriptionMessage({
-    clinicName: "Sunrise Clinic", clinicPhone: "+911140001234", doctorName: "Dr. Rao",
-    at: new Date("2026-09-22T10:30:00+05:30"), timezone: TZ,
-    drugName: "Amoxicillin", dosage: "500mg twice daily", durationDays: 1, notes: null,
-  });
-  assert.match(text, /Dr\. Rao/);
-  assert.match(text, /22 Sept? 2026/);
-  assert.match(text, /1 day\b/, "singular, not '1 days'");
-  assert.doesNotMatch(text, /Notes:/, "no empty fields");
-  assert.match(text, /call the clinic on \+911140001234/);
-});
-
 // ------------------------------------------------- several medicines at once
 
 const items = () => [
@@ -317,7 +315,7 @@ test("several medicines are saved together, or not at all", async () => {
     InvalidPrescription);
 });
 
-test("several medicines go out as ONE message listing every one, verbatim and in order", async () => {
+test("several medicines go out as ONE content-free message with one link", async () => {
   await book(f.doctorId, f.patientId, 9);
   const now = new Date();
   await patientMessagedAgo(2, now);
@@ -333,49 +331,28 @@ test("several medicines go out as ONE message listing every one, verbatim and in
   assert.deepEqual(delivery, { delivered: true });
   assert.equal(io.free.length, 1, "one message, not one per medicine");
   assert.equal(io.templates.length, 0);
-
-  const text = io.free[0].text;
-  const at = (s: string) => text.indexOf(s);
-  for (const s of ["Amoxicillin 500 mg", "Dosage: 1-0-1 after food", "Duration: 5 days",
-                   "Notes: finish the course", "Paracetamol 650 mg", "Dosage: SOS",
-                   "Duration: 3 days", "Cetirizine 10 mg", "Dosage: 0-0-1"]) {
-    assert.ok(at(s) >= 0, `message carries "${s}"`);
-  }
-  assert.ok(at("Amoxicillin") < at("Paracetamol") && at("Paracetamol") < at("Cetirizine"));
-  assert.doesNotMatch(text, /\b(should|recommend|advise|safe)\b/i, "it never advises");
+  assert.match(io.free[0].text, /\/r\//);
+  assertContentFree(io.free[0].text);
+  assert.equal((await db`select 1 from record_links`).length, 1, "one link per sitting");
 
   const sent = await db<{ target_id: string }[]>`
     select target_id from audit_log where action = 'prescription_message_sent'`;
   assert.deepEqual(new Set(sent.map(r => r.target_id)), new Set(ids), "audited per prescription");
 });
-
-test("one medicine through the many-path reads exactly as the single message", async () => {
+test("the free-form message is word for word the prescription_ready template", async () => {
   await book(f.doctorId, f.patientId, 9);
   const now = new Date();
   await patientMessagedAgo(2, now);
 
   const io = spy();
-  const one = items()[0];
-  const { ids } = await prescribeManyAndNotify(
-    db, doctorStaff(), { patientId: f.patientId, items: [one] }, { ...io, now });
+  await prescribeManyAndNotify(
+    db, doctorStaff(), { patientId: f.patientId, items: [items()[0]] }, { ...io, now });
 
-  const [row] = await db<{ created_at: Date }[]>`
-    select created_at from prescriptions where id = ${ids[0]}`;
-  assert.equal(io.free[0].text, prescriptionMessage({
-    clinicName: "Test Clinic", clinicPhone: "+911140000000", doctorName: "Dr. Rao",
-    at: row.created_at, timezone: TZ, ...one,
-  }));
+  const link = io.free[0].text.match(/https?:\/\/\S+\/r\/[A-Za-z0-9_-]+/)![0];
+  assert.equal(io.free[0].text, renderTemplate("prescription_ready", {
+    clinic_name: "Test Clinic", doctor_name: "Dr. Rao", link,
+  }).preview);
 });
-
-test("prescriptionsMessage with one item is prescriptionMessage", () => {
-  const head = {
-    clinicName: "Sunrise Clinic", clinicPhone: null, doctorName: "Dr. Rao",
-    at: new Date("2026-09-22T10:30:00+05:30"), timezone: TZ,
-  };
-  const one = { drugName: "Amoxicillin", dosage: "500mg twice daily", durationDays: 1, notes: "x" };
-  assert.equal(prescriptionsMessage({ ...head, items: [one] }), prescriptionMessage({ ...head, ...one }));
-});
-
 test("a doctor cannot prescribe several medicines for someone who is not his patient", async () => {
   await book(second.doctorId, f.patientId, 9);  // his colleague's patient
   const io = spy();
@@ -387,7 +364,7 @@ test("a doctor cannot prescribe several medicines for someone who is not his pat
   assert.equal(io.free.length + io.templates.length, 0);
 });
 
-test("outside the window several medicines still send one content-free nudge", async () => {
+test("outside the window several medicines still send one content-free template", async () => {
   await book(f.doctorId, f.patientId, 9);
   const now = new Date();
   await patientMessagedAgo(25, now);
@@ -399,9 +376,9 @@ test("outside the window several medicines still send one content-free nudge", a
   assert.equal((await db`select id from prescriptions`).length, 3);
   assert.deepEqual(delivery, { delivered: false, reason: "outside_window", nudged: true });
   assert.equal(io.free.length, 0);
-  assert.equal(io.templates.length, 1, "one nudge for the sitting");
-  assert.equal(io.templates[0].name, "record_updated");
-  assert.ok(!io.templates[0].parameters.some(p => /Amoxicillin|Paracetamol|Cetirizine/.test(p)));
+  assert.equal(io.templates.length, 1, "one template for the sitting");
+  assert.equal(io.templates[0].name, "prescription_ready");
+  assertContentFree(io.templates[0].parameters.join("\n"));
 
   const deferred = await db`select id from audit_log where action = 'prescription_message_deferred'`;
   assert.equal(deferred.length, ids.length);

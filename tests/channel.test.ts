@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { notifyStaff } from "../src/lib/channel";
+import { notifyStaff, sendTemplate } from "../src/lib/channel";
 
 const alert = { clinicName: "Sunrise Clinic", urgent: true, note: "Escalation from ******01." };
 
@@ -45,3 +45,22 @@ test("an unapproved template falls back to free-form text", () =>
 
 test("if both sends fail, notifyStaff resolves without throwing", () =>
   withFetch([500, 500], async () => { await notifyStaff(alert); }));
+
+test("an authentication template sends the code as body and button parameter", () =>
+  withFetch([200], async calls => {
+    await sendTemplate({ to: "919000000001", name: "record_code", parameters: ["482913"] });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].template.name, "record_code");
+    assert.deepEqual(calls[0].template.components, [
+      { type: "body", parameters: [{ type: "text", text: "482913" }] },
+      { type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: "482913" }] },
+    ]);
+  }));
+
+test("a utility template sends only the body component", () =>
+  withFetch([200], async calls => {
+    await sendTemplate({ to: "919000000001", name: "prescription_ready",
+      parameters: ["Sunrise Clinic", "Dr. Rao", "https://x.test/r/abc"] });
+    assert.equal(calls[0].template.components.length, 1);
+    assert.equal(calls[0].template.components[0].type, "body");
+  }));

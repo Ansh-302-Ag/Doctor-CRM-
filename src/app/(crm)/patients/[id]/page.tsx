@@ -307,17 +307,19 @@ export default async function PatientRecordPage({
       <div className="mt-4 space-y-3 empty:hidden">
         {error && <Alert tone="danger">{error}</Alert>}
         {sent === "1" && (
-          <Alert tone="ok">Prescription saved and sent to the patient on WhatsApp.</Alert>
+          <Alert tone="ok">Prescription saved. The patient was sent a secure link to view it.</Alert>
         )}
-        {sent === "outside_window" && (
+        {sent === "outside_window" && nudged && (
+          <Alert tone="ok">
+            Prescription saved. The patient was sent a “your prescription is ready” message with a secure link.
+          </Alert>
+        )}
+        {sent === "outside_window" && !nudged && (
           <Alert tone="warn">
             <span className="font-semibold">Saved, but not delivered.</span>{" "}
             <span className="font-normal">
-              WhatsApp only allows us to message a patient within 24 hours of their own last message.{" "}
-              {nudged
-                ? "They have been sent a note asking them to reply, and the assistant will read this " +
-                  "record back to them when they do. Call them if it cannot wait."
-                : "We could not reach them at all — please call them."}
+              WhatsApp would not accept the message. Nothing was lost — the record below is on file.
+              Please tell the patient another way.
             </span>
           </Alert>
         )}
@@ -439,7 +441,7 @@ export default async function PatientRecordPage({
               id="prescriptions"
               title="Prescriptions"
               icon={Pill}
-              description="Stored exactly as entered. The assistant reads these back to the patient verbatim and never interprets them."
+              description="Stored exactly as entered. Patients see them through a secure, code-protected link — never in chat."
               actions={active.length > 0 && (
                 <a href={`/print/prescription/${patient.id}`} target="_blank" rel="noopener"
                   className={`${btnSecondary} ${btnSm}`}>

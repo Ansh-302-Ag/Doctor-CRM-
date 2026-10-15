@@ -24,7 +24,7 @@ export async function reset() {
   await db`truncate
     -- failed-login rows are test state like any other and must not survive a reset
     login_attempts,
-    patient_notes, tasks,
+    patient_notes, tasks, record_links,
     audit_log, consent_log, messages, conversations, escalations,
     reminders, prescriptions, appointments, patients, staff_users, doctors, clinics
     restart identity cascade`;
