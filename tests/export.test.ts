@@ -85,3 +85,13 @@ test("csvResponse is a no-store UTF-8 download that starts with a BOM", async ()
   // text() would strip the BOM while decoding, so look at the raw bytes.
   assert.deepEqual([...new Uint8Array(await res.arrayBuffer()).slice(0, 3)], [0xef, 0xbb, 0xbf]);
 });
+
+test("the patients export follows the chosen list and is still audited", async () => {
+  await db`update patients set consent_status = 'pending' where id = ${f.patientId}`;
+  const csv = lines(await exportPatients(db, DESK(), "receptionist", f.clinicId, "Asia/Kolkata",
+    null, "consent-pending"));
+  assert.equal(csv.length, 2);
+  assert.ok(csv[1].startsWith("Asha,"));
+  const a = await db`select 1 from audit_log where action = 'export_patients'`;
+  assert.equal(a.length, 1);
+});

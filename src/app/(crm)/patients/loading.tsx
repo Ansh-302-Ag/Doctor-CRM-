@@ -14,6 +14,10 @@ export default function Loading() {
         </div>
       </header>
 
+      <div className="-mt-2 flex gap-4 overflow-hidden border-b border-line pb-3">
+        {Array.from({ length: 6 }).map((_, i) => <Skel key={i} className="h-4 w-24 shrink-0" />)}
+      </div>
+
       <div className="flex items-center gap-2">
         <Skel className="h-11 w-full max-w-md rounded-lg" />
         <Skel className="h-11 w-20 rounded-lg" />

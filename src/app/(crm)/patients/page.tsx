@@ -4,24 +4,52 @@ import { CalendarClock, Download, Phone, Pill, Search, UserPlus } from "lucide-r
 import { currentStaff } from "@/lib/session";
 import { can } from "@/lib/rbac";
 import { sql } from "@/lib/db";
-import { searchPatients, patientScope } from "@/lib/patients";
+import {
+  searchPatients, patientScope, isPatientList, RECALL_AFTER_DAYS, type PatientList,
+} from "@/lib/patients";
 import { Reveal } from "@/components/motion/reveal";
 import {
   Avatar, Badge, EmptyState, PageHeader, consentStatus,
   btnGhost, btnPrimary, btnSecondary, btnSm, field, tableWrap, td, th, tr,
 } from "../_ui";
 
+/** Saved lists, in the order the desk reaches for them. `empty` says what the
+ *  list means, so an empty one reads as "nobody", not as "broken". */
+const LISTS: { list: PatientList; label: string; empty: [string, string] }[] = [
+  { list: "consent-pending", label: "Consent pending",
+    empty: ["Nobody is waiting on consent", "Patients appear here until they have given consent."] },
+  { list: "upcoming", label: "Upcoming visit",
+    empty: ["No patients have a visit booked", "Patients appear here once they have an appointment booked ahead."] },
+  { list: "recall", label: "Due for recall",
+    empty: ["No patients are due for recall",
+      `Nobody has been away for more than ${Math.round(RECALL_AFTER_DAYS / 30)} months.`] },
+  { list: "on-medication", label: "On medication",
+    empty: ["No patients are on medication", "Patients appear here while they have an active prescription."] },
+  { list: "ai-booked", label: "Booked by assistant",
+    empty: ["The assistant has not booked anyone yet", "Patients appear here once the assistant has booked an appointment for them."] },
+];
+
 export default async function PatientsPage({
   searchParams,
-}: { searchParams: Promise<{ q?: string; jump?: string }> }) {
+}: { searchParams: Promise<{ q?: string; jump?: string; list?: string }> }) {
   const staff = await currentStaff();
-  const { q, jump } = await searchParams;
+  const { q, jump, list: rawList } = await searchParams;
+  const list = isPatientList(rawList) ? rawList : null;
+  const view = LISTS.find(v => v.list === list);
+  // Links keep whichever of the search and the list they do not change.
+  const href = (l: string | null, query = q) => {
+    const p = new URLSearchParams();
+    if (query) p.set("q", query);
+    if (l) p.set("list", l);
+    const s = p.toString();
+    return s ? `/patients?${s}` : "/patients";
+  };
 
   // A doctor's list is his own patients — scoped in the query, not just hidden
   // in the page (docs/08). Reception and admin see the whole clinic.
   const patients = await searchPatients(
     sql, { kind: "staff", id: staff.id }, staff.role, staff.clinicId, q ?? "",
-    patientScope(staff),
+    patientScope(staff), list,
   );
 
   // Quick find (Ctrl+K) asks to jump: one match goes straight to the record.
@@ -47,6 +75,8 @@ export default async function PatientsPage({
                 ? "Showing the first 100 — search to narrow"
                 : q
                 ? `${patients.length === 1 ? "match" : "matches"} for “${q}”`
+                : view
+                ? "in this list"
                 : staff.role === "doctor"
                   ? "seen by you at this clinic"
                   : "on file"}
@@ -55,8 +85,8 @@ export default async function PatientsPage({
         }
         actions={
           <>
-            {/* Every patient in scope, not just the current search. */}
-            <a href="/export/patients" className={btnSecondary}>
+            {/* Every patient in scope on the current list, ignoring the search. */}
+            <a href={list ? `/export/patients?list=${list}` : "/export/patients"} className={btnSecondary}>
               <Download className="size-4" aria-hidden="true" /> Download CSV
             </a>
             {can(staff.role, "patients:write") && (
@@ -68,7 +98,25 @@ export default async function PatientsPage({
         }
       />
 
+      <nav aria-label="Patient lists" className="-mt-2 sm:border-b sm:border-line">
+        <ul className="flex flex-wrap gap-x-1 whitespace-nowrap">
+          {[{ list: null, label: "All patients" }, ...LISTS].map(v => (
+            <li key={v.label}>
+              <Link
+                href={href(v.list)}
+                aria-current={v.list === list ? "page" : undefined}
+                className={`-mb-px inline-block border-b-2 px-2.5 py-2 sm:px-3 sm:py-2.5 text-sm font-medium outline-offset-[-2px] transition-colors ${
+                  v.list === list ? "border-accent text-ink" : "border-transparent text-ink-3 hover:text-ink"}`}
+              >
+                {v.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
       <form method="GET" className="flex items-center gap-2" role="search">
+        {list && <input type="hidden" name="list" value={list} />}
         <label htmlFor="q" className="sr-only">Search patients by name or phone</label>
         <div className="relative min-w-0 flex-1 sm:max-w-md">
           <Search aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 mt-[3px] size-4 -translate-y-1/2 text-ink-3" />
@@ -83,18 +131,20 @@ export default async function PatientsPage({
         </div>
         <button className={`${btnPrimary} mt-1.5 !py-2.5`}>Search</button>
         {q && (
-          <Link href="/patients" className={`${btnGhost} mt-1.5`}>Clear</Link>
+          <Link href={href(list, "")} className={`${btnGhost} mt-1.5`}>Clear</Link>
         )}
       </form>
 
       {patients.length === 0 ? (
         <EmptyState
-          title={q ? "No patients match that search"
+          title={q ? (view ? `No one in “${view.label}” matches that search` : "No patients match that search")
+            : view ? view.empty[0]
             : staff.role === "doctor" ? "No patients have been booked with you yet"
             : "No patients yet"}
-          action={q ? <Link href="/patients" className={`${btnSecondary} ${btnSm}`}>Clear search</Link> : undefined}
+          action={q ? <Link href={href(list, "")} className={`${btnSecondary} ${btnSm}`}>Clear search</Link> : undefined}
         >
-          {q ? "Check the spelling, or try the last few digits of the phone number." : undefined}
+          {q ? "Check the spelling, or try the last few digits of the phone number."
+            : view ? view.empty[1] : undefined}
         </EmptyState>
       ) : (
         <>

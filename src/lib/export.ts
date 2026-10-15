@@ -9,7 +9,7 @@ import type { Db } from "./db";
 import { audit, type Actor } from "./audit";
 import { requirePermission, type Role } from "./rbac";
 import { DeskError } from "./desk";
-import { ownedBy } from "./patients";
+import { ownedBy, inList } from "./patients";
 
 const MAX_DAYS = 92;
 
@@ -33,7 +33,7 @@ const hm = (at: Date, tz: string) => new Intl.DateTimeFormat("en-GB", {
 
 export async function exportPatients(
   db: Db, actor: Actor, role: Role, clinicId: string, timezone: string,
-  doctorId?: string | null,
+  doctorId?: string | null, list?: string | null,
 ): Promise<string> {
   requirePermission(role, "patients:read");
   const [rows] = await Promise.all([
@@ -51,6 +51,7 @@ export async function exportPatients(
         from patients p
        where p.clinic_id = ${clinicId} and p.deleted_at is null
          ${ownedBy(db, doctorId)}
+         ${inList(db, list)}
        order by p.name nulls last, p.created_at`,
     audit(db, actor, "export_patients", "patients", null),
   ]);
