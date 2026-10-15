@@ -5,9 +5,6 @@ import { sql } from "@/lib/db";
 import { can } from "@/lib/rbac";
 import { Nav, type NavSection } from "./_nav";
 import { QuickFind } from "./_quickfind";
-import { Suspense } from "react";
-import { Magnetic } from "@/components/lightswind/magnetic";
-import { TopLoader } from "@/components/lightswind/top-loader";
 import { Avatar, btnPrimary } from "./_ui";
 
 export default async function CrmLayout({ children }: { children: React.ReactNode }) {
@@ -68,14 +65,11 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
 
   const wordmark = (
     <div className="flex min-w-0 items-center gap-2.5">
-      {/* A medical cross, drawn as one outlined shape, on a tile that turns
-          in 3D under the pointer. */}
-      <span aria-hidden="true" className="group/mark shrink-0 [perspective:300px]">
-        <span className="bg-brand grid size-9 place-items-center rounded-xl text-white shadow-glow ring-1 ring-white/30 transition-transform duration-700 [transform-style:preserve-3d] group-hover/mark:[transform:rotateY(180deg)]">
-          <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
-            <path d="M9.5 4h5v5.5H20v5h-5.5V20h-5v-5.5H4v-5h5.5Z" />
-          </svg>
-        </span>
+      <span aria-hidden="true" className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent text-white">
+        {/* A medical cross, drawn as one outlined shape. */}
+        <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+          <path d="M9.5 4h5v5.5H20v5h-5.5V20h-5v-5.5H4v-5h5.5Z" />
+        </svg>
       </span>
       <span className="min-w-0 leading-tight">
         <span className="block text-[15px] font-semibold tracking-tight text-ink">Doctor-CRM</span>
@@ -88,12 +82,10 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
   // the pages re-check, these are shortcuts.
   const quick = (
     <div className="flex flex-col gap-1.5">
-      <Magnetic className="w-full" strength={0.12}>
-        <Link href="/appointments/new" className={`${btnPrimary} w-full`}>
-          <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-          New appointment
-        </Link>
-      </Magnetic>
+      <Link href="/appointments/new" className={`${btnPrimary} w-full`}>
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        New appointment
+      </Link>
       <Link href="/patients/new" className="rounded-lg px-3 py-1.5 text-center text-sm font-medium text-accent transition-colors hover:bg-accent-soft">
         Register walk-in
       </Link>
@@ -102,11 +94,9 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="min-h-dvh md:flex">
-      {/* Reads the URL, so it sits in its own Suspense boundary. */}
-      <Suspense fallback={null}><TopLoader /></Suspense>
       {/* Phone: a slim top bar (brand + sign out) and, in <Nav>, a fixed bottom
           tab bar. md and up: the rail below. */}
-      <header className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-rail-line glass px-4 py-2.5 md:hidden">
+      <header className="sticky top-0 z-20 flex items-center justify-between gap-2 border-b border-rail-line bg-rail/95 px-4 py-2.5 backdrop-blur md:hidden">
         {wordmark}
         <div className="flex shrink-0 items-center gap-2">
           <QuickFind />
@@ -116,7 +106,7 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
               <span className="sr-only">Menu</span>
               <svg viewBox="0 0 24 24" aria-hidden="true" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
             </summary>
-            <div className="glass absolute right-0 top-11 z-30 w-64 rounded-2xl border border-line p-3 shadow-pop">
+            <div className="absolute right-0 top-11 z-30 w-64 rounded-xl border border-line bg-surface p-3 shadow-pop">
               {quick}
               <Nav variant="rail" sections={sections} />
               <form action={logout} className="border-t border-line pt-2">
@@ -131,7 +121,7 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
 
       {/* A rail rather than a strip: this tool stays open all day, and the
           escalation count needs somewhere it can shout. */}
-      <aside className="hidden md:sticky md:top-0 md:flex md:h-dvh md:w-64 md:shrink-0 md:flex-col border-r border-rail-line glass">
+      <aside className="hidden md:sticky md:top-0 md:flex md:h-dvh md:w-60 md:shrink-0 md:flex-col border-r border-rail-line bg-rail">
         <div className="border-b border-rail-line px-4 py-4">{wordmark}</div>
 
         <div className="space-y-3 px-3 pt-3">
@@ -143,7 +133,7 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
           <Nav variant="rail" sections={sections} />
         </div>
 
-        <form action={logout} className="m-3 flex items-center gap-2.5 rounded-2xl border border-line bg-gradient-to-br from-surface to-accent-soft/60 p-2.5 shadow-card">
+        <form action={logout} className="m-3 flex items-center gap-2.5 rounded-xl border border-line bg-subtle p-2.5">
           <Avatar name={staff.name} size="sm" />
           <span className="min-w-0 flex-1 leading-tight">
             <span className="block truncate text-sm font-medium text-ink">{staff.name}</span>

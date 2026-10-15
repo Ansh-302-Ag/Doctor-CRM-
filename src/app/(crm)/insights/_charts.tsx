@@ -63,11 +63,11 @@ export function ColumnChart({
             <div className="absolute inset-x-0 top-1/2 border-t border-line" />
             <div className={`absolute inset-0 flex items-end ${dense ? "gap-px" : "gap-0.5"}`}>
               {bars.map((b, i) => (
-                <div key={b.key} className="group relative flex h-full min-w-0 flex-1 items-end justify-center rounded-t-md hover:bg-accent-soft/50">
+                <div key={b.key} className="group relative flex h-full min-w-0 flex-1 items-end justify-center hover:bg-subtle">
                   {b.value > 0 && (
                     <div
-                      className="relative w-full max-w-6 origin-bottom animate-[grow-y_0.8s_cubic-bezier(0.2,0.8,0.2,1)_both] rounded-t-md bg-gradient-to-t from-accent to-accent-2 transition-[filter] group-hover:brightness-110"
-                      style={{ height: `${(b.value / top) * 100}%`, animationDelay: `${Math.min(i, 30) * 25}ms` }}
+                      className="relative w-full max-w-6 rounded-t bg-accent transition-colors group-hover:bg-accent-hover"
+                      style={{ height: `${(b.value / top) * 100}%` }}
                     >
                       {peakLabel && i === peak && (
                         <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-xs font-semibold tabular-nums text-ink">
@@ -111,14 +111,14 @@ export function SplitBar({ ai, staff }: { ai: number; staff: number }) {
   const total = ai + staff;
   const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
   const parts = [
-    { label: "AI assistant", hint: "WhatsApp and voice", n: ai, swatch: "bg-brand" },
+    { label: "AI assistant", hint: "WhatsApp and voice", n: ai, swatch: "bg-accent" },
     { label: "Staff", hint: "Front desk and doctors", n: staff, swatch: "bg-accent-line" },
   ];
   return (
     <figure>
-      <div aria-hidden="true" className="flex h-3.5 gap-0.5 overflow-hidden rounded-full bg-subtle">
+      <div aria-hidden="true" className="flex h-3 gap-0.5 overflow-hidden rounded bg-subtle">
         {total > 0 && parts.filter(p => p.n > 0).map(p => (
-          <div key={p.label} className={`${p.swatch} h-full origin-left animate-[grow-x_0.9s_cubic-bezier(0.2,0.8,0.2,1)_both]`} style={{ width: `${(p.n / total) * 100}%` }} />
+          <div key={p.label} className={`${p.swatch} h-full`} style={{ width: `${(p.n / total) * 100}%` }} />
         ))}
       </div>
       <figcaption className="sr-only">

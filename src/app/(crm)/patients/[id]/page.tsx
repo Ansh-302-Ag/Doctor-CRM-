@@ -18,7 +18,7 @@ import {
 } from "../../_ui";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/lightswind/tabs";
 import { Reveal } from "@/components/motion/reveal";
-import { StatTile } from "@/components/ui/stat-tile";
+import { CountUp } from "@/components/lightswind/count-up";
 import {
   CalendarDays, CalendarPlus, GitMerge, ListChecks, MessageCircle, Pill, Printer, ShieldCheck,
   StickyNote, TriangleAlert, type LucideIcon,
@@ -292,16 +292,28 @@ export default async function PatientRecordPage({
       />
 
       <Reveal className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile label="Consent" icon={ShieldCheck} tone={consent.tone === "ok" ? "ok" : consent.tone === "danger" ? "danger" : "warn"}>
-          <Badge tone={consent.tone}>{consent.label}</Badge>
-        </StatTile>
-        <StatTile label="Next appointment" icon={CalendarDays} tone="sky">
-          <p className="text-sm font-semibold tabular-nums text-ink">
+        <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
+          <p className="text-xs font-semibold tracking-wide text-ink-3">Consent</p>
+          <p className="mt-2"><Badge tone={consent.tone}>{consent.label}</Badge></p>
+        </div>
+        <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
+          <p className="text-xs font-semibold tracking-wide text-ink-3">Next appointment</p>
+          <p className="mt-2 text-sm font-semibold tabular-nums text-ink">
             {patient.next_appointment ? when(patient.next_appointment) : "None booked"}
           </p>
-        </StatTile>
-        <StatTile label="Active prescriptions" icon={Pill} tone="ok" value={patient.active_prescriptions} />
-        <StatTile label="Open tasks" icon={ListChecks} tone="warn" value={tasks.length} />
+        </div>
+        <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
+          <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-ink-3">
+            <span aria-hidden="true" className="size-1.5 rounded-full bg-ok" /> Active prescriptions
+          </p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-ink"><CountUp value={patient.active_prescriptions} /></p>
+        </div>
+        <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
+          <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-ink-3">
+            <span aria-hidden="true" className="size-1.5 rounded-full bg-warn" /> Open tasks
+          </p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-ink"><CountUp value={tasks.length} /></p>
+        </div>
       </Reveal>
 
       <div className="mt-4 space-y-3 empty:hidden">
@@ -438,7 +450,6 @@ export default async function PatientRecordPage({
             <Card
               id="prescriptions"
               title="Prescriptions"
-              icon={Pill}
               description="Stored exactly as entered. The assistant reads these back to the patient verbatim and never interprets them."
               actions={active.length > 0 && (
                 <a href={`/print/prescription/${patient.id}`} target="_blank" rel="noopener"

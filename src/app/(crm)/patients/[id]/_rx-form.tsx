@@ -32,10 +32,10 @@ function toggle(dosage: string, re: RegExp, token: string, first: boolean) {
 }
 
 const chip =
-  "inline-flex min-h-11 min-w-11 items-center justify-center rounded-full border px-3 text-sm font-medium tabular-nums transition-all active:scale-95 " +
+  "inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border px-2.5 text-sm font-medium tabular-nums transition-colors " +
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 " +
-  "aria-pressed:border-accent aria-pressed:bg-accent aria-pressed:text-white aria-pressed:shadow-glow " +
-  "border-line-strong bg-surface text-ink-2 hover:border-accent-line hover:text-accent-ink";
+  "aria-pressed:border-accent aria-pressed:bg-accent-soft aria-pressed:text-accent-ink " +
+  "border-line-strong bg-surface text-ink-2 hover:border-ink-3 hover:text-ink";
 const input = `${field} min-h-11 !text-base`;
 
 type Row = { key: number; drugName: string; dosage: string; days: string; notes: string; showNotes: boolean };
@@ -127,7 +127,7 @@ export function RxForm({
   const n = filled.length;
   return (
     <form ref={formRef} action={action} onKeyDown={onKeyDown} id="prescribe"
-      className="scroll-mt-4 overflow-hidden rounded-2xl border border-line bg-surface shadow-card">
+      className="scroll-mt-4 rounded-xl border border-line bg-surface shadow-card">
       <input type="hidden" name="patientId" value={patientId} />
       {/* What is posted: one set per medicine actually written, in order. */}
       {filled.map(r => (
@@ -140,8 +140,8 @@ export function RxForm({
       ))}
 
       {/* The pad's head: who, for whom, when. */}
-      <div className="flex flex-wrap items-start gap-x-6 gap-y-3 border-b border-line bg-gradient-to-br from-accent-soft via-surface to-sky-soft px-4 py-4 sm:px-5">
-        <span aria-hidden="true" className="bg-brand grid size-12 shrink-0 place-items-center rounded-2xl font-serif text-3xl leading-none text-white shadow-glow">&#8478;</span>
+      <div className="flex flex-wrap items-start gap-x-6 gap-y-3 border-b border-line px-4 py-4 sm:px-5">
+        <span aria-hidden="true" className="font-serif text-4xl leading-none text-accent">&#8478;</span>
         <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
           <div className="min-w-0">
             <dt className="text-xs text-ink-3">Patient</dt>
@@ -183,11 +183,11 @@ export function RxForm({
           const freq = tidy(r.dosage.match(FREQ_RE)?.[0] ?? "").toLowerCase();
           const timing = tidy(r.dosage.match(TIMING_RE)?.[0] ?? "").toLowerCase();
           return (
-            <li key={r.key} className="px-4 py-4 transition-colors focus-within:bg-accent-soft/30 sm:px-5">
+            <li key={r.key} className="px-4 py-4 sm:px-5">
               <fieldset className="min-w-0">
                 <legend className="mb-2 flex w-full items-center justify-between gap-3">
                   <span className="text-sm font-semibold text-ink">
-                    <span aria-hidden="true" className="bg-brand mr-1.5 inline-grid size-6 place-items-center rounded-full text-xs font-bold tabular-nums text-white">{i + 1}</span><span className="sr-only">{i + 1}.</span> Medicine
+                    <span className="tabular-nums text-ink-3">{i + 1}.</span> Medicine
                   </span>
                   {(rows.length > 1 || !isBlank(r)) && (
                     <button type="button" onClick={() => remove(r.key)}
@@ -285,7 +285,7 @@ export function RxForm({
       </div>
 
       {/* Exactly what will be stored, and sent, in order. */}
-      <div aria-live="polite" className="border-t border-accent-line bg-accent-soft/50 px-4 py-4 sm:px-5">
+      <div aria-live="polite" className="border-t border-line bg-subtle px-4 py-4 sm:px-5">
         <h3 className="text-sm font-semibold text-ink">Will be saved as</h3>
         {n === 0 ? (
           <p className="mt-1 text-sm text-ink-3">Write at least one medicine: a drug name and a dosage.</p>
@@ -330,7 +330,7 @@ function SaveButton({ buttonRef, ready, n }: {
   const { pending } = useFormStatus();
   return (
     <button ref={buttonRef} disabled={!ready || pending} aria-busy={pending || undefined}
-      className={`${btnPrimary} min-h-12 w-full text-base sm:w-auto sm:px-6`}>
+      className={`${btnPrimary} min-h-11 w-full sm:w-auto`}>
       {pending ? "Saving…" : <>Save &amp; send to patient{n > 0 && ` (${n} medicine${n === 1 ? "" : "s"})`}</>}
     </button>
   );

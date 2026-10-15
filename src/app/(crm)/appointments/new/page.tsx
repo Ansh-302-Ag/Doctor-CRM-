@@ -9,7 +9,7 @@ import { validDay } from "@/lib/valid-day";
 import { searchPatients, patientScope } from "@/lib/patients";
 import { bookAppointment, checkAvailability } from "@/lib/booking";
 import { isId, refusal } from "@/lib/desk";
-import { CalendarPlus, Search, UserPlus } from "lucide-react";
+import { Search, UserPlus } from "lucide-react";
 import { Reveal } from "@/components/motion/reveal";
 import {
   Alert, Avatar, Badge, Card, EmptyState, PageHeader, consentStatus,
@@ -116,7 +116,6 @@ export default async function BookPage({
   return (
     <section className="max-w-5xl space-y-6">
       <PageHeader
-        icon={CalendarPlus}
         title="Book appointment"
         back={{ href: `/?day=${day}`, label: "Calendar" }}
         subtitle={patient ? "Pick the doctor and day, then an open slot." : "Find the patient first."}

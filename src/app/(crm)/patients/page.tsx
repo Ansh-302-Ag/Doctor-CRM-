@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { CalendarClock, Download, Phone, Pill, Search, UserPlus, Users } from "lucide-react";
+import { CalendarClock, Download, Phone, Pill, Search, UserPlus } from "lucide-react";
 import { currentStaff } from "@/lib/session";
 import { can } from "@/lib/rbac";
 import { sql } from "@/lib/db";
@@ -67,7 +67,6 @@ export default async function PatientsPage({
   return (
     <section className="space-y-6">
       <PageHeader
-        icon={Users}
         title={staff.role === "doctor" ? "My patients" : "Patients"}
         subtitle={
           <>
@@ -155,7 +154,7 @@ export default async function PatientsPage({
           {patients.map(p => {
             const consent = consentStatus(p.consent_status);
             return (
-              <li key={p.id} className="lift rounded-2xl border border-line bg-surface p-4 shadow-card">
+              <li key={p.id} className="rounded-xl border border-line bg-surface p-4 shadow-card">
                 <div className="flex items-start gap-3">
                   <Avatar name={p.name} />
                   <div className="min-w-0 flex-1">

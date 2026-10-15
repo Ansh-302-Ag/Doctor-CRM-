@@ -139,7 +139,6 @@ export default async function AppointmentPage({
   return (
     <section className="max-w-5xl space-y-6">
       <PageHeader
-        icon={CalendarClock}
         title="Appointment"
         back={{ href: `/?day=${apptDay}`, label: "Calendar" }}
         subtitle={<>

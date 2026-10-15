@@ -5,7 +5,6 @@ import { Skel } from "../_ui";
 export default function Loading() {
   return (
     <section aria-busy="true" aria-label="Loading your day" className="space-y-6">
-      <Skel className="h-[172px] w-full !rounded-3xl" />
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <Skel className="h-8 w-36" />
@@ -21,14 +20,14 @@ export default function Loading() {
 
       <div className="grid grid-cols-3 gap-3">
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border border-line bg-surface px-3 py-3 shadow-card sm:px-5 sm:py-4">
+          <div key={i} className="rounded-xl border border-line bg-surface px-3 py-3 shadow-card sm:px-5 sm:py-4">
             <Skel className="h-3 w-16" />
             <Skel className="mt-2.5 h-7 w-10" />
           </div>
         ))}
       </div>
 
-      <div className="rounded-2xl border border-line bg-surface p-4 shadow-card sm:p-6">
+      <div className="rounded-xl border border-line bg-surface p-4 shadow-card sm:p-6">
         <Skel className="h-5 w-28 rounded-full" />
         <div className="mt-4 flex flex-wrap items-start gap-x-6 gap-y-4">
           <Skel className="h-9 w-24" />
@@ -42,7 +41,7 @@ export default function Loading() {
         </div>
       </div>
 
-      <ul className="divide-y divide-line rounded-2xl border border-line bg-surface shadow-card">
+      <ul className="divide-y divide-line rounded-xl border border-line bg-surface shadow-card">
         {Array.from({ length: 4 }).map((_, i) => (
           <li key={i} className="flex items-start gap-4 px-4 py-4 sm:gap-5 sm:px-5">
             <div className="w-14 shrink-0 sm:w-20">

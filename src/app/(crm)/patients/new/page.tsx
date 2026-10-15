@@ -1,4 +1,4 @@
-import { MessageSquareQuote, UserPlus } from "lucide-react";
+import { MessageSquareQuote } from "lucide-react";
 import { redirect } from "next/navigation";
 import { currentStaff } from "@/lib/session";
 import { sql, type Db } from "@/lib/db";
@@ -51,7 +51,6 @@ export default async function NewPatientPage({
   return (
     <section className="mx-auto max-w-xl">
       <PageHeader
-        icon={UserPlus}
         back={{ href: "/", label: "Calendar" }}
         title="Register walk-in"
         subtitle="New patients get a record, then go straight to booking. A number the clinic already knows opens that patient instead."
@@ -59,7 +58,7 @@ export default async function NewPatientPage({
 
       {error && <Alert className="mb-4">{error}</Alert>}
 
-      <Card icon={UserPlus} title="Patient details" description="Name and phone as the patient gives them.">
+      <Card title="Patient details" description="Name and phone as the patient gives them.">
         <form action={register} className="space-y-5">
           <div>
             <label htmlFor="name" className={fieldLabel}>Name</label>

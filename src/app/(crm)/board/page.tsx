@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, ChevronRight, Columns3, Phone, Stethoscope } from "lucide-react";
-import { SplitBar } from "@/components/motion/split-bar";
+import { ChevronLeft, ChevronRight, Phone, Stethoscope } from "lucide-react";
 import { validDay } from "@/lib/valid-day";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
@@ -81,7 +80,6 @@ export default async function BoardPage({
   return (
     <section className="space-y-6">
       <PageHeader
-        icon={Columns3}
         title="Today's board"
         subtitle={<>
           <span className="font-medium text-ink">{dayLabel}</span>
@@ -131,21 +129,6 @@ export default async function BoardPage({
 
       {params.error && <Alert>{params.error}</Alert>}
 
-      {onBoard > 0 && (
-        <div className="rounded-2xl border border-line bg-surface p-4 shadow-card">
-          <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2 text-xs font-medium text-ink-3">
-            <span>How the day is moving</span>
-            <span className="tabular-nums">
-              {columns[2].rows.length + columns[3].rows.length} of {onBoard} done
-            </span>
-          </div>
-          <SplitBar
-            label="Visits by stage"
-            parts={columns.map(c => ({ label: c.label, value: c.rows.length, className: c.dot }))}
-          />
-        </div>
-      )}
-
       {/* Columns scroll sideways inside this box on phones; the page itself never does. */}
       <div className="-mx-4 overflow-x-auto px-4 pb-2 sm:mx-0 sm:px-0">
         <div className="grid snap-x snap-mandatory auto-cols-[min(18rem,82vw)] grid-flow-col gap-4 lg:auto-cols-auto lg:grid-flow-row lg:grid-cols-4">
@@ -153,9 +136,8 @@ export default async function BoardPage({
             <section
               key={col.key}
               aria-labelledby={`col-${col.key}`}
-              className="relative flex min-w-0 snap-start flex-col overflow-hidden rounded-2xl border border-line bg-subtle/70 p-2.5 pt-3.5"
+              className="flex min-w-0 snap-start flex-col rounded-xl border border-line bg-subtle/60 p-2.5"
             >
-              <span aria-hidden="true" className={`absolute inset-x-0 top-0 h-1 ${col.dot}`} />
               <h2 id={`col-${col.key}`} className="flex items-center gap-2 px-1.5 pb-2.5 pt-1 text-sm font-semibold text-ink">
                 <span aria-hidden="true" className={`size-2 rounded-full ${col.dot}`} />
                 {col.label}
@@ -172,7 +154,7 @@ export default async function BoardPage({
               ) : (
                 <Reveal as="ul" className="space-y-2.5">
                   {col.rows.map(r => (
-                    <li key={r.id} className="lift rounded-xl border border-line bg-surface p-3.5 shadow-card">
+                    <li key={r.id} className="rounded-xl border border-line bg-surface p-3.5 shadow-card">
                       <p className="text-xs font-semibold tabular-nums text-ink-2">
                         {time(r.starts_at)}–{time(r.ends_at)}
                       </p>
