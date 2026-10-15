@@ -18,9 +18,11 @@ export async function handleVoice(
   const clinicId = process.env.CLINIC_ID;
   if (!clinicId) return new Response("CLINIC_ID not configured", { status: 500 });
 
-  let body: Record<string, unknown>;
-  try { body = await req.json(); }
-  catch { return NextResponse.json({ error: "invalid JSON" }, { status: 400 }); }
+  let body: Record<string, unknown> = {};
+  if (req.method === "POST") {
+    try { body = await req.json(); }
+    catch { return NextResponse.json({ error: "invalid JSON" }, { status: 400 }); }
+  }
 
   try {
     return NextResponse.json(await fn(agentSql, clinicId, body));

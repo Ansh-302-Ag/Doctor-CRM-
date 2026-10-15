@@ -8,7 +8,9 @@
  */
 import type { Db } from "./db";
 import { tools } from "./agent/tools";
-import { BookingError, requireTimezone, type Slot } from "./booking";
+import {
+  BookingError, requireTimezone, OPEN_DAYS, OPEN_HOUR, CLOSE_HOUR, type Slot,
+} from "./booking";
 import { recordConsent } from "./consent";
 import { setPatientName } from "./patients";
 
@@ -62,6 +64,26 @@ function parseInput(date: string, time: string) {
     throw new VoiceInputError("time must be 24-hour HH:MM");
   }
   return { date, time: `${t[1].padStart(2, "0")}:${t[2]}` };
+}
+
+/**
+ * What the agent needs at the start of a call, so the CRM stays the source of
+ * truth: today's date (to turn "kal" into YYYY-MM-DD), the clinic, its doctors
+ * and its hours.
+ */
+export async function voiceContext(db: Db, clinicId: string, now = new Date()) {
+  const [c] = await db<{ name: string; timezone: string }[]>`
+    select coalesce(name, 'the clinic') as name, timezone from clinics where id = ${clinicId}`;
+  if (!c) throw new Error(`unknown clinic ${clinicId}`);
+  const doctors = await db<{ name: string; specialty: string | null }[]>`
+    select name, specialty from doctors where clinic_id = ${clinicId} order by name`;
+  const weekday = new Intl.DateTimeFormat("en-GB", { timeZone: c.timezone, weekday: "long" }).format(now);
+  return {
+    today: `${weekday} ${local(now, c.timezone).date}`,
+    clinic_name: c.name,
+    doctors: doctors.map(d => (d.specialty ? `${d.name} (${d.specialty})` : d.name)).join(", "),
+    timings: `${[...OPEN_DAYS].join(", ")}, ${OPEN_HOUR}:00 to ${CLOSE_HOUR}:00`,
+  };
 }
 
 const addDays = (day: string, n: number) =>

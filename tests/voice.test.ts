@@ -64,3 +64,11 @@ test("no consent, no booking; bad input is refused, not guessed", async () => {
   assert.equal(normalisePhone("+91 98765-43210"), "+919876543210");
   assert.equal(normalisePhone("09876543210"), "+919876543210");
 });
+
+test("call-start context names today, the clinic and its doctors", async () => {
+  const { voiceContext } = await import("../src/lib/voice");
+  const c = await voiceContext(agentDb, f.clinicId, new Date("2026-10-15T06:00:00Z"));
+  assert.equal(c.today, "Thursday 2026-10-15");
+  assert.equal(c.clinic_name, "Test Clinic");
+  assert.equal(c.doctors, "Dr. Rao (General)");
+});
