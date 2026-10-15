@@ -5,7 +5,7 @@
 import test, { after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { db, reset, seed, closeAll, futureSlot, localDay, type Fixture } from "./helpers";
-import { handleInbound } from "../src/lib/agent";
+import { handleInbound, pickOffered } from "../src/lib/agent";
 import { CONSENT_NOTICE, introduction, isAffirmative } from "../src/lib/consent";
 import { scripted, stub } from "./stub-classifier";
 import { ClassifierUnavailable } from "../src/lib/agent/intent";
@@ -375,6 +375,40 @@ test("naming the doctor resumes the booking with the right one", async () => {
     select doctor_id from appointments where status = 'booked'`;
   assert.equal(rows.length, 1);
   assert.equal(rows[0].doctor_id, iyer.id);
+});
+
+test("a bare time or number picks an offered slot without asking the model", async () => {
+  // gpt-oss-20b skips the forced tool call on "2.40" (Groq tool_use_failed);
+  // the pick must not depend on it.
+  const broken = async () => { throw new ClassifierUnavailable("400 tool_use_failed"); };
+  const pick = (body: string) => handleInbound(db, {
+    clinicId: f.clinicId, phone: "+919000000001", body, providerMessageId: `wamid.${++seq}`,
+  }, new Date(), broken);
+
+  await say("appointment with Dr Rao");
+  const offer = await say("tomorrow");
+  const last = offer!.text.match(/^\d+\. .+$/gm)!.at(-1)!;
+  const [, hh, mm] = last.match(/(\d{1,2}):(\d{2})/)!;
+
+  const r = await pick(`${hh}.${mm}`);                     // "2.40", as patients type it
+  assert.match(r!.text, /you are booked/i);
+  assert.equal((await db`select id from appointments where status = 'booked'`).length, 1);
+  assert.equal((await escalations()).length, 0);
+});
+
+test("pickOffered reads positions and clock times, and refuses anything ambiguous", () => {
+  const tz = "Asia/Kolkata";
+  const at = (hm: string) => new Date(`2026-10-17T${hm}:00+05:30`).toISOString();
+  const offered = [at("09:00"), at("12:00"), at("14:40"), at("17:40")];
+  assert.equal(pickOffered("2.40", offered, tz), 2);
+  assert.equal(pickOffered("2:40 pm", offered, tz), 2);
+  assert.equal(pickOffered("14:40", offered, tz), 2);
+  assert.equal(pickOffered("12", offered, tz), 1);
+  assert.equal(pickOffered("9 am", offered, tz), 0);
+  assert.equal(pickOffered("3", offered, tz), 2);         // position, as numbered
+  assert.equal(pickOffered("2.40 am", offered, tz), null);
+  assert.equal(pickOffered("4:00", offered, tz), null);
+  assert.equal(pickOffered("2.40 on monday", offered, tz), null);
 });
 
 test("when the classifier is unavailable, the message escalates rather than vanishing", async () => {

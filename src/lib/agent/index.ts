@@ -71,6 +71,31 @@ const fmtTime = (at: Date, tz: string) =>
     hour: "numeric", minute: "2-digit", hour12: true,
   }).format(at);
 
+/**
+ * Which offered time a reply picks, read without the model when the whole
+ * message is an option number ("3") or a clock time ("2.40", "2:40 pm",
+ * "14:40"). Null unless exactly one offer matches, so anything else still goes
+ * to the classifier.
+ */
+export function pickOffered(body: string, offered: string[], tz: string): number | null {
+  const m = body.trim().toLowerCase()
+    .match(/^(?:at\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.?|p\.m\.?)?$/);
+  if (!m) return null;
+  const h = Number(m[1]), min = m[2] ? Number(m[2]) : 0, ampm = m[3]?.[0];
+  // A bare number within the list is its position, as the list is numbered.
+  if (!m[2] && !ampm && h >= 1 && h <= offered.length) return h - 1;
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: requireTimezone(tz), hour: "numeric", minute: "numeric", hourCycle: "h23",
+  });
+  const hits = offered.flatMap((iso, i) => {
+    const [oh, om] = fmt.format(new Date(iso)).split(":").map(Number);
+    // No am/pm: "2.40" in a clinic day means 14:40 — accept either reading.
+    const hourOk = ampm ? (h % 12) + (ampm === "p" ? 12 : 0) === oh : h === oh || h + 12 === oh;
+    return hourOk && min === om ? [i] : [];
+  });
+  return hits.length === 1 ? hits[0] : null;
+}
+
 const dayIn = (at: Date, tz: string) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: requireTimezone(tz) }).format(at);
 
@@ -247,11 +272,18 @@ async function route(
   const justAsked = ctx.patient.consent_status !== "granted"
     && await justAskedForConsent(db, ctx.conversation.id);
 
+  const picked = isBooking(state) && state.step === "awaiting_slot"
+    ? pickOffered(msg.body, offeredIso, ctx.clinic.timezone) : null;
+
   let c: Classification;
   if (justAsked && isAffirmative(msg.body)) {
     // "OK", "haan" and a thumbs-up are consent, and the model sometimes reads
     // them as unclear — so it is not asked.
     c = { intent: "consent_yes", doctor: null, day: null, slotIndex: null, time: null, name: null };
+  } else if (picked !== null) {
+    // A bare "3" or "2.40" picking from the list we just sent is a lookup, not
+    // a judgement — and the model fails on exactly these (it skips the tool).
+    c = { intent: "book", doctor: null, day: null, slotIndex: picked, time: null, name: null };
   } else try {
     c = await classify({
       body: msg.body,
@@ -266,6 +298,7 @@ async function route(
   } catch (e) {
     // docs/08: the model being down never drops a message silently.
     if (!(e instanceof ClassifierUnavailable)) throw e;
+    console.error("[agent]", e.message);
     return escalate(`classifier unavailable: ${e.message}`, "normal",
       templates.technicalFailure(), "classifier_unavailable");
   }
@@ -574,6 +607,7 @@ async function continueBooking(
           "Sorry, that slot was just taken.");
       }
       if (e instanceof ConsentRequired) throw e;
+      console.error("[agent] booking failed", e);
       return escalate(`booking failed: ${(e as Error).message}`, "normal",
         templates.technicalFailure(), "book");
     }
