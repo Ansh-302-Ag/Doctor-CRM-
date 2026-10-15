@@ -104,15 +104,18 @@ test("a voice booking that loses the race leaves no patient or consent behind", 
   const phones = ["+919811111111", "+919822222222"];
   const race = Promise.all(phones.map(phone =>
     voiceBook(agentDb, f.clinicId, { date: day, time: "14:00", phone, consent: true })));
-  for (let i = 0; ; i++) {
-    const [{ n }] = await db<{ n: number }[]>`
-      select count(*)::int as n from pg_locks
-       where relation = 'appointments'::regclass and not granted`;
-    if (n === 2) break;
-    assert.ok(i < 200, "both bookings should reach the appointment insert");
-    await new Promise(r => setTimeout(r, 50));
+  try {
+    for (let i = 0; ; i++) {
+      const [{ n }] = await db<{ n: number }[]>`
+        select count(*)::int as n from pg_locks
+         where relation = 'appointments'::regclass and not granted`;
+      if (n === 2) break;
+      assert.ok(i < 200, "both bookings should reach the appointment insert");
+      await new Promise(r => setTimeout(r, 50));
+    }
+  } finally {
+    release(); // a failed wait must not leave the lock (and the run) hanging
   }
-  release();
   await lock;
   const results = await race;
 

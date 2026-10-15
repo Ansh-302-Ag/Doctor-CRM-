@@ -9,7 +9,8 @@ export default function CrmError({ error, retry }: { error: Error & { digest?: s
   return (
     <section role="alert" className="mx-auto mt-10 max-w-md rounded-lg border border-line bg-surface p-6 text-center">
       <h1 className="text-lg font-semibold text-ink">
-        {forbidden ? "You are not allowed to do that." : "Something went wrong."}
+        {/* Production hides Server Component messages, so the fallback has to cover a refusal too. */}
+        {forbidden ? "You are not allowed to do that." : "Something went wrong, or you don't have access to this."}
       </h1>
       <div className="mt-5 flex items-center justify-center gap-3">
         <button

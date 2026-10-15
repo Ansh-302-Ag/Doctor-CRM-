@@ -865,3 +865,24 @@ test("a model-classified yes in answer to the notice is consent", async () => {
     select consent_status from patients where phone = ${phone}`;
   assert.equal(p.consent_status, "granted");
 });
+
+test("moving an appointment staff already cancelled gets a plain reply, not an escalation", async () => {
+  const appt = await db<{ id: string }[]>`
+    insert into appointments (clinic_id, doctor_id, patient_id, starts_at, ends_at, created_by)
+    values (${f.clinicId}, ${f.doctorId}, ${f.patientId}, ${futureSlot(10, 3)},
+            ${new Date(futureSlot(10, 3).getTime() + 30 * 60_000)}, 'agent')
+    returning id`;
+  const offer = await say(`please move my appointment to ${localDay(futureSlot(12, 4))}`);
+  const first = offer!.text.match(/^1\. .*?(\d{1,2}:\d{2})/m)![1];
+
+  // The front desk cancels it from the CRM while the patient is choosing a time.
+  await db`update appointments set status = 'cancelled' where id = ${appt[0].id}`;
+  const r = await say(`${first} works`);
+
+  assert.equal(r!.escalated, false);
+  assert.match(r!.text, /no longer booked/i);
+  assert.equal((await escalations()).length, 0);
+  const [c] = await db`select state from conversations where id = ${f.conversationId}`;
+  assert.deepEqual(c.state, {});
+  assert.equal((await db`select 1 from appointments where status = 'booked'`).length, 0);
+});

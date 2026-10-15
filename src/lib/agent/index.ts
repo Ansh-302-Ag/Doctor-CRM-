@@ -606,6 +606,12 @@ async function continueBooking(
         return offerSlots(db, ctx, state, dayIn(picked, ctx.clinic.timezone), now,
           "Sorry, that slot was just taken.");
       }
+      if (e instanceof BookingError && e.code === "not_active") {
+        // The clinic cancelled or moved it while the patient was choosing a time.
+        await clearState(db, ctx.conversation.id);
+        return { text: "That appointment is no longer booked, so there is nothing to move. " +
+                       "Would you like to book a new one?", escalated: false, intent: "book" };
+      }
       if (e instanceof ConsentRequired) throw e;
       console.error("[agent] booking failed", e);
       return escalate(`booking failed: ${(e as Error).message}`, "normal",
