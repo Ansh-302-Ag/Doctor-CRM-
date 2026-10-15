@@ -2,56 +2,63 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { currentStaff } from "@/lib/session";
-import { audit } from "@/lib/audit";
 import { sql } from "@/lib/db";
 import { can } from "@/lib/rbac";
 import { getPatient, patientScope } from "@/lib/patients";
+import { getTimeline, type TimelineItem } from "@/lib/timeline";
 import { listPrescriptions, discontinuePrescription, InvalidPrescription } from "@/lib/prescriptions";
 import { prescribeAndNotify, NotYourPatient } from "@/lib/doctor";
 import {
-  Badge, appointmentStatus, consentStatus, prescriptionStatus, btnPrimary, btnSecondary,
+  Badge, consentStatus, prescriptionStatus, btnPrimary, btnSecondary, type Tone,
 } from "../../_ui";
 
 const field = "mt-1.5 w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink";
 const fieldLabel = "block text-xs font-semibold uppercase tracking-wide text-ink-3";
 const notice = "mt-4 rounded-md border px-3.5 py-2.5 text-sm";
+const PAGE = 50;
+
+const KIND: Record<TimelineItem["kind"], { label: string; tone: Tone }> = {
+  appointment: { label: "Appointment", tone: "accent" },
+  message: { label: "WhatsApp", tone: "neutral" },
+  escalation: { label: "Escalation", tone: "warn" },
+  prescription: { label: "Prescription", tone: "ok" },
+  consent: { label: "Consent", tone: "neutral" },
+  note: { label: "Note", tone: "neutral" },
+  task: { label: "Task", tone: "neutral" },
+};
+
+const BY = { agent: "AI assistant", patient: "Patient", staff: "Staff" } as const;
 
 export default async function PatientRecordPage({
   params, searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; sent?: string; nudged?: string }>;
+  searchParams: Promise<{ error?: string; sent?: string; nudged?: string; before?: string }>;
 }) {
   const staff = await currentStaff();
   const { id } = await params;
-  const { error, sent, nudged } = await searchParams;
+  const { error, sent, nudged, before: beforeRaw } = await searchParams;
+  // "Show older" carries the oldest instant shown; anything unparseable is ignored.
+  const beforeAt = typeof beforeRaw === "string" ? new Date(beforeRaw) : null;
+  const before = beforeAt && !isNaN(beforeAt.getTime()) ? beforeAt : undefined;
   const actor = { kind: "staff" as const, id: staff.id };
   const isDoctor = staff.role === "doctor";
   // A doctor may only open one of his own patients (docs/08).
   const scope = patientScope(staff);
 
   // One round trip for the whole record. Every query below is scoped to this
-  // clinic on its own — the appointments and doctors lists by clinic_id, the
+  // clinic on its own — the timeline and the doctors list by clinic_id, the
   // prescriptions by a join back to patients — so none of them depends on the
   // existence check to stay safe, and the check can move after them. Neon is a
   // continent away; three sequential hops here were most of the page's latency.
-  const [patient, appointments, prescriptions, doctors] = await Promise.all([
+  const [patient, timeline, prescriptions, doctors] = await Promise.all([
     getPatient(sql, actor, staff.role, staff.clinicId, id, scope),
-    sql<{
-      id: string; starts_at: Date; status: string; doctor_name: string; reason_text: string | null;
-    }[]>`
-      select a.id, a.starts_at, a.status, d.name as doctor_name, a.reason_text
-        from appointments a
-        join doctors d on d.id = a.doctor_id
-       where a.patient_id = ${id} and a.clinic_id = ${staff.clinicId}
-       order by a.starts_at desc
-       limit 20`,
+    getTimeline(sql, actor, staff.role, staff.clinicId, id, { before, limit: PAGE, doctorId: scope }),
     listPrescriptions(sql, actor, staff.role, staff.clinicId, id),
     // Only an admin has to say who prescribed: a doctor is the prescriber, and
     // currentStaff() now carries his doctor_id.
     isDoctor ? [] : sql<{ id: string; name: string }[]>`
       select id, name from doctors where clinic_id = ${staff.clinicId} order by name`,
-    audit(sql, actor, "read_patient_appointments", "patients", id),
   ]);
   if (!patient) notFound();
 
@@ -199,66 +206,49 @@ export default async function PatientRecordPage({
       <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-6">
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-3">Appointments</h2>
-            {appointments.length === 0 ? (
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-3">Timeline</h2>
+            {timeline.length === 0 ? (
               <p className="mt-2 rounded-lg border border-dashed border-line-strong bg-surface p-8 text-center text-sm text-ink-3">
-                No appointments yet.
+                {before ? "Nothing older on record." : "Nothing on record yet."}
               </p>
             ) : (
-              <>
-              {/* Below md the same rows render as cards. */}
-              <ul className="mt-2 space-y-3 md:hidden">
-                {appointments.map(a => {
-                  const status = appointmentStatus(a.status);
+              <ol className="mt-2 divide-y divide-line rounded-lg border border-line bg-surface">
+                {timeline.map((t, i) => {
+                  const kind = KIND[t.kind];
+                  const by = t.byName ?? (t.by ? BY[t.by] : null);
                   return (
-                    <li key={a.id} className="rounded-lg border border-line bg-surface p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <span className="font-semibold tabular-nums text-ink">{when(a.starts_at)}</span>
-                        <Badge tone={status.tone}>{status.label}</Badge>
+                    <li key={`${t.refId}-${i}`} className="p-4">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
+                        <Badge tone={kind.tone}>{kind.label}</Badge>
+                        <time dateTime={t.at.toISOString()} className="tabular-nums">{when(t.at)}</time>
+                        {by && <span>· {by}</span>}
                       </div>
-                      <dl className="mt-3 space-y-2 text-sm">
-                        <div>
-                          <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">Doctor</dt>
-                          <dd className="mt-0.5 text-ink-2">{a.doctor_name}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">Reason (as given)</dt>
-                          <dd className="mt-0.5 break-words text-ink-2">{a.reason_text ?? "—"}</dd>
-                        </div>
-                      </dl>
+                      <p className="mt-1.5 break-words text-sm text-ink">{t.title}</p>
+                      {t.detail && (t.kind === "message" ? (
+                        <details className="mt-1 text-sm text-ink-2">
+                          <summary className="cursor-pointer text-xs text-ink-3">Full message</summary>
+                          <p className="mt-1 whitespace-pre-wrap break-words">{t.detail}</p>
+                        </details>
+                      ) : (
+                        <p className="mt-1 whitespace-pre-wrap break-words text-sm text-ink-2">{t.detail}</p>
+                      ))}
                     </li>
                   );
                 })}
-              </ul>
-
-              <div className="mt-2 hidden overflow-x-auto rounded-lg border border-line bg-surface md:block">
-                <table className="w-full min-w-[560px] border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b border-line bg-subtle text-left text-xs uppercase tracking-wide whitespace-nowrap text-ink-3">
-                      <th scope="col" className="px-4 py-2.5 font-semibold">When</th>
-                      <th scope="col" className="px-4 py-2.5 font-semibold">Doctor</th>
-                      <th scope="col" className="px-4 py-2.5 font-semibold">Status</th>
-                      <th scope="col" className="px-4 py-2.5 font-semibold">Reason (as given)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-line">
-                    {appointments.map(a => {
-                      const status = appointmentStatus(a.status);
-                      return (
-                        <tr key={a.id} className="transition-colors hover:bg-subtle">
-                          <td className="whitespace-nowrap px-4 py-3 font-medium tabular-nums text-ink">
-                            {when(a.starts_at)}
-                          </td>
-                          <td className="whitespace-nowrap px-4 py-3 text-ink-2">{a.doctor_name}</td>
-                          <td className="px-4 py-3"><Badge tone={status.tone}>{status.label}</Badge></td>
-                          <td className="px-4 py-3 break-words text-ink-2">{a.reason_text ?? "—"}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              </ol>
+            )}
+            {(before || timeline.length >= PAGE) && (
+              <div className="mt-3 flex gap-3">
+                {before && <Link href={`/patients/${patient.id}`} className={btnSecondary}>Newest</Link>}
+                {timeline.length >= PAGE && (
+                  <Link
+                    href={`/patients/${patient.id}?before=${encodeURIComponent(timeline.at(-1)!.at.toISOString())}`}
+                    className={btnSecondary}
+                  >
+                    Show older
+                  </Link>
+                )}
               </div>
-              </>
             )}
           </div>
 

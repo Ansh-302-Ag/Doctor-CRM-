@@ -16,9 +16,9 @@ import { requirePermission, type Role } from "./rbac";
 export const patientScope = (staff: { role: Role; doctorId: string | null }) =>
   staff.role === "doctor" ? staff.doctorId : null;
 
-/** The doctor-scope filter, as a SQL fragment so both queries below stay one
+/** The doctor-scope filter on alias `p`, as a SQL fragment so each query stays one
  *  statement. Empty when the caller sees the whole clinic. */
-const ownedBy = (db: Db, doctorId: string | null | undefined) =>
+export const ownedBy = (db: Db, doctorId: string | null | undefined) =>
   doctorId
     ? db`and exists (select 1 from appointments a
                       where a.patient_id = p.id and a.doctor_id = ${doctorId})`
