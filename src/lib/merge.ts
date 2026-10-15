@@ -22,6 +22,15 @@ export type MergeCounts = {
 async function checkPair(db: Db, clinicId: string, keepId: string, dropId: string, lock: boolean) {
   if (!isId(keepId) || !isId(dropId)) throw new DeskError("patient not found");
   if (keepId === dropId) throw new DeskError("cannot merge a record with itself");
+  if (lock) {
+    // Lock order: conversations, then patients — the order the WhatsApp agent
+    // takes them in (message insert, then consent/booking on the patient), so
+    // the two wait on each other instead of deadlocking. Waiting on an open
+    // message insert here also means the message move sees it, rather than the
+    // conversation delete cascading it away. Only rows of these two ids lock.
+    await db`select id from conversations where patient_id in (${keepId}, ${dropId})
+              order by id for update`;
+  }
   const rows = await db`
     select id from patients
      where id in (${keepId}, ${dropId}) and clinic_id = ${clinicId} and deleted_at is null
@@ -66,11 +75,6 @@ export async function mergePatients(
   return pool.begin(async tx => {
     // Locked so a second desk merging the same pair waits, then finds one gone.
     await checkPair(tx, clinicId, keepId, dropId, true);
-    // A message insert holds a key-share lock on its conversation until it
-    // commits. Waiting for it here means the message move below sees it, rather
-    // than the conversation delete cascading it away.
-    await tx`select id from conversations where patient_id in (${keepId}, ${dropId})
-              order by id for update`;
     const moved = await counts(tx, dropId);
 
     for (const t of ["appointments", "prescriptions", "reminders", "escalations",
