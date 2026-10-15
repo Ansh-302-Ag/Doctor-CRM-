@@ -58,7 +58,7 @@ export function Nav({
     return (
       <nav
         aria-label="Main"
-        className="fixed inset-x-0 bottom-0 z-20 border-t border-rail-line bg-rail pb-[env(safe-area-inset-bottom)] md:hidden"
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-rail-line bg-rail/95 pb-[env(safe-area-inset-bottom)] shadow-pop backdrop-blur md:hidden"
       >
         <ul className="flex">
           {items.map((item) => {
@@ -69,11 +69,11 @@ export function Nav({
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   className={`relative flex flex-col items-center gap-0.5 px-1 py-2 text-[11px] font-medium transition-colors ${
-                    active ? "bg-rail-active text-white" : "text-rail-ink hover:text-white"
+                    active ? "text-accent-ink" : "text-rail-ink hover:text-ink"
                   }`}
                 >
                   <span className="relative">
-                    <Icon name={item.icon} className="size-5" />
+                    <Icon name={item.icon} className={`size-5 ${active ? "text-accent" : ""}`} />
                     {badge(item, "absolute -right-3 -top-1.5 min-w-4 text-center leading-none")}
                   </span>
                   <span className="max-w-full truncate">{item.label}</span>
@@ -96,13 +96,13 @@ export function Nav({
               <Link
                 href={item.href}
                 aria-current={active ? "page" : undefined}
-                className={`flex items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                className={`flex items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                   active
-                    ? "bg-rail-active text-white shadow-[inset_3px_0_0_0_var(--color-accent)]"
-                    : "text-rail-ink hover:bg-rail-active hover:text-white"
+                    ? "bg-rail-active text-accent-ink"
+                    : "text-rail-ink hover:bg-subtle hover:text-ink"
                 }`}
               >
-                <Icon name={item.icon} className="size-[18px] shrink-0" />
+                <Icon name={item.icon} className={`size-[18px] shrink-0 ${active ? "text-accent" : "text-ink-3"}`} />
                 {item.label}
                 {badge(item, "ml-auto")}
               </Link>

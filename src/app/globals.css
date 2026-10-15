@@ -17,7 +17,7 @@
   --color-black: #000000;
 
   /* Surfaces */
-  --color-canvas: #f2f5f7;
+  --color-canvas: #f4f6f8;
   --color-surface: #ffffff;
   --color-subtle: #f6f8fa;
   --color-line: #e0e5ea;
@@ -30,11 +30,12 @@
   --color-ink-2: #45566a;
   --color-ink-3: #5f7288;
 
-  /* Navigation rail */
-  --color-rail: #0d1b2a;
-  --color-rail-line: #1e3149;
-  --color-rail-active: #1b2f45;
-  --color-rail-ink: #a9b8ca;
+  /* Navigation rail: light, like the rest of the app. The active item is
+   * the accent's soft wash, so the rail never competes with the content. */
+  --color-rail: #ffffff;
+  --color-rail-line: #e6eaee;
+  --color-rail-active: #e6f2f1;
+  --color-rail-ink: #45566a;
 
   /* Accent: the clinic's own colour. Actions, links, "booked". */
   --color-accent: #0d6e6b;
@@ -63,6 +64,10 @@
   /* Visible on the white content area and on the dark rail alike. */
   --color-focus: #1a8f89;
 
+  /* Depth: one soft shadow for cards, one for floating layers. */
+  --shadow-card: 0 1px 2px rgb(13 27 42 / 0.04), 0 1px 3px rgb(13 27 42 / 0.06);
+  --shadow-pop: 0 12px 32px -8px rgb(13 27 42 / 0.18), 0 2px 6px rgb(13 27 42 / 0.06);
+
   /* No webfont: see the note in layout.tsx. */
   --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, "Noto Sans", sans-serif;
@@ -89,5 +94,11 @@
 
   ::placeholder {
     color: var(--color-ink-3);
+  }
+
+  /* Native <dialog> backdrop for Ctrl+K and confirmations. */
+  dialog::backdrop {
+    background: rgb(13 27 42 / 0.35);
+    backdrop-filter: blur(2px);
   }
 }

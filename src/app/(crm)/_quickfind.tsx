@@ -34,15 +34,18 @@ export function QuickFind() {
       <button
         type="button"
         onClick={() => { dialog.current?.showModal(); input.current?.select(); }}
-        className="flex w-full items-center justify-between gap-3 rounded-md border border-rail-line px-3 py-1.5 text-sm font-medium text-rail-ink transition-colors hover:bg-rail-active hover:text-white"
+        className="flex w-full items-center justify-between gap-3 rounded-lg border border-line bg-subtle px-3 py-1.5 text-sm text-ink-3 transition-colors hover:border-line-strong hover:text-ink"
       >
-        Search
-        <kbd className="hidden text-[11px] font-normal md:inline">⌘K / Ctrl K</kbd>
+        <span className="flex items-center gap-2">
+          <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-3.8-3.8" /></svg>
+          Find patient
+        </span>
+        <kbd className="hidden rounded border border-line bg-surface px-1.5 py-0.5 font-sans text-[10px] font-medium text-ink-3 md:inline">Ctrl K</kbd>
       </button>
       <dialog
         ref={dialog}
         aria-label="Quick find patient"
-        className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-lg border border-line bg-surface p-4 text-ink backdrop:bg-black/40"
+        className="m-auto mt-[12vh] w-[min(32rem,calc(100vw-2rem))] rounded-2xl border border-line bg-surface p-3 text-ink shadow-pop"
         onClick={e => { if (e.target === dialog.current) dialog.current?.close(); }}
       >
         <form method="get" action="/patients" onSubmit={() => dialog.current?.close()}>
@@ -55,8 +58,11 @@ export function QuickFind() {
             type="search"
             autoComplete="off"
             placeholder="Name or phone number, then Enter"
-            className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink"
+            className="w-full rounded-xl border border-line-strong bg-surface px-4 py-3 text-base text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
           />
+          <p className="mt-2 px-1 text-xs text-ink-3">
+            Name, or a phone in any form — 98…, +91 98…, 098…. Press Enter; Esc to close.
+          </p>
         </form>
       </dialog>
     </div>

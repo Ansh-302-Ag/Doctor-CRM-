@@ -4,6 +4,7 @@ import { sql } from "@/lib/db";
 import { can } from "@/lib/rbac";
 import { Nav } from "./_nav";
 import { QuickFind } from "./_quickfind";
+import { Avatar } from "./_ui";
 
 export default async function CrmLayout({ children }: { children: React.ReactNode }) {
   const staff = await currentStaff();
@@ -46,15 +47,15 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
     <div className="flex min-w-0 items-center gap-2.5">
       <span
         aria-hidden="true"
-        className="grid size-8 shrink-0 place-items-center rounded-md bg-accent text-white"
+        className="grid size-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-accent to-accent-hover text-white shadow-card"
       >
         <svg viewBox="0 0 24 24" className="size-4.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
           <path d="M12 6v12M6 12h12" />
         </svg>
       </span>
       <span className="min-w-0 leading-tight">
-        <span className="block text-sm font-semibold tracking-tight text-white">Doctor-CRM</span>
-        <span className="block truncate text-xs text-rail-ink">{staff.clinicName}</span>
+        <span className="block text-sm font-semibold tracking-tight text-ink">Doctor-CRM</span>
+        <span className="block truncate text-xs text-ink-3">{staff.clinicName}</span>
       </span>
     </div>
   );
@@ -63,12 +64,12 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
     <div className="min-h-dvh md:flex">
       {/* Phone: a slim top bar (brand + sign out) and, in <Nav>, a fixed bottom
           tab bar. md and up: the rail below. */}
-      <header className="flex items-center justify-between gap-3 border-b border-rail-line bg-rail px-4 py-2.5 md:hidden">
+      <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-rail-line bg-rail/95 px-4 py-2.5 backdrop-blur md:hidden">
         {wordmark}
         <div className="flex shrink-0 items-center gap-2">
         <QuickFind />
         <form action={logout}>
-          <button className="rounded-md border border-rail-line px-3 py-1.5 text-sm font-medium text-rail-ink transition-colors hover:bg-rail-active hover:text-white">
+          <button className="rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink-2 transition-colors hover:bg-subtle hover:text-ink">
             Sign out
           </button>
         </form>
@@ -84,18 +85,23 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
 
         <Nav variant="rail" items={items} />
 
-        <form action={logout} className="flex flex-col gap-2 border-t border-rail-line p-3">
-          <span className="leading-tight">
-            <span className="block text-sm font-medium text-white">{staff.name}</span>
-            <span className="block text-[11px] capitalize text-rail-ink">{staff.role}</span>
+        <form action={logout} className="m-3 flex items-center gap-2.5 rounded-xl border border-line bg-subtle p-2.5">
+          <Avatar name={staff.name} size="sm" />
+          <span className="min-w-0 flex-1 leading-tight">
+            <span className="block truncate text-sm font-medium text-ink">{staff.name}</span>
+            <span className="block text-[11px] capitalize text-ink-3">{staff.role}</span>
           </span>
-          <button className="rounded-md border border-rail-line px-3 py-1.5 text-sm font-medium text-rail-ink transition-colors hover:bg-rail-active hover:text-white">
-            Sign out
+          <button
+            aria-label="Sign out"
+            title="Sign out"
+            className="grid size-8 place-items-center rounded-lg text-ink-3 transition-colors hover:bg-surface hover:text-danger"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H4" /></svg>
           </button>
         </form>
       </aside>
 
-      <main className="min-w-0 flex-1 px-4 py-6 pb-24 md:px-6 md:py-8 md:pb-8 xl:px-8">
+      <main className="min-w-0 flex-1 px-4 py-6 pb-24 md:px-8 md:py-8 md:pb-10 xl:px-10">
         <div className="mx-auto w-full max-w-[1400px]">{children}</div>
       </main>
 
