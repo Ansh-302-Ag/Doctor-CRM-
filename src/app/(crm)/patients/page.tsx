@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { searchPatients, patientScope } from "@/lib/patients";
-import { Badge, consentStatus, btnPrimary } from "../_ui";
+import { Badge, consentStatus, btnPrimary, btnSecondary } from "../_ui";
 
 export default async function PatientsPage({
   searchParams,
@@ -67,6 +67,8 @@ export default async function PatientsPage({
               Clear
             </Link>
           )}
+          {/* Every patient in scope, not just the current search. */}
+          <a href="/export/patients" className={btnSecondary}>Download CSV</a>
         </form>
       </header>
 

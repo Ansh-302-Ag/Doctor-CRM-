@@ -186,6 +186,19 @@ export default async function CalendarPage({
           Book appointment
         </Link>
         <Link href="/patients/new" className={btnSecondary}>Register walk-in</Link>
+        {/* A plain GET form: a download, not a page to navigate to. Defaults to
+            the day on screen; widen the range for a month's report. */}
+        <form method="GET" action="/export/appointments" className="flex flex-wrap items-center gap-1">
+          {doctor && <input type="hidden" name="doctor" value={doctor} />}
+          <label htmlFor="export-from" className="sr-only">Export from</label>
+          <input id="export-from" type="date" name="from" required defaultValue={day}
+            className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm text-ink" />
+          <span className="text-sm text-ink-3">to</span>
+          <label htmlFor="export-to" className="sr-only">Export to</label>
+          <input id="export-to" type="date" name="to" required defaultValue={day}
+            className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm text-ink" />
+          <button className={btnSecondary}>Download CSV</button>
+        </form>
       </div>
 
       {params.error && (
