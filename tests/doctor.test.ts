@@ -406,3 +406,13 @@ test("outside the window several medicines still send one content-free nudge", a
   const deferred = await db`select id from audit_log where action = 'prescription_message_deferred'`;
   assert.equal(deferred.length, ids.length);
 });
+
+test("a receptionist cannot prescribe: Forbidden before any patient read is audited", async () => {
+  const rec = { id: f.receptionistId, role: "receptionist" as const, clinicId: f.clinicId,
+                doctorId: null, timezone: TZ };
+  const io = spy();
+  await assert.rejects(prescribeAndNotify(db, rec, input(), io), Forbidden);
+  await assert.rejects(prescribeManyAndNotify(db,
+    rec, { patientId: f.patientId, items: [{ drugName: "X", dosage: "1" }] }, io), Forbidden);
+  assert.equal((await db`select 1 from audit_log`).length, 0);
+});

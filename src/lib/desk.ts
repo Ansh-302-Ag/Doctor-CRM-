@@ -35,6 +35,7 @@ export const isId = (s: string) =>
 export async function registerPatient(
   db: Db, actor: Actor, role: Role, clinicId: string,
   input: { name: string; phone: string; consent: boolean },
+  doctorId?: string | null,
 ): Promise<{ id: string; existing: boolean }> {
   requirePermission(role, "patients:write");
   let phone: string;
@@ -49,6 +50,12 @@ export async function registerPatient(
     select id, consent_status, deleted_at is not null as deleted
       from patients where clinic_id = ${clinicId} and phone = ${phone}`;
   if (found) {
+    // A doctor only learns of, or acts on, a record he has an appointment on.
+    if (doctorId) {
+      const [mine] = await db`
+        select 1 from appointments where patient_id = ${found.id} and doctor_id = ${doctorId} limit 1`;
+      if (!mine) throw new DeskError("patient not found");
+    }
     if (found.deleted || found.consent_status !== "granted") {
       // A withdrawn record is not reopened without fresh consent.
       if (found.deleted && !input.consent) throw new DeskError("consent required");

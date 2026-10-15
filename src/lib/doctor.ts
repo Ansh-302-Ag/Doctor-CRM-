@@ -13,7 +13,7 @@
  */
 import type { Db, Pool } from "./db";
 import { audit, type Actor } from "./audit";
-import type { Role } from "./rbac";
+import { requirePermission, type Role } from "./rbac";
 import { patientScope, getPatient } from "./patients";
 import { createPrescription, InvalidPrescription, type PrescriptionInput } from "./prescriptions";
 import { sendMessage, sendTemplate } from "./channel";
@@ -141,6 +141,7 @@ type Deps = { send?: typeof sendMessage; sendT?: typeof sendTemplate; now?: Date
 export async function prescribeAndNotify(
   db: Db, staff: StaffContext, input: PrescriptionInput, deps: Deps = {},
 ): Promise<{ id: string; delivery: Delivery }> {
+  requirePermission(staff.role, "prescriptions:write");
   const actor = { kind: "staff" as const, id: staff.id };
   const doctorId = await prescriber(db, staff, input);
   const { id } = await createPrescription(db, actor, staff.role, { ...input, doctorId });
@@ -166,6 +167,7 @@ export async function prescribeManyAndNotify(
   db: Pool, staff: StaffContext,
   input: { patientId: string; doctorId?: string; items: RxItem[] }, deps: Deps = {},
 ): Promise<{ ids: string[]; delivery: Delivery }> {
+  requirePermission(staff.role, "prescriptions:write");
   if (input.items.length === 0) {
     throw new InvalidPrescription("items", "add at least one medicine");
   }

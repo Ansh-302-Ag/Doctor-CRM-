@@ -18,6 +18,9 @@ export const agentDb = postgres(AGENT_TEST_URL, { max: 3, onnotice: () => {} });
  *  passes --test-concurrency=1; without it the per-file worker processes
  *  truncate each other's fixtures mid-test. */
 export async function reset() {
+  // a test-only trigger left behind by a crashed run would swallow every cancel
+  await db.unsafe(`drop trigger if exists test_swallow_cancel on appointments`);
+  await db.unsafe(`drop function if exists test_swallow_cancel()`);
   await db`truncate
     -- failed-login rows are test state like any other and must not survive a reset
     login_attempts,

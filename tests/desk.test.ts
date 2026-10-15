@@ -166,3 +166,22 @@ test("the agent database role cannot read patient_notes or tasks", async () => {
   await assert.rejects(agentDb`select * from patient_notes`, denied);
   await assert.rejects(agentDb`select * from tasks`, denied);
 });
+
+test("a doctor registering a number outside his scope is refused and nothing is written", async () => {
+  await db`update patients set consent_status = 'pending' where id = ${f.patientId}`;
+  const doctor = { kind: "staff" as const, id: f.doctorUserId };
+  await assert.rejects(registerPatient(db, doctor, "doctor", f.clinicId,
+    { name: "Asha", phone: "9000000001", consent: true }, f.doctorId), /patient not found/);
+  assert.equal((await db`select 1 from consent_log where patient_id = ${f.patientId}`).length, 0);
+  assert.equal((await db`select 1 from audit_log`).length, 0);
+  const [p] = await db`select consent_status from patients where id = ${f.patientId}`;
+  assert.equal(p.consent_status, "pending");
+});
+
+test("a doctor registering his own patient's number works as before", async () => {
+  await book();
+  const doctor = { kind: "staff" as const, id: f.doctorUserId };
+  const r = await registerPatient(db, doctor, "doctor", f.clinicId,
+    { name: "Asha", phone: "9000000001", consent: false }, f.doctorId);
+  assert.deepEqual(r, { id: f.patientId, existing: true });
+});
