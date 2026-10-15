@@ -39,9 +39,16 @@ export async function searchPatients(
   const like = `%${q}%`;
   // Phones are typed as "+91 90000-00001", "090000 00001" or bare: compare the
   // last 10 digits only. Fewer than 4 digits would match half the clinic.
+  // A partial number keeps its prefix ("098765", "+91 98765"), which the last-10
+  // rule cannot drop, so also try it without a trunk 0 or a 91 country code.
+  // "91…" can also start a real mobile, so that is an extra try, not a rewrite.
   const digits = q.replace(/\D/g, "");
   const byDigits = digits.length >= 4;
-  const tail = digits.slice(-10);
+  const bare = digits.replace(/^0+/, "");
+  const tails = [...new Set([digits, bare, bare.replace(/^91/, "")])]
+    .filter(t => t.length >= 4).map(t => t.slice(-10));
+  // Digits only, so safe inside a regex.
+  const tailPattern = `(${tails.join("|") || "$^"})`;
 
   // The audit row does not depend on what the search returns, so it goes out
   // with the read instead of after it — one round trip to Neon rather than two.
@@ -59,7 +66,7 @@ export async function searchPatients(
         from patients p
        where p.clinic_id = ${clinicId} and p.deleted_at is null
          and (${q === ""} or p.name ilike ${like} or p.phone ilike ${like}
-              or (${byDigits} and right(regexp_replace(p.phone, '[^0-9]', '', 'g'), 10) like ${"%" + tail + "%"}))
+              or (${byDigits} and right(regexp_replace(p.phone, '[^0-9]', '', 'g'), 10) ~ ${tailPattern}))
          ${ownedBy(db, doctorId)}
        order by p.name nulls last, p.created_at desc
        limit 100`,

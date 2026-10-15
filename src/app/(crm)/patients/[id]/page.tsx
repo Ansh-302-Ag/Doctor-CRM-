@@ -60,6 +60,8 @@ export default async function PatientRecordPage({
   const isDoctor = staff.role === "doctor";
   // A doctor may only open one of his own patients (docs/08).
   const scope = patientScope(staff);
+  // Not a uuid: no such patient (the ::uuid casts below would otherwise 500).
+  if (!isId(id)) notFound();
 
   // One round trip for the whole record. Every query below is scoped to this
   // clinic on its own — the timeline and the doctors list by clinic_id, the
@@ -144,7 +146,7 @@ export default async function PatientRecordPage({
     const me = await currentStaff();
     // The record the list is on: the task itself is checked against the clinic.
     await deskWrite(id, () => completeTask(sql, { kind: "staff", id: me.id }, me.role,
-      me.clinicId, String(form.get("taskId"))));
+      me.clinicId, String(form.get("taskId")), patientScope(me)));
     revalidatePath("/tasks");
   }
 

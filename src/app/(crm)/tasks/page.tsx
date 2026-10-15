@@ -65,7 +65,7 @@ export default async function TasksPage({
     "use server";
     const me = await currentStaff();
     await attempt("/tasks", () => completeTask(sql, { kind: "staff", id: me.id }, me.role,
-      me.clinicId, String(form.get("taskId"))));
+      me.clinicId, String(form.get("taskId")), patientScope(me)));
     revalidatePath("/tasks");
   }
 

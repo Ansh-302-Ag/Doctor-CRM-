@@ -213,6 +213,24 @@ test("rescheduling into a taken slot keeps the original appointment", async () =
   assert.equal(still.status, "booked", "a failed reschedule must not lose the appointment");
 });
 
+test("simultaneous moves and cancels of one appointment leave at most one booked visit", async () => {
+  const appt = await bookAppointment(db, AGENT, "agent",
+    { patientId: f.patientId, doctorId: f.doctorId, startsAt: futureSlot(10) });
+  const input = { appointmentId: appt.id, patientId: f.patientId };
+  const results = await Promise.allSettled([
+    rescheduleAppointment(db, AGENT, "agent", { ...input, startsAt: futureSlot(12) }),
+    rescheduleAppointment(db, AGENT, "agent", { ...input, startsAt: futureSlot(14) }),
+    cancelAppointment(db, AGENT, "agent", input),
+  ]);
+  // Whichever wins, the losers are refused as not_active and nothing is doubled.
+  assert.equal(results.filter(r => r.status === "fulfilled").length, 1);
+  for (const r of results) {
+    if (r.status === "rejected") assert.equal((r.reason as BookingError).code, "not_active");
+  }
+  const booked = await db`select 1 from appointments where status = 'booked'`;
+  assert.ok(booked.length <= 1, `${booked.length} booked visits`);
+});
+
 test("upcoming appointments exclude cancelled and past ones", async () => {
   const appt = await bookAppointment(db, AGENT, "agent",
     { patientId: f.patientId, doctorId: f.doctorId, startsAt: futureSlot(10) });

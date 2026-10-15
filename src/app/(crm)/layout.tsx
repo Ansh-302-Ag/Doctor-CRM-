@@ -19,8 +19,9 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
        where p.clinic_id = ${staff.clinicId} and e.status <> 'resolved'` : [{ count: "0" }],
     // Tasks assigned to me are always mine to see, whatever the doctor scope.
     sql<{ count: string }[]>`
-      select count(*) from tasks
-       where clinic_id = ${staff.clinicId} and assigned_to = ${staff.id} and done_at is null`,
+      select count(*) from tasks k left join patients p on p.id = k.patient_id
+       where k.clinic_id = ${staff.clinicId} and k.assigned_to = ${staff.id} and k.done_at is null
+         and p.deleted_at is null`,  // as listTasks: a withdrawn patient's tasks are hidden
   ]);
 
   // The rail is role-shaped, and the role logic stays here on the server: the

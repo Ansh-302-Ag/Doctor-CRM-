@@ -14,6 +14,14 @@ import { Badge, consentStatus, btnPrimary, btnSecondary } from "../../_ui";
 const field = "mt-1.5 w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink";
 const fieldLabel = "block text-xs font-semibold uppercase tracking-wide text-ink-3";
 
+/** Who a doctor may book: his own patients, or someone nobody has seen yet (the
+ *  walk-in he just registered). Not another doctor's patient — typing a known
+ *  number on the walk-in form must not open someone else's record. */
+const bookableBy = (doctorId: string | null) => doctorId
+  ? sql`and (exists (select 1 from appointments a where a.patient_id = p.id and a.doctor_id = ${doctorId})
+         or not exists (select 1 from appointments a where a.patient_id = p.id))`
+  : sql``;
+
 /** Book for a patient at the desk: find (or register) the patient, pick the
  *  doctor and day, take one of the open slots. Same booking rules as the bots. */
 export default async function BookPage({
@@ -44,8 +52,9 @@ export default async function BookPage({
   // registered), and booking is what makes them his.
   const [patient] = patientId ? (await Promise.all([
     sql<{ id: string; name: string | null; phone: string; consent_status: string }[]>`
-      select id, name, phone, consent_status from patients
-       where id = ${patientId} and clinic_id = ${staff.clinicId} and deleted_at is null`,
+      select p.id, p.name, p.phone, p.consent_status from patients p
+       where p.id = ${patientId} and p.clinic_id = ${staff.clinicId} and p.deleted_at is null
+         ${bookableBy(patientScope(staff))}`,
     audit(sql, actor, "read_patient", "patients", patientId),
   ]))[0] : [];
 
@@ -70,7 +79,8 @@ export default async function BookPage({
       const [ok] = !isId(patientId) || !isId(doctorId) ? [] : await sql`
         select 1 from patients p, doctors d
          where p.id = ${patientId} and p.clinic_id = ${me.clinicId} and p.deleted_at is null
-           and d.id = ${doctorId} and d.clinic_id = ${me.clinicId}`;
+           and d.id = ${doctorId} and d.clinic_id = ${me.clinicId}
+           ${bookableBy(patientScope(me))}`;
       if (!ok) error = "no such patient or doctor at this clinic";
       else if (Number.isNaN(startsAt.getTime())) error = "pick a time";
       else {
@@ -106,6 +116,14 @@ export default async function BookPage({
       {params.error && (
         <p role="alert" className="mt-4 rounded-md border border-danger-line bg-danger-soft px-3.5 py-2.5 text-sm font-medium text-danger-ink">
           {params.error}
+        </p>
+      )}
+
+      {!patient && patientId && (
+        <p role="status" className="mt-4 rounded-md border border-line bg-subtle px-3.5 py-2.5 text-sm text-ink-2">
+          {params.existing
+            ? "This number is already registered as another doctor's patient — ask the front desk to book."
+            : "That patient is not one you can book."}
         </p>
       )}
 

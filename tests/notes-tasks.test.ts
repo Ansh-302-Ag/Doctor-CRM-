@@ -94,6 +94,20 @@ test("completing a task sets done_at once; other clinics' tasks are refused", as
     refused(/task not found/));
 });
 
+test("a doctor can close only tasks he could see", async () => {
+  const other = await createTask(db, DESK(), "receptionist", f.clinicId,
+    { title: "about Bilal", patientId: f.otherPatientId });
+  await assert.rejects(completeTask(db, DOC(), "doctor", f.clinicId, other.id, f.doctorId),
+    refused(/not found/));
+  const mine = await createTask(db, DESK(), "receptionist", f.clinicId,
+    { title: "for the doctor", patientId: f.otherPatientId, assignedTo: f.doctorUserId });
+  await completeTask(db, DOC(), "doctor", f.clinicId, mine.id, f.doctorId);
+  await bookWithDoctor();
+  const asha = await createTask(db, DESK(), "receptionist", f.clinicId,
+    { title: "about Asha", patientId: f.patientId });
+  await completeTask(db, DOC(), "doctor", f.clinicId, asha.id, f.doctorId);
+});
+
 test("listTasks filters by assignee and open, and stays in the clinic", async () => {
   const mine = await createTask(db, DESK(), "receptionist", f.clinicId,
     { title: "later", assignedTo: f.receptionistId, dueOn: "2026-12-01" });

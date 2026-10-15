@@ -28,6 +28,13 @@ test("search finds a patient by a phone typed in any format", async () => {
   }
 });
 
+test("a partial phone typed with a 0 or +91 prefix still finds the patient", async () => {
+  for (const q of ["0900000", "+91 900000", "91900000"]) {
+    const r = await searchPatients(db, STAFF(), "receptionist", f.clinicId, q);
+    assert.ok(r.some(x => x.id === f.patientId), q);
+  }
+});
+
 test("fewer than 4 digits never match by phone digits", async () => {
   // "0-0-0" is inside both numbers by digits only (plain ilike cannot see it),
   // and three digits is not a phone search yet; "0-0-0-0" is.

@@ -165,8 +165,16 @@ export async function rescheduleAppointment(
     startsAt: input.startsAt,
     reasonText: appt.reason_text ?? undefined,
   }, now);
-  await db`update appointments set status = 'rescheduled', updated_at = now()
-            where id = ${input.appointmentId}`;
+  // `status = 'booked'` again here: a cancel or a second reschedule may have won
+  // since ownedAppointment looked. Then give the new slot back, or the patient
+  // ends up holding two visits.
+  const moved = await db`update appointments set status = 'rescheduled', updated_at = now()
+                          where id = ${input.appointmentId} and status = 'booked' returning id`;
+  if (moved.length === 0) {
+    await db`update appointments set status = 'cancelled', updated_at = now() where id = ${booked.id}`;
+    await cancelReminders(db, booked.id);
+    throw new BookingError("not_active", "that appointment is no longer active");
+  }
 
   await cancelReminders(db, input.appointmentId);
   await audit(db, actor, "reschedule_appointment", "appointments", input.appointmentId);
@@ -179,8 +187,11 @@ export async function cancelAppointment(
 ) {
   requirePermission(role, "appointments:write");
   await ownedAppointment(db, input.appointmentId, input.patientId);
-  await db`update appointments set status = 'cancelled', updated_at = now()
-            where id = ${input.appointmentId}`;
+  // Re-checked in the write: a completed or already-moved visit must not
+  // become "cancelled" because two people acted at once.
+  const cancelled = await db`update appointments set status = 'cancelled', updated_at = now()
+                              where id = ${input.appointmentId} and status = 'booked' returning id`;
+  if (cancelled.length === 0) throw new BookingError("not_active", "that appointment is no longer active");
   await cancelReminders(db, input.appointmentId);
   await audit(db, actor, "cancel_appointment", "appointments", input.appointmentId);
 }

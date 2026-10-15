@@ -57,14 +57,20 @@ export async function createTask(
   return row;
 }
 
-/** Idempotent: a second "Done" keeps the time it was first done. */
+/** Idempotent: a second "Done" keeps the time it was first done. A doctor may
+ *  close only a task he could see in listTasks. */
 export async function completeTask(
   db: Db, actor: Actor, role: Role, clinicId: string, taskId: string,
+  doctorId?: string | null,
 ): Promise<void> {
   requirePermission(role, "tasks:write");
+  const me = actor.kind === "staff" ? actor.id : null;
   const [row] = isId(taskId) ? await db`
-    update tasks set done_at = coalesce(done_at, now())
-     where id = ${taskId} and clinic_id = ${clinicId} returning id` : [];
+    update tasks k set done_at = coalesce(k.done_at, now())
+     where k.id = ${taskId} and k.clinic_id = ${clinicId}
+       and (k.patient_id is null or k.assigned_to = ${me} or exists (
+             select 1 from patients p where p.id = k.patient_id ${ownedBy(db, doctorId)}))
+     returning k.id` : [];
   if (!row) throw new DeskError("task not found");
   await audit(db, actor, "complete_task", "tasks", taskId);
 }
