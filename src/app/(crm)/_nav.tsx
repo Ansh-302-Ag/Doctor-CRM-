@@ -12,9 +12,14 @@ const ICONS = {
     "M15.5 20v-1.5a3.5 3.5 0 0 0-3.5-3.5H7a3.5 3.5 0 0 0-3.5 3.5V20M9.5 4.5a3.25 3.25 0 1 1 0 6.5 3.25 3.25 0 0 1 0-6.5ZM20.5 20v-1.5a3.5 3.5 0 0 0-2.6-3.38M15.5 4.7a3.25 3.25 0 0 1 0 6.1",
   escalations:
     "M10.6 4.1 2.9 17.4A1.6 1.6 0 0 0 4.3 19.8h15.4a1.6 1.6 0 0 0 1.4-2.4L13.4 4.1a1.6 1.6 0 0 0-2.8 0ZM12 9.2v4.1M12 16.6h.01",
+  tasks:
+    "M9 6.5h11M9 12h11M9 17.5h11M3.5 6.5l1.2 1.2 2.3-2.4M3.5 12l1.2 1.2 2.3-2.4M3.5 17.5l1.2 1.2 2.3-2.4",
 } as const;
 
-export type NavItem = { href: string; label: string; icon: keyof typeof ICONS };
+/** `count` draws a badge when above zero; `countLabel` is what a screen reader hears. */
+export type NavItem = {
+  href: string; label: string; icon: keyof typeof ICONS; count?: number; countLabel?: string;
+};
 
 const Icon = ({ name, className }: { name: NavItem["icon"]; className: string }) => (
   <svg
@@ -38,14 +43,14 @@ const Icon = ({ name, className }: { name: NavItem["icon"]; className: string })
  *  Two presentations of the same items: "rail" is the md+ sidebar list, "tabs"
  *  is the fixed bottom bar on a phone (hidden from md up). */
 export function Nav({
-  items, openEscalations, variant,
-}: { items: NavItem[]; openEscalations: number; variant: "rail" | "tabs" }) {
+  items, variant,
+}: { items: NavItem[]; variant: "rail" | "tabs" }) {
   const path = usePathname();
   const isActive = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
-  const badge = (cls: string) => (
+  const badge = (item: NavItem, cls: string) => !!item.count && (
     <span className={`rounded-full bg-danger px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-white ${cls}`}>
-      {openEscalations}
-      <span className="sr-only"> open escalations</span>
+      {item.count}
+      <span className="sr-only"> {item.countLabel}</span>
     </span>
   );
 
@@ -69,8 +74,7 @@ export function Nav({
                 >
                   <span className="relative">
                     <Icon name={item.icon} className="size-5" />
-                    {item.href === "/escalations" && openEscalations > 0 &&
-                      badge("absolute -right-3 -top-1.5 min-w-4 text-center leading-none")}
+                    {badge(item, "absolute -right-3 -top-1.5 min-w-4 text-center leading-none")}
                   </span>
                   <span className="max-w-full truncate">{item.label}</span>
                 </Link>
@@ -100,7 +104,7 @@ export function Nav({
               >
                 <Icon name={item.icon} className="size-[18px] shrink-0" />
                 {item.label}
-                {item.href === "/escalations" && openEscalations > 0 && badge("ml-auto")}
+                {badge(item, "ml-auto")}
               </Link>
             </li>
           );

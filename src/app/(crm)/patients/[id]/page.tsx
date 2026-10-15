@@ -8,6 +8,10 @@ import { getPatient, patientScope } from "@/lib/patients";
 import { getTimeline, type TimelineItem } from "@/lib/timeline";
 import { listPrescriptions, discontinuePrescription, InvalidPrescription } from "@/lib/prescriptions";
 import { prescribeAndNotify, NotYourPatient } from "@/lib/doctor";
+import { addNote, NOTE_MAX } from "@/lib/notes";
+import { completeTask, listTasks } from "@/lib/tasks";
+import { isId, refusal } from "@/lib/desk";
+import { TaskList } from "../../tasks/_list";
 import {
   Badge, consentStatus, prescriptionStatus, btnPrimary, btnSecondary, type Tone,
 } from "../../_ui";
@@ -26,6 +30,17 @@ const KIND: Record<TimelineItem["kind"], { label: string; tone: Tone }> = {
   note: { label: "Note", tone: "neutral" },
   task: { label: "Task", tone: "neutral" },
 };
+
+/** A refused note or task comes back as ?error= on the record; anything else is a real fault. */
+async function deskWrite(patientId: string, write: () => Promise<unknown>) {
+  if (!isId(patientId)) notFound();
+  try { await write(); } catch (e) {
+    const error = refusal(e);
+    if (error === null) throw e;
+    redirect(`/patients/${patientId}?${new URLSearchParams({ error })}`);
+  }
+  revalidatePath(`/patients/${patientId}`);
+}
 
 const BY = { agent: "AI assistant", patient: "Patient", staff: "Staff" } as const;
 
@@ -51,7 +66,7 @@ export default async function PatientRecordPage({
   // prescriptions by a join back to patients — so none of them depends on the
   // existence check to stay safe, and the check can move after them. Neon is a
   // continent away; three sequential hops here were most of the page's latency.
-  const [patient, timeline, prescriptions, doctors] = await Promise.all([
+  const [patient, timeline, prescriptions, doctors, tasks] = await Promise.all([
     getPatient(sql, actor, staff.role, staff.clinicId, id, scope),
     getTimeline(sql, actor, staff.role, staff.clinicId, id, { before, limit: PAGE, doctorId: scope }),
     listPrescriptions(sql, actor, staff.role, staff.clinicId, id),
@@ -59,6 +74,7 @@ export default async function PatientRecordPage({
     // currentStaff() now carries his doctor_id.
     isDoctor ? [] : sql<{ id: string; name: string }[]>`
       select id, name from doctors where clinic_id = ${staff.clinicId} order by name`,
+    listTasks(sql, actor, staff.role, staff.clinicId, { patientId: id, open: true }, scope),
   ]);
   if (!patient) notFound();
 
@@ -114,6 +130,24 @@ export default async function PatientRecordPage({
     revalidatePath(`/patients/${patientId}`);
   }
 
+  async function note(form: FormData) {
+    "use server";
+    const me = await currentStaff();
+    const patientId = String(form.get("patientId"));
+    // addNote re-checks the patient under this staff member's own scope.
+    await deskWrite(patientId, () => addNote(sql, { kind: "staff", id: me.id }, me.role,
+      me.clinicId, patientId, String(form.get("body") ?? ""), patientScope(me)));
+  }
+
+  async function taskDone(form: FormData) {
+    "use server";
+    const me = await currentStaff();
+    // The record the list is on: the task itself is checked against the clinic.
+    await deskWrite(id, () => completeTask(sql, { kind: "staff", id: me.id }, me.role,
+      me.clinicId, String(form.get("taskId"))));
+    revalidatePath("/tasks");
+  }
+
   // The clinic's own clock, not the server's — an appointment time read an hour
   // out is worse than useless to the doctor reading it.
   const when = (at: Date) => new Intl.DateTimeFormat("en-GB", {
@@ -128,6 +162,7 @@ export default async function PatientRecordPage({
 
   const consent = consentStatus(patient.consent_status);
   const canPrescribe = can(staff.role, "prescriptions:write");
+  const canWrite = can(staff.role, "patients:write");
 
   return (
     <section>
@@ -302,7 +337,8 @@ export default async function PatientRecordPage({
           </div>
         </div>
 
-        <div className="lg:sticky lg:top-8 lg:self-start">
+        {/* Not sticky: with notes and tasks this column outgrows the viewport. */}
+        <div className="min-w-0 space-y-6 lg:self-start">
           {canPrescribe ? (
             <form action={addPrescription} className="rounded-lg border border-line bg-surface">
               <input type="hidden" name="patientId" value={patient.id} />
@@ -345,9 +381,32 @@ export default async function PatientRecordPage({
             </form>
           ) : (
             <p className="rounded-lg border border-dashed border-line-strong bg-surface p-4 text-sm text-ink-3">
-              Only a doctor or admin can add to this record. Everything on file is shown on this page.
+              Only a doctor or admin can prescribe. Everything on file is shown on this page.
             </p>
           )}
+
+          {canWrite && (
+            <form action={note} className="rounded-lg border border-line bg-surface">
+              <input type="hidden" name="patientId" value={patient.id} />
+              <h2 className="border-b border-line px-4 py-3 text-sm font-semibold text-ink">Add note</h2>
+              <div className="space-y-3 p-4">
+                <label htmlFor="body" className="sr-only">Note</label>
+                <textarea id="body" name="body" rows={3} required maxLength={NOTE_MAX} className={field} />
+                <p className="text-xs text-ink-3">Visible to all staff who can see this patient. Notes cannot be edited later.</p>
+                <button className={`${btnSecondary} w-full`}>Save note</button>
+              </div>
+            </form>
+          )}
+
+          <div>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-3">Open tasks</h2>
+              <Link href={`/tasks?patient=${patient.id}`} className="text-sm font-medium text-accent underline underline-offset-2 hover:text-accent-hover">
+                New task
+              </Link>
+            </div>
+            <TaskList tasks={tasks} done={taskDone} empty="No open tasks for this patient." showPatient={false} />
+          </div>
         </div>
       </div>
     </section>

@@ -10,10 +10,17 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
   // A doctor has no escalation inbox (docs/08), so neither the link nor the
   // count query that feeds its badge exists for him.
   const inbox = can(staff.role, "escalations:read");
-  const [open] = inbox ? await sql<{ count: string }[]>`
-    select count(*) from escalations e
-      join patients p on p.id = e.patient_id
-     where p.clinic_id = ${staff.clinicId} and e.status <> 'resolved'` : [{ count: "0" }];
+  // Both badge counts go out together: Neon is a continent away.
+  const [[open], [mine]] = await Promise.all([
+    inbox ? sql<{ count: string }[]>`
+      select count(*) from escalations e
+        join patients p on p.id = e.patient_id
+       where p.clinic_id = ${staff.clinicId} and e.status <> 'resolved'` : [{ count: "0" }],
+    // Tasks assigned to me are always mine to see, whatever the doctor scope.
+    sql<{ count: string }[]>`
+      select count(*) from tasks
+       where clinic_id = ${staff.clinicId} and assigned_to = ${staff.id} and done_at is null`,
+  ]);
 
   // The rail is role-shaped, and the role logic stays here on the server: the
   // nav component only draws what it is handed.
@@ -21,7 +28,10 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
     ...(isDoctor ? [{ href: "/queue", label: "My day", icon: "queue" as const }] : []),
     { href: "/", label: isDoctor ? "Clinic day" : "Calendar", icon: "calendar" as const },
     { href: "/patients", label: isDoctor ? "My patients" : "Patients", icon: "patients" as const },
-    ...(inbox ? [{ href: "/escalations", label: "Escalations", icon: "escalations" as const }] : []),
+    ...(inbox ? [{ href: "/escalations", label: "Escalations", icon: "escalations" as const,
+                   count: Number(open.count), countLabel: "open escalations" }] : []),
+    { href: "/tasks", label: "Tasks", icon: "tasks" as const,
+      count: Number(mine.count), countLabel: "open tasks assigned to you" },
   ];
 
   async function logout() {
@@ -65,7 +75,7 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
       <aside className="hidden md:sticky md:top-0 md:flex md:h-dvh md:w-52 md:shrink-0 md:flex-col border-r border-rail-line bg-rail xl:w-60">
         <div className="border-b border-rail-line px-4 py-4">{wordmark}</div>
 
-        <Nav variant="rail" items={items} openEscalations={Number(open.count)} />
+        <Nav variant="rail" items={items} />
 
         <form action={logout} className="flex flex-col gap-2 border-t border-rail-line p-3">
           <span className="leading-tight">
@@ -82,7 +92,7 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
         <div className="mx-auto w-full max-w-[1400px]">{children}</div>
       </main>
 
-      <Nav variant="tabs" items={items} openEscalations={Number(open.count)} />
+      <Nav variant="tabs" items={items} />
     </div>
   );
 }
