@@ -13,7 +13,8 @@ export function QuickFind() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
+      // The target is usually an element, but can be the document or window.
+      const el = e.target instanceof Element ? e.target : null;
       const typing = !!el?.closest("input, textarea, select, [contenteditable]");
       const hit = ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") ||
                   (e.key === "/" && !typing && !e.ctrlKey && !e.metaKey && !e.altKey);
