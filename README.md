@@ -118,6 +118,14 @@ rules the bots use (clinic hours, consent, no double-booking):
   everything moves to the kept record in one transaction.
 - **Export**: patients and appointments as CSV, doctor-scoped and audited.
 
+- **Today's board** (`/board`), **insights** (`/insights`) and **saved lists**
+  on Patients (consent pending, upcoming visit, due for recall, active
+  prescriptions, booked by AI).
+- **Prescriptions**: several medicines in one sitting, a printable sheet, and a
+  secure link. WhatsApp never carries the contents; the link (`/r/<token>`)
+  asks for a code sent to the patient's number, then shows the prescription and
+  a PDF (`APP_URL` required).
+
 Doctors see only their own patients everywhere (`patientScope` in
 `src/lib/patients.ts`). Design: `docs/superpowers/specs/2026-10-15-front-desk-and-patient-record-design.md`.
 
@@ -266,6 +274,8 @@ approval.
 - `AGENT_DATABASE_URL` — the agent connects as the restricted `clinic_agent`
   role so its grants bind at runtime. Set it; without it the agent falls back
   to the application role and only the app-layer checks apply.
+- `APP_URL` — the public base URL (https://clinic.concilio.solutions on the dev
+  server). Prescription links are built from it; required in production.
 - `WHATSAPP_*` — unset means outbound messages are logged instead of sent,
   which is what makes the simulator work. Setting them switches to the real
   Cloud API with no code change.

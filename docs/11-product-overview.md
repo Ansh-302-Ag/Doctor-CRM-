@@ -200,6 +200,10 @@ A web app; staff sign in with email and password.
 | CSV export | All staff (doctors: own patients) | Patients, and appointments for a date range | Available |
 | Prescription entry | Doctor, admin | Record drug, dosage, duration and notes; the patient is notified it is ready | Available (notification changing — see below) |
 | Discontinue a prescription | Doctor, admin | Marks it stopped; any pending reminder for it will not send | Available |
+| Today's board | All staff | Kanban of the day: booked, arrived, completed, no-show | Available |
+| Insights | All staff | Clinic numbers over time | Available |
+| Saved patient lists | All staff (doctors: own patients) | Consent pending, upcoming visit, due for recall (180+ days), active prescriptions, booked by AI | Available |
+| Printable prescription | Doctor, admin | Several medicines per prescription, one print sheet | Available |
 | Escalation inbox | Receptionist, admin | Every conversation that needs a human; acknowledge and resolve | Available |
 | Book / reschedule / cancel from the dashboard | Staff | For walk-ins and phone bookings, same rules as the assistant | Available |
 | Confirm booking requests | Receptionist | Approve patient requests (Mode B) | Planned |
@@ -214,12 +218,12 @@ A web app; staff sign in with email and password.
 - Only doctors and admins can write them; receptionists can read them; the
   assistant can only read them back, never write.
 - A doctor's prescription is always recorded in their own name.
-- **Changing (docs/02, 2026-10-12):** today the record is sent on WhatsApp
-  exactly as stored. WhatsApp's Business Messaging Policy forbids sending
-  health information in chat, so this is being replaced: the patient gets a
-  "your prescription from Dr. Rao is ready" notice (an approved template,
-  naming no drug or dose) with a secure, OTP-gated link to the record. Until
-  then, prescribe-and-send is not used with real patients.
+- **Secure link (docs/02):** WhatsApp's Business Messaging Policy forbids
+  sending health information in chat, so the patient gets a "your prescription
+  is ready" notice (naming no drug or dose) with a secure link. The page sends
+  a one-time code to the patient's own number, then shows the active
+  prescriptions and a PDF download. Sends outside the 24-hour window need the
+  Meta templates approved (docs/10).
 - What the patient sees is always exactly what was stored — drug, dosage,
   duration, notes, who prescribed it, and the clinic's number. It states; it
   never advises.

@@ -1233,3 +1233,72 @@ doctor, at 1440 px, 390 px and with reduced motion: no console errors (only
 the deliberate 404), no 5xx, no horizontal overflow, Ctrl+K and the record's
 tabs work. An independent review of the diff found no behaviour change; its
 accessibility/hydration findings were fixed.
+
+## 2026-10-15/16 — front desk plan, review fixes, prescription links (branch `front-desk`)
+
+**Front-desk plan (Tasks 1–10)**, spec and plan in `docs/superpowers/`:
+bug fixes `29fc88a`, `20c2e38`, `7f60d95`; migration 011 + walk-ins + visit
+outcomes `1378020`; book/reschedule/cancel from the desk `8159bc0`; timeline
+`5aa50d9`; notes and tasks `ef31356`; phone-aware search and Ctrl+K `5b5da20`,
+`0f76303`; merge `357d2c1`, `ceec676`, `623d12b`; CSV export `0e256ab`;
+verification-pass fixes `2477ee0`; docs `8fbac07`.
+
+**Bugs fixed, and why.** An undelivered reminder was marked sent: it now counts
+as a failed attempt. A deleted staff account looped on login: the session is
+dropped. Voice booking could overwrite a patient's name and was not atomic.
+Booking now refuses a second active appointment and cross-clinic ids. A
+cancel/reschedule that lost a race wrote over the winner: the write re-checks.
+Doctor scope was missing on the walk-in path and on completing tasks.
+`prescribe` read the patient before checking permission. Quick find mishandled
+partial prefixed numbers.
+
+**Rulings made during execution.**
+- Arrived is a timestamp (`arrived_at`), not a status: `status = 'booked'`
+  readers are unchanged.
+- Consent on merge follows the latest decision across both records (a later
+  withdrawal wins).
+- Lock order is conversations, then patients, the same as the agent, so a merge
+  and an inbound message cannot deadlock.
+- Error copy is honest and plain (no "something went wrong" for a permission
+  error; a stale reschedule gets a plain reply, not an escalation).
+- Doctor scope applies to every new read, including search, export and merge.
+
+**Parallel redesign.** A second session restyled the CRM (`77b203c`, `22ec808`,
+`2d2417b`, `61032e6`, `098ee7f`); the current UI is Ansh's `ui-overhaul`
+(merged `472681e`; reverted `c16ab07` and restored `b5e32a9` on his
+instruction; `f5304a7` fixed two bugs). It has not had this project's review.
+Rule: design tokens only, compose `_ui.tsx`.
+
+**Extra features (Ansh-approved).** Today's board `/board`; insights dashboard
+`/insights` (`src/lib/insights.ts`); saved patient lists (consent pending,
+upcoming visit, due for recall 180+ days, active prescriptions, booked by AI);
+multi-medicine prescriptions (`prescribeManyAndNotify`, all-or-nothing, one
+message) and a printable sheet `/print/prescription/[patientId]`.
+
+**Prescription links.** Root cause of the complaint: `deliver()` in
+`src/lib/doctor.ts` sent drug, dosage, duration and notes as free-form WhatsApp
+text; the agent's `check_prescription_record` read them back in chat; the
+`record_updated` and `refill_followup` templates carried or implied health
+information. All replaced. The patient gets a content-free message with
+`${APP_URL}/r/<token>` (32-byte token, only its SHA-256 stored, 7 days). The
+page shows the clinic name and the last two digits of the number; "Send code"
+issues a 6-digit code (hash only, 10 min, single use, constant-time compare, 3
+codes per hour per link, 5 wrong codes lock the link). A verified browser
+(cookie `record_view`, path `/r`, 15 min) sees the active prescriptions
+verbatim and can download a PDF (`pdfkit`, IBM Plex Sans Devanagari, Hindi
+shaping verified; no patient name in the file). Headers on `/r/*`: no-store,
+no-referrer, noindex. Patient views are audited as `patient:<uuid>`. A test
+scans every WhatsApp body for health content. `APP_URL` is required in
+production. Migration `db/012_record_links.sql`, applied to `neondb_test` only.
+This lands in the next commit on `front-desk` and supersedes the 2026-10-14
+prescription-links plan.
+
+**Verification.** Full suite on `fa7385f`: 334 tests, 327 pass, 0 fail, 7
+skipped (`intent.live`, needs `ANTHROPIC_API_KEY`). Final combined run with
+links: see CI on the pushed branch. Browser e2e on a production build against
+`neondb_test`: 19/19 flows, 0 console errors. Whole-branch review at `afede4d`
+(two halves): logic ready; fixes in `61032e6`, `6f1544c`, `7c991c1`.
+
+**Owed.** Meta submission of `prescription_ready`, `record_code`, changed
+`refill_followup` (docs/10); `APP_URL` on the server; review of `ui-overhaul`;
+the parked findings and earlier items in `WORK_TO_DO.md`.

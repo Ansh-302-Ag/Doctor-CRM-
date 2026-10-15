@@ -171,6 +171,22 @@ UPDATE grant on this table at all (belt and suspenders — see doc 08).
 The patient timeline has no table of its own — it is a read-time UNION over
 the tables above (`src/lib/timeline.ts`).
 
+## record_links (migration 012 — lands with the links commit)
+One row per prescription link sent to a patient.
+| column | type | notes |
+|---|---|---|
+| id | uuid PK | |
+| patient_id | uuid FK → patients | `on delete cascade` |
+| token_hash | text | SHA-256 of the 32-byte link token; the token itself is never stored |
+| code_hash | text | nullable; hash of the current 6-digit code |
+| expires_at | timestamptz | link life, 7 days |
+| code_expires_at | timestamptz | nullable; code life, 10 minutes |
+| attempts / locked_at | | wrong-code counter; 5 wrong codes lock the link for good |
+
+`clinic_agent` has INSERT only on this table (it can create a link but never
+read a token or code back). Column names are indicative; `db/012_record_links.sql`
+is authoritative.
+
 ## Explicitly deferred (not in v1 schema)
 
 - Insurance/billing tables — out of scope (doc 01)

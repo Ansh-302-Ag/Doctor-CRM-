@@ -21,7 +21,7 @@ other way around.
 - [ ] Submit for review
 - [ ] Record the approval status in the table below
 - [ ] Confirm the approved template name in Meta matches the `TemplateName`
-      used here (`appointment_reminder`, `record_updated`, `refill_followup`, `staff_alert`)
+      used here (`appointment_reminder`, `prescription_ready`, `record_code`, `refill_followup`, `staff_alert`)
 
 ## `appointment_reminder`
 
@@ -39,41 +39,50 @@ Sample values for submission:
 | `{{2}}` | `doctor_name` | Dr. Rao |
 | `{{3}}` | `appointment_time` | Fri 4 Sept, 10:00 am |
 
-## `record_updated`
+## `prescription_ready`
 
 Sent when a doctor records a prescription and the patient is **outside** the
-24-hour window, so the record itself cannot be sent (`src/lib/doctor.ts`). It
-names no drug, no dosage and no instruction — only that there is something to
-collect. The patient's reply reopens the window, and the assistant then reads
-the record back verbatim.
+24-hour window (`src/lib/doctor.ts`). It carries no drug, dosage or
+instruction: the contents are only ever shown on the secure page behind the
+link, after a code sent to this number (docs/02). Inside the window the same
+words go free-form. Replaces `record_updated`. Risk: Meta may want the URL as a
+button rather than in the body.
 
-Body text:
+Category **Utility**, language `en`. Body text:
 
 ```
-A note from {{1}}: {{2}} added a new entry to your record today. Reply to this message to have it read back to you, or call the clinic.
+Hello from {{1}}. {{2}} has added a prescription to your record. View it securely here: {{3}} — the page will send a code to this number.
 ```
-
-Sample values for submission:
 
 | Placeholder | Param name | Sample |
 |---|---|---|
 | `{{1}}` | `clinic_name` | Sunrise Clinic |
 | `{{2}}` | `doctor_name` | Dr. Rao |
+| `{{3}}` | `link` | https://clinic.example.com/r/abc123 |
 
-## `refill_followup`
+## `record_code`
 
-Body text:
+The one-time code the patient enters on the link page. Category
+**Authentication**, language `en`: Meta fixes the body ("{{1}} is your
+verification code.") and adds a COPY CODE button. Param `code`.
+
+| Placeholder | Param name | Sample |
+|---|---|---|
+| `{{1}}` | `code` | 482913 |
+
+## `refill_followup` (changed)
+
+Still not wired to anything (docs/09). The copy no longer names a drug.
+Category **Utility**, language `en`. Body text:
 
 ```
-A note from {{1}}: the course of {{2}} on your record is ending. Reply BOOK to arrange a follow-up, or call the clinic.
+Hello from {{1}}. {{2}} asked us to check in about your prescription. Reply to this message and we will help.
 ```
-
-Sample values for submission:
 
 | Placeholder | Param name | Sample |
 |---|---|---|
 | `{{1}}` | `clinic_name` | Sunrise Clinic |
-| `{{2}}` | `drug_name` | Amoxicillin |
+| `{{2}}` | `doctor_name` | Dr. Rao |
 
 ## `staff_alert`
 
@@ -100,13 +109,15 @@ Sample values for submission:
 | Template | Submitted | Approved | Notes |
 |---|---|---|---|
 | `appointment_reminder` | No | No | Not yet submitted to Meta. |
-| `record_updated` | No | No | Not yet submitted to Meta. Needed before a prescription recorded outside the window can nudge the patient at all. |
-| `refill_followup` | No | No | Not yet submitted to Meta. |
+| `prescription_ready` | No | No | To submit. Nothing outside the 24 h window works until approved; staff are told when a send fails. |
+| `record_code` | No | No | To submit (Authentication category). |
+| `refill_followup` | No | No | To submit, with the changed copy. Unwired. |
+| `record_updated` | — | — | Retired; never submitted. Replaced by `prescription_ready`. |
 | `staff_alert` | No | No | Not yet submitted to Meta. Until approved, paging falls back to free-form text, which only reaches a phone that messaged the number in the last 24 hours. |
 
 ## Why the copy reads the way it does
 
-Neither template advises, instructs, or implies a clinical decision — it
+No template advises, instructs, or implies a clinical decision — it
 states that a logistics event (an appointment, a prescription ending) is
 approaching, and nothing more. `docs/01` forbids the AI from making or
 implying clinical decisions, and `tests/templates.test.ts` enforces the

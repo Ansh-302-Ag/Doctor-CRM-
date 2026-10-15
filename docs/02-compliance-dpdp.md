@@ -140,6 +140,15 @@ change ships, the prescribe-and-send path must not be used with real
 patients. This supersedes the "prescriptions go to the patient's WhatsApp"
 decision recorded in docs/09 (2026-09-22).
 
+**Decision (2026-10-15/16, implemented on `front-desk`):** prescription
+contents never go in WhatsApp. The patient gets a content-free "prescription
+ready" message with a link; the page sends a one-time code to the patient's own
+number, and only then shows the verified view and PDF. The agent no longer reads
+a prescription back in chat. Patient views are audited with actor
+`patient:<uuid>` (`read_prescription`, `download_prescription_pdf`). A dead link
+(expired, locked, patient deleted, consent withdrawn) shows nothing. Design in
+docs/09.
+
 ### Meta: opt-in and templates
 
 - Businesses may only message people who opted in to receive messages. The
