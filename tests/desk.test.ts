@@ -2,7 +2,7 @@ import test, { before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { db, agentDb, reset, seed, futureSlot, closeAll, type Fixture } from "./helpers";
 import { bookAppointment } from "../src/lib/booking";
-import { registerPatient, markArrived, setOutcome, DeskError } from "../src/lib/desk";
+import { registerPatient, markArrived, setOutcome } from "../src/lib/desk";
 import { can } from "../src/lib/rbac";
 
 let f: Fixture;
@@ -53,7 +53,7 @@ test("a known phone in another format opens the existing record untouched", asyn
 
 test("registration refuses missing consent, a blank name and a bad phone", async () => {
   await assert.rejects(registerPatient(db, desk, "receptionist", f.clinicId,
-    { name: "Divya", phone: "9876543210", consent: false }), DeskError);
+    { name: "Divya", phone: "9876543210", consent: false }), /consent required/);
   await assert.rejects(registerPatient(db, desk, "receptionist", f.clinicId,
     { name: "  ", phone: "9876543210", consent: true }), /name required/);
   await assert.rejects(registerPatient(db, desk, "receptionist", f.clinicId,
@@ -109,6 +109,47 @@ test("a doctor may set outcomes only on his own appointments", async () => {
     setOutcome(db, doc, "doctor", f.clinicId, appt.id, "completed", crypto.randomUUID()),
     /not your appointment/);
   await setOutcome(db, doc, "doctor", f.clinicId, appt.id, "completed", f.doctorId);
+  const [a] = await db`select status from appointments where id = ${appt.id}`;
+  assert.equal(a.status, "completed");
+});
+
+test("a doctor may mark arrived only on his own appointments", async () => {
+  const appt = await book();
+  const doc = { kind: "staff", id: f.doctorUserId } as const;
+  await assert.rejects(
+    markArrived(db, doc, "doctor", f.clinicId, appt.id, crypto.randomUUID()),
+    /not your appointment/);
+  await markArrived(db, doc, "doctor", f.clinicId, appt.id, f.doctorId);
+  const [a] = await db`select arrived_at from appointments where id = ${appt.id}`;
+  assert.ok(a.arrived_at instanceof Date);
+});
+
+test("a staff booking is recorded as made by that staff member", async () => {
+  const appt = await book();
+  const [a] = await db`select created_by from appointments where id = ${appt.id}`;
+  assert.equal(a.created_by, f.receptionistId);
+});
+
+test("desk consent revives a soft-deleted or unconsented known number", async () => {
+  await db`update patients set consent_status = 'withdrawn', deleted_at = now()
+            where id = ${f.patientId}`;
+  // Without consent the deleted record cannot be opened.
+  await assert.rejects(registerPatient(db, desk, "receptionist", f.clinicId,
+    { name: "Asha", phone: "9000000001", consent: false }), /consent required/);
+
+  const r = await registerPatient(db, desk, "receptionist", f.clinicId,
+    { name: "Asha", phone: "9000000001", consent: true });
+  assert.deepEqual(r, { id: f.patientId, existing: true });
+  const [p] = await db`select consent_status, deleted_at from patients where id = ${f.patientId}`;
+  assert.deepEqual({ ...p }, { consent_status: "granted", deleted_at: null });
+
+  await db`update patients set consent_status = 'pending' where id = ${f.otherPatientId}`;
+  await registerPatient(db, desk, "receptionist", f.clinicId,
+    { name: "Bilal", phone: "9000000002", consent: true });
+  const [o] = await db`select consent_status from patients where id = ${f.otherPatientId}`;
+  assert.equal(o.consent_status, "granted");
+  const [{ n }] = await db`select count(*)::int as n from consent_log where channel = 'desk'`;
+  assert.equal(n, 2);
 });
 
 test("the agent role has none of the desk permissions", () => {

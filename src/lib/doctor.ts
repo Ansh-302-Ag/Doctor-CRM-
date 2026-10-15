@@ -27,7 +27,7 @@ export type StaffContext = {
 export type QueueEntry = {
   id: string; starts_at: Date; ends_at: Date; status: string;
   patient_id: string; patient_name: string | null; patient_phone: string;
-  reason_text: string | null;
+  reason_text: string | null; arrived_at: Date | null;
 };
 
 /**
@@ -40,7 +40,7 @@ export async function doctorQueue(
 ): Promise<QueueEntry[]> {
   const [rows] = await Promise.all([
     db<QueueEntry[]>`
-      select a.id, a.starts_at, a.ends_at, a.status, a.reason_text,
+      select a.id, a.starts_at, a.ends_at, a.status, a.reason_text, a.arrived_at,
              p.id as patient_id, p.name as patient_name, p.phone as patient_phone
         from appointments a
         join patients p on p.id = a.patient_id

@@ -5,6 +5,7 @@ import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { doctorQueue, nextInQueue } from "@/lib/doctor";
 import { Badge, appointmentStatus, btnPrimary, btnSecondary } from "../_ui";
+import { VisitActions } from "../appointments/_visit";
 
 /** The screen a doctor works from: his own day, in order, with who is next.
  *  Everyone else's day is on the calendar at "/" — read-only, for context.
@@ -14,14 +15,15 @@ import { Badge, appointmentStatus, btnPrimary, btnSecondary } from "../_ui";
  *  largest things on the row. */
 export default async function QueuePage({
   searchParams,
-}: { searchParams: Promise<{ day?: string }> }) {
+}: { searchParams: Promise<{ day?: string; error?: string }> }) {
   const staff = await currentStaff();
   // Only a doctor has a queue. A receptionist reaching this URL gets a 404
   // rather than a hint that there is something here to find.
   if (staff.role !== "doctor" || !staff.doctorId) notFound();
 
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: staff.timezone }).format(new Date());
-  const day = validDay((await searchParams).day, today);
+  const { day: rawDay, error } = await searchParams;
+  const day = validDay(rawDay, today);
 
   const rows = await doctorQueue(
     sql, { kind: "staff", id: staff.id }, staff.clinicId, staff.doctorId, day, staff.timezone);
@@ -115,6 +117,12 @@ export default async function QueuePage({
         </Link>
       </p>
 
+      {error && (
+        <p role="alert" className="mt-3 rounded-md border border-danger-line bg-danger-soft px-3.5 py-2.5 text-sm font-medium text-danger-ink">
+          {error}
+        </p>
+      )}
+
       {rows.length === 0 ? (
         <p className="mt-6 rounded-lg border border-dashed border-line-strong bg-surface p-10 text-center text-sm text-ink-3">
           Nothing booked with you for this day.
@@ -154,6 +162,10 @@ export default async function QueuePage({
                   <span className="text-ink-3">Reason (as given):</span>{" "}
                   {next.reason_text ?? "—"}
                 </p>
+                {next.arrived_at && <p className="mt-2"><Badge tone="ok">Arrived</Badge></p>}
+                <div className="mt-3">
+                  <VisitActions a={next} from="queue" day={day} now={now} />
+                </div>
               </div>
               <Link href={`/patients/${next.patient_id}`} className={`${btnPrimary} max-sm:w-full`}>
                 Open record &amp; prescribe
@@ -196,12 +208,16 @@ export default async function QueuePage({
                       >
                         {r.patient_phone}
                       </a>
+                      {r.arrived_at && r.status === "booked" && <Badge tone="ok">Arrived</Badge>}
                       <Badge tone={status.tone}>{status.label}</Badge>
                     </div>
                     <p className="mt-2 break-words text-sm text-ink-2">
                       <span className="text-ink-3">Reason (as given):</span>{" "}
                       {r.reason_text ?? "—"}
                     </p>
+                    <div className="mt-3">
+                      <VisitActions a={r} from="queue" day={day} now={now} />
+                    </div>
                   </div>
 
                   <Link href={`/patients/${r.patient_id}`} className={btnSecondary}>
