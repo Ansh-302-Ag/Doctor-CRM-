@@ -1203,3 +1203,28 @@ new booking; a WhatsApp cancel that loses a race replies plainly instead of
 escalating; the CSV BOM is written as `﻿`; `listEscalations` returns
 `patient_id`. Full suite: 312 tests: 305 passing, 7 skipped. `next build` after the redesign is still
 to verify.
+
+## 2026-10-15 — UI/UX pass (branch `ui-overhaul`, off `front-desk` at `fa7385f`)
+
+Done in a separate clone so the session building Insights, saved lists and
+the Rx pad was never touched; this branch does not edit `src/lib`, the Rx pad
+form, or the Insights and print pages (they inherit the kit's new look).
+
+Tokens gain decoration-only colours (accent-2, sky, iris, deep), lift/glow
+shadows, `glass`, `bg-brand`, `shine`, `lift` utilities, an ambient dot-grid
+canvas, and a global reduced-motion stop. More Lightswind components, copied
+from its public registry and recoloured: interactive-card → `TiltCard`,
+top-loader (route progress bar), typing-text, magnetic-button, beam-circle →
+`OrbitRings`, shiny-text. anime.js: page entrance (`(crm)/template.tsx`),
+progress ring, bar chart, split bar. A canvas 3D scene
+(`src/components/three/scene.tsx`: helix / network sphere; no WebGL library,
+pauses off screen) in the day heroes and sign-in. Shared pieces:
+`components/ui/hero.tsx`, `components/ui/stat-tile.tsx`; `PageHeader` and
+`Card` take an `icon`; avatars get a stable gradient per name; skeletons
+shimmer. Calendar, My day, board, patient record, patients, escalations,
+tasks, forms, error and sign-in restyled; "Open record & prescribe" on My day
+lands on the pad. No behaviour change, no new dependency.
+
+Checks: suite 334 (327 pass, 7 skipped), typecheck, `next build`; every page
+clicked through in Chromium (desk and doctor, desktop and phone) with no
+console errors, against a local Postgres.
