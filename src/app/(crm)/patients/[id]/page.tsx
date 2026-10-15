@@ -175,6 +175,14 @@ export default async function PatientRecordPage({
         </svg>
         {isDoctor ? "My patients" : "All patients"}
       </Link>
+      {can(staff.role, "patients:merge") && (
+        <Link
+          href={`/patients/${patient.id}/merge`}
+          className="float-right text-sm text-ink-3 underline underline-offset-2 transition-colors hover:text-ink"
+        >
+          Merge with another record
+        </Link>
+      )}
 
       <header className="mt-3 rounded-lg border border-line bg-surface p-5">
         <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-5">
