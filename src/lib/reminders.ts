@@ -132,7 +132,10 @@ async function sendDue(
     }
     try {
       const rendered = parametersFor(r);
-      await send({ to: r.phone, name: rendered.name, parameters: rendered.parameters });
+      const res = await send({ to: r.phone, name: rendered.name, parameters: rendered.parameters });
+      // sendTemplate reports "not delivered" (no WhatsApp creds) instead of throwing;
+      // treat it as a failed attempt so it backs off and escalates, never "sent".
+      if (!res.delivered) throw new Error("not delivered: WhatsApp is not configured");
       await db`update reminders set status = 'sent', sent_at = now(),
                                     attempts = attempts + 1, last_error = null
                 where id = ${r.id}`;
