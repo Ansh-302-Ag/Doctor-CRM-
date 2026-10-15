@@ -28,6 +28,22 @@ test("search finds a patient by a phone typed in any format", async () => {
   }
 });
 
+test("fewer than 4 digits never match by phone digits", async () => {
+  // "0-0-0" is inside both numbers by digits only (plain ilike cannot see it),
+  // and three digits is not a phone search yet; "0-0-0-0" is.
+  assert.equal((await searchPatients(db, STAFF(), "receptionist", f.clinicId, "0-0-0")).length, 0);
+  assert.equal((await searchPatients(db, STAFF(), "receptionist", f.clinicId, "0-0-0-0")).length, 2);
+});
+
+test("a doctor's phone-digit search excludes patients outside his scope", async () => {
+  await bookAppointment(db, STAFF(), "receptionist",
+    { patientId: f.patientId, doctorId: f.doctorId, startsAt: futureSlot(10) });
+  const doc = { kind: "staff" as const, id: f.doctorUserId };
+  const mine = await searchPatients(db, doc, "doctor", f.clinicId, "9000000001", f.doctorId);
+  assert.deepEqual(mine.map(x => x.id), [f.patientId]);
+  assert.equal((await searchPatients(db, doc, "doctor", f.clinicId, "9000000002", f.doctorId)).length, 0);
+});
+
 test("an empty query lists the clinic's patients", async () => {
   assert.equal((await searchPatients(db, STAFF(), "receptionist", f.clinicId, "")).length, 2);
 });

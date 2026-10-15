@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 
 // Ctrl/⌘+K from anywhere, or "/" outside a text field, opens one search box.
 // Two instances mount (phone bar, desktop rail) but only one is ever visible,
@@ -8,6 +8,8 @@ import { useEffect, useRef } from "react";
 export function QuickFind() {
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  // Two copies mount (phone bar, rail); ids must not collide.
+  const id = useId();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -17,8 +19,9 @@ export function QuickFind() {
                   (e.key === "/" && !typing && !e.ctrlKey && !e.metaKey && !e.altKey);
       const d = dialog.current;
       // offsetParent is null for the copy hidden by the responsive layout.
-      if (!hit || !d || d.open || !d.parentElement?.offsetParent) return;
+      if (!hit || !d || !d.parentElement?.offsetParent) return;
       e.preventDefault();
+      if (d.open) return;
       d.showModal();
       input.current?.select();
     };
@@ -43,11 +46,11 @@ export function QuickFind() {
         onClick={e => { if (e.target === dialog.current) dialog.current?.close(); }}
       >
         <form method="get" action="/patients" onSubmit={() => dialog.current?.close()}>
-          <label htmlFor="quickfind-q" className="sr-only">Find a patient by name or phone</label>
+          <label htmlFor={id} className="sr-only">Find a patient by name or phone</label>
           <input type="hidden" name="jump" value="1" />
           <input
             ref={input}
-            id="quickfind-q"
+            id={id}
             name="q"
             type="search"
             autoComplete="off"
