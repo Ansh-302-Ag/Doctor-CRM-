@@ -157,6 +157,31 @@ test("a patient cannot cancel or reschedule someone else's appointment", async (
   );
 });
 
+test("cancel and reschedule refuse an appointment that is not booked", async () => {
+  const appt = await bookAppointment(db, AGENT, "agent",
+    { patientId: f.patientId, doctorId: f.doctorId, startsAt: futureSlot(15) });
+  await cancelAppointment(db, AGENT, "agent", { appointmentId: appt.id, patientId: f.patientId });
+
+  await assert.rejects(
+    cancelAppointment(db, AGENT, "agent", { appointmentId: appt.id, patientId: f.patientId }),
+    (e: BookingError) => e.code === "not_active",
+  );
+  await assert.rejects(
+    rescheduleAppointment(db, AGENT, "agent", {
+      appointmentId: appt.id, patientId: f.patientId, startsAt: futureSlot(16),
+    }),
+    (e: BookingError) => e.code === "not_active",
+  );
+});
+
+test("a patient cannot be booked with another clinic's doctor", async () => {
+  await assert.rejects(
+    bookAppointment(db, AGENT, "agent",
+      { patientId: f.patientId, doctorId: f.otherDoctorId, startsAt: futureSlot(10) }),
+    (e: BookingError) => e.code === "wrong_clinic",
+  );
+});
+
 test("rescheduling moves the appointment and leaves one booked row", async () => {
   const from = futureSlot(10), to = futureSlot(16);
   const appt = await bookAppointment(db, AGENT, "agent",

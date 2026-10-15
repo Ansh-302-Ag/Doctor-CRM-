@@ -77,3 +77,51 @@ test("call-start context names today, the clinic and its doctors", async () => {
   assert.equal(c.clinic_name, "Test Clinic");
   assert.equal(c.doctors, "Dr. Rao (General)");
 });
+
+test("voice booking keeps an existing patient name", async () => {
+  const day = localDay(futureSlot(11));
+  const r = await voiceBook(agentDb, f.clinicId,
+    { date: day, time: "11:00", phone: "+919000000001", name: "Someone Else", consent: true });
+  assert.equal(r.booked, true);
+  const [p] = await db`select name from patients where id = ${f.patientId}`;
+  assert.equal(p.name, "Asha");
+});
+
+test("a voice booking that loses the race leaves no patient or consent behind", async () => {
+  const day = localDay(futureSlot(14));
+  // Hold inserts into appointments (EXCLUSIVE still allows reads) so both calls
+  // pass the availability check and reach their insert before either commits.
+  let locked!: () => void, release!: () => void;
+  const isLocked = new Promise<void>(r => (locked = r));
+  const held = new Promise<void>(r => (release = r));
+  const lock = db.begin(async tx => {
+    await tx`lock table appointments in exclusive mode`;
+    locked();
+    await held;
+  });
+  await isLocked;
+
+  const phones = ["+919811111111", "+919822222222"];
+  const race = Promise.all(phones.map(phone =>
+    voiceBook(agentDb, f.clinicId, { date: day, time: "14:00", phone, consent: true })));
+  for (let i = 0; ; i++) {
+    const [{ n }] = await db<{ n: number }[]>`
+      select count(*)::int as n from pg_locks
+       where relation = 'appointments'::regclass and not granted`;
+    if (n === 2) break;
+    assert.ok(i < 200, "both bookings should reach the appointment insert");
+    await new Promise(r => setTimeout(r, 50));
+  }
+  release();
+  await lock;
+  const results = await race;
+
+  assert.equal(results.filter(r => r.booked).length, 1);
+  const loser = phones[results.findIndex(r => !r.booked)];
+  assert.match(results.find(r => !r.booked)!.message, /^NOT BOOKED: /);
+  assert.equal((await db`select 1 from patients where phone = ${loser}`).length, 0);
+  const consents = await db<{ phone: string }[]>`
+    select p.phone from consent_log c join patients p on p.id = c.patient_id
+     where c.channel = 'voice'`;
+  assert.deepEqual(consents.map(c => c.phone), phones.filter(p => p !== loser));
+});

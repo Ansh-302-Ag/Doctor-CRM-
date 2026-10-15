@@ -8,7 +8,8 @@ export type Slot = { startsAt: Date; endsAt: Date };
 
 export type BookingErrorCode =
   | "slot_taken" | "slot_in_past" | "outside_hours"
-  | "not_your_appointment" | "unknown_appointment" | "not_open";
+  | "not_your_appointment" | "unknown_appointment" | "not_open"
+  | "not_active" | "wrong_clinic";
 
 export class BookingError extends Error {
   constructor(public code: BookingErrorCode, message: string) {
@@ -105,6 +106,11 @@ export async function bookAppointment(
   }
 
   const doctor = await doctorContext(db, input.doctorId);
+  const [patient] = await db<{ clinic_id: string }[]>`
+    select clinic_id from patients where id = ${input.patientId}`;
+  if (patient?.clinic_id !== doctor.clinic_id) {
+    throw new BookingError("wrong_clinic", "that patient belongs to another clinic");
+  }
   const endsAt = new Date(input.startsAt.getTime() + doctor.default_slot_minutes * 60_000);
   const startHour = Number(localPart(input.startsAt, doctor.timezone, "hour"));
   // Check the end too: a 17:45 start with a 30-minute slot runs past closing.
@@ -202,5 +208,7 @@ async function ownedAppointment(db: Db, appointmentId: string, patientId: string
   if (a.patient_id !== patientId) {
     throw new BookingError("not_your_appointment", "that appointment belongs to someone else");
   }
+  // Cancelling twice, or moving a cancelled visit, would re-run its side effects.
+  if (a.status !== "booked") throw new BookingError("not_active", "that appointment is no longer active");
   return a;
 }

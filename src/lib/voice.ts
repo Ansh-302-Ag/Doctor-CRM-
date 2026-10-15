@@ -6,13 +6,13 @@
  * Voice models are told to send `date` as YYYY-MM-DD and `time` as 24-hour
  * HH:MM in the clinic's own timezone; anything else is refused, not guessed.
  */
-import type { Db } from "./db";
+import type { Db, Pool } from "./db";
+import { audit } from "./audit";
 import { tools } from "./agent/tools";
 import {
   BookingError, requireTimezone, OPEN_DAYS, OPEN_HOUR, CLOSE_HOUR, type Slot,
 } from "./booking";
 import { recordConsent } from "./consent";
-import { setPatientName } from "./patients";
 
 const AGENT = { kind: "agent" } as const;
 const SEARCH_DAYS = 7;
@@ -162,9 +162,12 @@ export function normalisePhone(raw: string): string {
  * decide). `consent` must be true: the agent reads the notice aloud and the
  * caller agrees before this is called (docs/02) — recorded with channel 'voice'.
  * A slot that is gone answers with alternatives instead of an error.
+ *
+ * Every write runs in one transaction: a caller who loses the slot to someone
+ * else leaves no patient row, consent or name behind.
  */
 export async function voiceBook(
-  db: Db, clinicId: string,
+  db: Pool, clinicId: string,
   input: { date: string; time: string; doctor?: string; phone: string; name?: string;
            reason?: string; consent: boolean },
   now = new Date(),
@@ -181,19 +184,26 @@ export async function voiceBook(
   const [{ at }] = await db<{ at: Date }[]>`
     select (${`${check.date} ${check.time}:00`}::text::timestamp at time zone ${clinic.timezone}) as at`;
 
-  await db`insert into patients (clinic_id, phone) values (${clinicId}, ${phone})
-           on conflict (clinic_id, phone) do nothing`;
-  const [patient] = await db<{ id: string; consent_status: string; deleted_at: Date | null }[]>`
-    select id, consent_status, deleted_at from patients
-     where clinic_id = ${clinicId} and phone = ${phone}`;
-  if (patient.consent_status !== "granted" || patient.deleted_at) {
-    await recordConsent(db, AGENT, patient.id, "granted", "voice");
-  }
-  if (input.name) await setPatientName(db, AGENT, patient.id, input.name);
-
   try {
-    const appt = await tools.book_appointment(db,
-      { patientId: patient.id, doctorId: doctor.id, startsAt: at, reasonText: input.reason }, now);
+    const appt = await db.begin(async tx => {
+      await tx`insert into patients (clinic_id, phone) values (${clinicId}, ${phone})
+               on conflict (clinic_id, phone) do nothing`;
+      const [patient] = await tx<{ id: string; consent_status: string; deleted_at: Date | null }[]>`
+        select id, consent_status, deleted_at from patients
+         where clinic_id = ${clinicId} and phone = ${phone}`;
+      if (patient.consent_status !== "granted" || patient.deleted_at) {
+        await recordConsent(tx, AGENT, patient.id, "granted", "voice");
+      }
+      // A caller's say-so never renames a patient the clinic already knows.
+      const name = input.name?.trim();
+      if (name) {
+        const named = await tx`update patients set name = ${name}
+                                where id = ${patient.id} and name is null returning id`;
+        if (named.length) await audit(tx, AGENT, "set_patient_name", "patients", patient.id);
+      }
+      return tools.book_appointment(tx,
+        { patientId: patient.id, doctorId: doctor.id, startsAt: at, reasonText: input.reason }, now);
+    });
     return {
       booked: true, appointmentId: appt.id, doctor: doctor.name, date: check.date, time: check.time,
       message: `BOOKED: with ${doctor.name} on ${spoken(appt.startsAt, clinic.timezone)}.`,

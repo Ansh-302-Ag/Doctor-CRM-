@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { authenticate } from "@/lib/auth";
+import { sql } from "@/lib/db";
 import { getSession, signIn } from "@/lib/session";
 import { TooManyAttempts } from "@/lib/throttle";
 
@@ -11,7 +12,13 @@ export default async function LoginPage({
 }: { searchParams: Promise<{ error?: string }> }) {
   const { error } = await searchParams;
   const session = await getSession();
-  if (session.user) redirect(session.user.role === "doctor" ? "/queue" : "/");
+  // A cookie whose staff row is gone (deleted account, reseeded database) must
+  // not bounce back to the CRM, which would send it here again: show the form,
+  // and signing in overwrites the stale cookie.
+  if (session.user) {
+    const [staff] = await sql`select 1 from staff_users where id = ${session.user.id}`;
+    if (staff) redirect(session.user.role === "doctor" ? "/queue" : "/");
+  }
 
   async function login(form: FormData) {
     "use server";
