@@ -10,8 +10,8 @@ export default function CrmError({ error, retry }: { error: Error & { digest?: s
   const forbidden = error.message.startsWith("role '");
   const Icon = forbidden ? ShieldOff : CircleAlert;
   return (
-    <section role="alert" className="mx-auto mt-10 max-w-md rounded-xl border border-line bg-surface p-8 text-center shadow-card">
-      <span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-warn-soft text-warn ring-1 ring-warn-line">
+    <section role="alert" className="mx-auto mt-10 max-w-md rounded-3xl border border-line bg-surface p-8 text-center shadow-pop">
+      <span aria-hidden="true" className="mx-auto grid size-14 animate-float place-items-center rounded-2xl bg-warn-soft text-warn ring-1 ring-warn-line">
         <Icon className="size-6" />
       </span>
       <h1 className="mt-4 text-lg font-semibold text-ink">

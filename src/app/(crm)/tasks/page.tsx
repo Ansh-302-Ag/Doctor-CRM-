@@ -6,7 +6,7 @@ import { sql } from "@/lib/db";
 import { getPatient, patientScope } from "@/lib/patients";
 import { createTask, completeTask, listTasks, TITLE_MAX } from "@/lib/tasks";
 import { isId, refusal } from "@/lib/desk";
-import { Plus } from "lucide-react";
+import { ListChecks, Plus } from "lucide-react";
 import { Alert, Avatar, Badge, Card, PageHeader, btnPrimary, field, fieldLabel } from "../_ui";
 import { TaskList } from "./_list";
 
@@ -73,6 +73,7 @@ export default async function TasksPage({
   return (
     <section className="space-y-6">
       <PageHeader
+        icon={ListChecks}
         title="Tasks"
         subtitle={
           <>
@@ -97,7 +98,7 @@ export default async function TasksPage({
           </div>
         </div>
 
-        <Card title="New task" description="A follow-up for someone at the clinic." className="self-start lg:sticky lg:top-6">
+        <Card icon={Plus} title="New task" description="A follow-up for someone at the clinic." className="self-start lg:sticky lg:top-6">
           <form action={create} className="space-y-4">
             {patient && (
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-accent-line bg-accent-soft/60 px-3 py-2 text-sm text-ink-2">

@@ -6,6 +6,7 @@ import { Card, Skel } from "./_ui";
 export default function Loading() {
   return (
     <section aria-busy="true" aria-label="Loading appointments" className="space-y-6">
+      <Skel className="h-[172px] w-full !rounded-3xl" />
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <Skel className="h-8 w-44" />

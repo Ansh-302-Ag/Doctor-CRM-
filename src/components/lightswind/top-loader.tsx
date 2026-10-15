@@ -23,9 +23,9 @@ export function TopLoader() {
   // The URL changed: the new page is here.
   useEffect(() => {
     clear();
-    setProgress(p => (p > 0 ? 1 : 0));
+    const done = window.setTimeout(() => setProgress(p => (p > 0 ? 1 : 0)), 0);
     const t = window.setTimeout(() => setProgress(0), 320);
-    return () => window.clearTimeout(t);
+    return () => { window.clearTimeout(done); window.clearTimeout(t); };
   }, [path, search]);
 
   useEffect(() => {

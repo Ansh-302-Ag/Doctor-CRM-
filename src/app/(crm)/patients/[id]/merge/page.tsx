@@ -11,7 +11,7 @@ import {
   Alert, Avatar, Badge, Card, EmptyState, PageHeader, consentStatus, btnDanger, btnSecondary, field,
 } from "../../../_ui";
 import { Reveal } from "@/components/motion/reveal";
-import { Search } from "lucide-react";
+import { GitMerge, Search } from "lucide-react";
 
 
 const LABELS: Record<keyof MergeCounts, string> = {
@@ -33,7 +33,7 @@ export default async function MergePatientPage({
   if (!can(staff.role, "patients:merge")) {
     return (
       <section>
-        <PageHeader title="Merge duplicate records" back={{ href: "/patients", label: "Patients" }} />
+        <PageHeader icon={GitMerge} title="Merge duplicate records" back={{ href: "/patients", label: "Patients" }} />
         <EmptyState title="Not available for your role">
           The front desk or an admin merges duplicate records.
         </EmptyState>
@@ -132,6 +132,7 @@ export default async function MergePatientPage({
   return (
     <section className="max-w-4xl">
       <PageHeader
+        icon={GitMerge}
         back={{ href: `/patients/${id}`, label: patient.name ?? "Patient record" }}
         title="Merge with another record"
         subtitle={<>

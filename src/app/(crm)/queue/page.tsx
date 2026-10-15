@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, ChevronRight, Phone, Stethoscope } from "lucide-react";
+import { CalendarClock, CheckCheck, ChevronLeft, ChevronRight, Hourglass, ListOrdered, Phone, Stethoscope } from "lucide-react";
 import { validDay } from "@/lib/valid-day";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { doctorQueue, nextInQueue } from "@/lib/doctor";
-import { CountUp } from "@/components/lightswind/count-up";
+import { Hero, greeting } from "@/components/ui/hero";
+import { StatTile } from "@/components/ui/stat-tile";
+import { Ring } from "@/components/motion/ring";
+import { TiltCard } from "@/components/lightswind/tilt-card";
 import { BorderBeam } from "@/components/lightswind/border-beam";
 import { Reveal } from "@/components/motion/reveal";
 import {
@@ -38,11 +41,11 @@ export default async function QueuePage({
   const now = new Date();
   const next = nextInQueue(rows, now);
   const stats = [
-    { label: day === today ? "Today" : "This day", n: rows.length, dot: "bg-accent" },
-    { label: "Seen", n: rows.filter(r => r.status === "completed").length, dot: "bg-ok" },
+    { label: day === today ? "Today" : "This day", n: rows.length, tone: "accent", icon: CalendarClock },
+    { label: "Seen", n: rows.filter(r => r.status === "completed").length, tone: "ok", icon: CheckCheck },
     // Same rule as nextInQueue: booked and not yet started.
-    { label: "Still to come", n: rows.filter(r => r.status === "booked" && r.starts_at > now).length, dot: "bg-warn" },
-  ];
+    { label: "Still to come", n: rows.filter(r => r.status === "booked" && r.starts_at > now).length, tone: "warn", icon: Hourglass },
+  ] as const;
   const others = rows.filter(r => r.id !== next?.id);
   const time = (at: Date) => new Intl.DateTimeFormat("en-GB", {
     timeZone: staff.timezone, hour: "2-digit", minute: "2-digit", hour12: false,
@@ -58,7 +61,20 @@ export default async function QueuePage({
 
   return (
     <section className="space-y-6">
+      <Hero
+        eyebrow={staff.clinicName}
+        title={`${greeting(staff.timezone, now)}, ${staff.name}`}
+        timeZone={staff.timezone}
+        scene="sphere"
+        subtitle={next
+          ? <>Next: <span className="font-semibold text-white">{next.patient_name ?? "Unnamed patient"}</span> at {time(next.starts_at)}</>
+          : rows.length ? "Nothing still to come on this day." : "Nothing booked with you for this day."}
+      >
+        <Ring value={stats[1].n} total={rows.length} label="seen" />
+      </Hero>
+
       <PageHeader
+        icon={ListOrdered}
         title="My day"
         subtitle={
           <>
@@ -98,15 +114,7 @@ export default async function QueuePage({
 
       <div className="space-y-3">
         <Reveal className="grid grid-cols-3 gap-3">
-          {stats.map(x => (
-            <div key={x.label} className="flex min-w-0 flex-col rounded-xl border border-line bg-surface px-3 py-3 shadow-card sm:px-5 sm:py-4">
-              <p className="flex items-start gap-1.5 text-[11px] font-semibold tracking-wide text-ink-3 sm:text-xs">
-                <span aria-hidden="true" className={`mt-1 size-2 shrink-0 rounded-full ${x.dot}`} />
-                <span className="leading-tight">{x.label}</span>
-              </p>
-              <CountUp value={x.n} className="mt-auto block pt-2 text-2xl font-semibold leading-none text-ink sm:text-3xl" />
-            </div>
-          ))}
+          {stats.map(x => <StatTile key={x.label} label={x.label} value={x.n} tone={x.tone} icon={x.icon} />)}
         </Reveal>
         <p className="text-sm">
           <Link href={`/?day=${day}`} className="font-medium text-accent hover:text-accent-hover hover:underline">
@@ -122,10 +130,10 @@ export default async function QueuePage({
       ) : (
         <>
         {next ? (
-          <div className="relative rounded-xl border border-accent-line bg-surface p-4 shadow-pop sm:p-6">
+          <TiltCard max={3} className="rounded-2xl border border-accent-line bg-gradient-to-br from-surface via-surface to-accent-soft/70 p-4 shadow-pop sm:p-6">
             <BorderBeam />
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-bold text-white">
-              <span aria-hidden="true" className="size-1.5 rounded-full bg-white" />
+            <span className="bg-brand inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold text-white shadow-glow">
+              <span aria-hidden="true" className="size-1.5 animate-ping rounded-full bg-white" />
               Next patient
             </span>
             <div className="mt-4 flex flex-wrap items-start gap-x-6 gap-y-4">
@@ -165,11 +173,11 @@ export default async function QueuePage({
                   </div>
                 </div>
               </div>
-              <Link href={`/patients/${next.patient_id}`} className={`${btnPrimary} max-sm:w-full`}>
+              <Link href={`/patients/${next.patient_id}#prescribe`} className={`${btnPrimary} max-sm:w-full`}>
                 <Stethoscope className="size-4" aria-hidden="true" /> Open record &amp; prescribe
               </Link>
             </div>
-          </div>
+          </TiltCard>
         ) : (
           <Alert tone="ok">
             {day === today ? "That's everyone for today." : "Nothing still to come on this day."}
@@ -177,7 +185,7 @@ export default async function QueuePage({
         )}
 
         {others.length > 0 && (
-          <Card title={next ? "The rest of the day" : "Appointments"} bodyClassName="">
+          <Card title={next ? "The rest of the day" : "Appointments"} icon={CalendarClock} bodyClassName="">
             <Reveal as="ol" className="divide-y divide-line">
               {others.map(r => {
                 const status = appointmentStatus(r.status);
@@ -218,7 +226,7 @@ export default async function QueuePage({
                       </p>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <VisitActions a={r} from="queue" day={day} now={now} />
-                        <Link href={`/patients/${r.patient_id}`} className={`${btnGhost} ${btnSm}`}>
+                        <Link href={`/patients/${r.patient_id}#prescribe`} className={`${btnGhost} ${btnSm}`}>
                           Open record &amp; prescribe
                         </Link>
                       </div>

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
-import { Phone, TriangleAlert, Clock, CircleCheck, ChevronDown } from "lucide-react";
+import { Phone, TriangleAlert, Clock, CircleCheck, ChevronDown, Siren } from "lucide-react";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { can } from "@/lib/rbac";
@@ -114,6 +114,7 @@ export default async function EscalationsPage() {
   return (
     <section className="space-y-6">
       <PageHeader
+        icon={Siren}
         title="Escalations"
         subtitle="Messages the assistant handed to a person. Contact the patient directly, then close it here."
         actions={
@@ -139,8 +140,9 @@ export default async function EscalationsPage() {
 
           <Reveal as="ul" className="mt-3 space-y-4">
             {emergencies.map(r => (
-              <li key={r.id} className="overflow-hidden rounded-xl border-2 border-danger bg-surface shadow-card">
-                <p className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-danger px-4 py-2 text-xs font-bold uppercase tracking-widest text-white">
+              <li key={r.id} className="relative overflow-hidden rounded-2xl border-2 border-danger bg-surface shadow-[0_0_0_4px_var(--color-danger-soft),0_18px_40px_-18px_rgb(179_38_30/0.55)]">
+                <p className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-gradient-to-r from-danger to-danger-hover px-4 py-2 text-xs font-bold uppercase tracking-widest text-white">
+                  <span aria-hidden="true" className="relative flex size-2.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex size-2.5 rounded-full bg-white" /></span>
                   Emergency
                   <span className="font-semibold normal-case tracking-normal">
                     waiting {ago(r.created_at)}
@@ -170,7 +172,7 @@ export default async function EscalationsPage() {
                     </div>
                     <a
                       href={`tel:${r.patient_phone}`}
-                      className="inline-flex items-center gap-2 rounded-lg bg-danger px-4 py-2.5 text-base font-semibold tabular-nums text-white shadow-card transition-colors hover:bg-danger-hover"
+                      className="shine inline-flex items-center gap-2 rounded-xl bg-danger px-4 py-2.5 text-base font-semibold tabular-nums text-white shadow-card transition-all hover:-translate-y-px hover:bg-danger-hover"
                     >
                       <Phone aria-hidden="true" className="size-4 shrink-0" />
                       Call {r.patient_phone}
@@ -193,7 +195,7 @@ export default async function EscalationsPage() {
           <Reveal as="ul" className="mt-3 space-y-3">
             {waiting.map(r => (
               <li key={r.id}>
-                <Card>
+                <Card className="lift">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
                       <Avatar name={r.patient_name} />
@@ -237,7 +239,7 @@ export default async function EscalationsPage() {
       {resolved.length > 0 && (
         // Closed items stay reachable but out of the way — native <details>,
         // no script.
-        <details className="group rounded-xl border border-line bg-surface shadow-card">
+        <details className="group rounded-2xl border border-line bg-surface shadow-card">
           <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold text-ink-2 hover:text-ink sm:px-5">
             <CircleCheck aria-hidden="true" className="size-4 text-ok" />
             Resolved ({resolved.length})

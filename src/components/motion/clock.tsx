@@ -7,9 +7,10 @@ import { useEffect, useState } from "react";
 export function Clock({ timeZone, className }: { timeZone: string; className?: string }) {
   const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
-    setNow(new Date());
-    const t = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(t);
+    const tick = () => setNow(new Date());
+    const first = window.setTimeout(tick, 0);
+    const t = window.setInterval(tick, 1000);
+    return () => { window.clearTimeout(first); window.clearInterval(t); };
   }, []);
   const text = now
     ? new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(now)
