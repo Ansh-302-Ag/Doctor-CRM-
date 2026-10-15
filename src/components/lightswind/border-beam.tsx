@@ -8,7 +8,7 @@
  * hook: the server cannot know the preference, so a hook would make the first
  * client render differ from the HTML and fail hydration.
  */
-import { motion } from "framer-motion";
+import { motion, MotionConfig } from "framer-motion";
 import { cn } from "@/components/lib/utils";
 
 export function BorderBeam({
@@ -20,6 +20,8 @@ export function BorderBeam({
       aria-hidden="true"
       className="pointer-events-none absolute inset-0 rounded-[inherit] motion-reduce:hidden border-[1.5px] border-transparent [mask-clip:padding-box,border-box] [mask-composite:intersect] [mask-image:linear-gradient(transparent,transparent),linear-gradient(#000,#000)]"
     >
+      {/* The preference is handled by CSS above; this stops framer warning about it. */}
+      <MotionConfig reducedMotion="never">
       <motion.div
         className={cn("absolute aspect-square bg-gradient-to-l from-[var(--beam-from)] via-[var(--beam-to)] to-transparent", className)}
         style={{
@@ -32,6 +34,7 @@ export function BorderBeam({
         animate={{ offsetDistance: ["0%", "100%"] }}
         transition={{ repeat: Infinity, ease: "linear", duration }}
       />
+      </MotionConfig>
     </div>
   );
 }

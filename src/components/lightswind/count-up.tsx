@@ -8,7 +8,7 @@
  * only a flourish started after hydration.
  */
 import { useEffect, useRef } from "react";
-import { animate, useMotionValue, useTransform, motion } from "framer-motion";
+import { animate, useMotionValue, useTransform, motion, MotionConfig } from "framer-motion";
 import { cn } from "@/components/lib/utils";
 
 export function CountUp({
@@ -34,7 +34,10 @@ export function CountUp({
 
   return (
     <span ref={ref} className={cn("tabular-nums", className)}>
-      <motion.span aria-hidden="true">{shown}</motion.span>
+      {/* The effect handles reduced motion itself; this stops framer warning about it. */}
+      <MotionConfig reducedMotion="never">
+        <motion.span aria-hidden="true">{shown}</motion.span>
+      </MotionConfig>
       {/* The animated digits are decoration; a screen reader hears the value once. */}
       <span className="sr-only">{value}</span>
     </span>
