@@ -21,7 +21,7 @@ export default function Loading() {
             <div key={i} className="space-y-2.5 rounded-xl border border-line bg-subtle/60 p-2.5">
               <Skel className="mx-1.5 my-1 h-4 w-24" />
               {Array.from({ length: 3 - (i % 2) }).map((_, j) => (
-                <div key={j} className="rounded-xl border border-line bg-surface p-3.5 shadow-card">
+                <div key={j} className="rounded-2xl border border-line bg-surface p-3.5 shadow-card">
                   <Skel className="h-3 w-20" />
                   <div className="mt-2 flex items-center gap-2.5">
                     <Skel className="size-8 rounded-full" />

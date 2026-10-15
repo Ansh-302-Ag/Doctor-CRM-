@@ -12,7 +12,7 @@ export default function Loading() {
         <Skel className="h-4 w-56" />
         <div className="mt-3 space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="rounded-xl border border-line bg-surface p-4 shadow-card sm:p-5">
+            <div key={i} className="rounded-2xl border border-line bg-surface p-4 shadow-card sm:p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <Skel className="size-9 rounded-full" />

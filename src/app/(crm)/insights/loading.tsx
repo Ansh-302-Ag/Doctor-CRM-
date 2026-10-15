@@ -4,6 +4,7 @@ import { Card, Skel } from "../_ui";
 export default function Loading() {
   return (
     <section aria-busy="true" aria-label="Loading insights" className="space-y-6">
+      <Skel className="h-[172px] w-full !rounded-3xl" />
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <Skel className="h-8 w-36" />
@@ -14,7 +15,7 @@ export default function Loading() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="rounded-xl border border-line bg-surface px-4 py-3.5 shadow-card">
+          <div key={i} className="rounded-2xl border border-line bg-surface px-4 py-3.5 shadow-card">
             <Skel className="h-3 w-20" />
             <Skel className="mt-2 h-6 w-12" />
             <Skel className="mt-2 h-3 w-24" />
