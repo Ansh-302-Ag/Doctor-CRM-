@@ -16,6 +16,7 @@ test("a free slot is reported available", async () => {
   const r = await voiceAvailability(agentDb, f.clinicId, { date: day, time: "10:00" });
   assert.equal(r.available, true);
   assert.equal(r.doctor, "Dr. Rao");
+  assert.match(r.message, /^AVAILABLE: /);
 });
 
 test("a taken slot offers the nearest open times that day", async () => {
@@ -43,6 +44,7 @@ test("booking a new caller records voice consent and the appointment", async () 
   const r = await voiceBook(agentDb, f.clinicId,
     { date: day, time: "11:00", phone: "98765 43210", name: "Ravi", consent: true });
   assert.equal(r.booked, true);
+  assert.match(r.message, /^BOOKED: /);
   const [p] = await db`select name, consent_status from patients where phone = '+919876543210'`;
   assert.equal(p.name, "Ravi");
   assert.equal(p.consent_status, "granted");
@@ -53,6 +55,8 @@ test("booking a new caller records voice consent and the appointment", async () 
   const again = await voiceBook(agentDb, f.clinicId,
     { date: day, time: "11:00", phone: "+919000000002", consent: true });
   assert.equal(again.booked, false);
+  // The voice agent reads only `message`: a failure must say so in its first word.
+  assert.match(again.message, /^NOT BOOKED: /);
   assert.ok(again.alternatives.length > 0);
 });
 

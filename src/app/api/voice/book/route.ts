@@ -9,6 +9,6 @@ export const POST = (req: Request) =>
   handleVoice(req, (db, clinicId, b) => voiceBook(db, clinicId, {
     date: str(b.date) ?? "", time: str(b.time) ?? "", doctor: str(b.doctor),
     phone: str(b.phone) ?? "", name: str(b.name), reason: str(b.reason),
-    // Sarvam may send booleans as strings.
-    consent: b.consent === true || b.consent === "true",
+    // Sarvam sends a Boolean parameter as true, "true" or "True" depending on the path.
+    consent: ["true", "yes", "1"].includes(String(b.consent).trim().toLowerCase()),
   }));

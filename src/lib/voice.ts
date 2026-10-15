@@ -53,6 +53,11 @@ const spoken = (at: Date, tz: string) =>
     hour: "numeric", minute: "2-digit", hour12: true,
   }).format(at);
 
+/** "2026-10-17" → "Saturday, 17 October", so the agent says the date the CRM checked. */
+const spokenDay = (day: string) =>
+  new Intl.DateTimeFormat("en-IN", { timeZone: "UTC", weekday: "long", day: "numeric", month: "long" })
+    .format(new Date(`${day}T12:00:00Z`));
+
 const toMinutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3));
 
 function parseInput(date: string, time: string) {
@@ -108,7 +113,7 @@ export async function voiceAvailability(
   if (exact) {
     return {
       available: true, doctor: doctor.name, date, time,
-      message: `${doctor.name} is free on ${spoken(exact.startsAt, tz)}.`,
+      message: `AVAILABLE: ${doctor.name} is free on ${spoken(exact.startsAt, tz)}.`,
       alternatives: [] as { date: string; time: string; spoken: string }[],
     };
   }
@@ -126,12 +131,16 @@ export async function voiceAvailability(
   const alts = alternatives.map(s => ({ ...local(s.startsAt, tz), spoken: spoken(s.startsAt, tz) }));
   return {
     available: false, doctor: doctor.name, date, time,
-    message: alts.length
-      ? `That time is not available. The nearest open times are: ${alts.map(a => a.spoken).join("; ")}.`
-      : `${doctor.name} has no open times in the week from ${date}.`,
+    message: `NOT AVAILABLE: ${doctor.name} is not free on ${spokenDay(date)} at ${time}. ` + (alts.length
+      ? `The nearest open times are: ${alts.map(a => a.spoken).join("; ")}.`
+      : `There are no open times in the week from that day.`),
     alternatives: alts,
   };
 }
+
+/** The agent sees only `message`, so a failure has to say so in its first word. */
+const notBooked = (check: Awaited<ReturnType<typeof voiceAvailability>>) =>
+  ({ booked: false, ...check, message: check.message.replace(/^(NOT )?AVAILABLE: /, "NOT BOOKED: ") });
 
 /** Indian 10-digit numbers get +91; anything else is taken as international. */
 export function normalisePhone(raw: string): string {
@@ -158,7 +167,7 @@ export async function voiceBook(
   }
   const phone = normalisePhone(input.phone);
   const check = await voiceAvailability(db, clinicId, input, now);
-  if (!check.available) return { booked: false, ...check };
+  if (!check.available) return notBooked(check);
 
   const clinic = await clinicOf(db, clinicId);
   const doctor = await pickDoctor(db, clinicId, input.doctor);
@@ -180,12 +189,12 @@ export async function voiceBook(
       { patientId: patient.id, doctorId: doctor.id, startsAt: at, reasonText: input.reason }, now);
     return {
       booked: true, appointmentId: appt.id, doctor: doctor.name, date: check.date, time: check.time,
-      message: `Booked with ${doctor.name} on ${spoken(appt.startsAt, clinic.timezone)}.`,
+      message: `BOOKED: with ${doctor.name} on ${spoken(appt.startsAt, clinic.timezone)}.`,
       alternatives: [],
     };
   } catch (e) {
     if (e instanceof BookingError && e.code === "slot_taken") {
-      return { booked: false, ...(await voiceAvailability(db, clinicId, input, now)) };
+      return notBooked(await voiceAvailability(db, clinicId, input, now));
     }
     throw e;
   }

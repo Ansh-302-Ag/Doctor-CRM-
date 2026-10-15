@@ -28,7 +28,7 @@ export async function handleVoice(
     return NextResponse.json(await fn(agentSql, clinicId, body));
   } catch (e) {
     if (e instanceof VoiceInputError || e instanceof BookingError) {
-      return NextResponse.json({ error: e.message, message: e.message });
+      return NextResponse.json({ error: e.message, message: `ERROR, nothing was done: ${e.message}` });
     }
     console.error("[voice]", e);
     return NextResponse.json({ error: "internal error" }, { status: 500 });
