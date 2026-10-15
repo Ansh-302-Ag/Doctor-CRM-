@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { searchPatients, patientScope } from "@/lib/patients";
@@ -6,9 +7,9 @@ import { Badge, consentStatus, btnPrimary } from "../_ui";
 
 export default async function PatientsPage({
   searchParams,
-}: { searchParams: Promise<{ q?: string }> }) {
+}: { searchParams: Promise<{ q?: string; jump?: string }> }) {
   const staff = await currentStaff();
-  const { q } = await searchParams;
+  const { q, jump } = await searchParams;
 
   // A doctor's list is his own patients — scoped in the query, not just hidden
   // in the page (docs/08). Reception and admin see the whole clinic.
@@ -16,6 +17,9 @@ export default async function PatientsPage({
     sql, { kind: "staff", id: staff.id }, staff.role, staff.clinicId, q ?? "",
     patientScope(staff),
   );
+
+  // Quick find (Ctrl+K) asks to jump: one match goes straight to the record.
+  if (jump === "1" && patients.length === 1) redirect(`/patients/${patients[0].id}`);
 
   // Dates are shown in the clinic's own timezone — the front desk reads these
   // out loud to the patient on the phone.

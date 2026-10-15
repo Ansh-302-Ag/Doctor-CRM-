@@ -21,6 +21,13 @@ test("search finds a patient by name or by phone", async () => {
   assert.equal(byPhone[0].id, f.otherPatientId);
 });
 
+test("search finds a patient by a phone typed in any format", async () => {
+  for (const q of ["+91 90000-00001", "090000 00001", "9000000001", "00001"]) {
+    const r = await searchPatients(db, STAFF(), "receptionist", f.clinicId, q);
+    assert.deepEqual(r.map(x => x.id), [f.patientId], q);
+  }
+});
+
 test("an empty query lists the clinic's patients", async () => {
   assert.equal((await searchPatients(db, STAFF(), "receptionist", f.clinicId, "")).length, 2);
 });

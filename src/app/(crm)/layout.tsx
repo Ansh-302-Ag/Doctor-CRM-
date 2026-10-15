@@ -3,6 +3,7 @@ import { currentStaff, signOut } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { can } from "@/lib/rbac";
 import { Nav } from "./_nav";
+import { QuickFind } from "./_quickfind";
 
 export default async function CrmLayout({ children }: { children: React.ReactNode }) {
   const staff = await currentStaff();
@@ -63,17 +64,22 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
           tab bar. md and up: the rail below. */}
       <header className="flex items-center justify-between gap-3 border-b border-rail-line bg-rail px-4 py-2.5 md:hidden">
         {wordmark}
-        <form action={logout} className="shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
+        <QuickFind />
+        <form action={logout}>
           <button className="rounded-md border border-rail-line px-3 py-1.5 text-sm font-medium text-rail-ink transition-colors hover:bg-rail-active hover:text-white">
             Sign out
           </button>
         </form>
+        </div>
       </header>
 
       {/* A rail rather than a strip: this tool stays open all day, and the
           escalation count needs somewhere it can shout. */}
       <aside className="hidden md:sticky md:top-0 md:flex md:h-dvh md:w-52 md:shrink-0 md:flex-col border-r border-rail-line bg-rail xl:w-60">
         <div className="border-b border-rail-line px-4 py-4">{wordmark}</div>
+
+        <div className="px-3 pt-3"><QuickFind /></div>
 
         <Nav variant="rail" items={items} />
 

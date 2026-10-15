@@ -37,6 +37,11 @@ export async function searchPatients(
   requirePermission(role, "patients:read");
   const q = query.trim();
   const like = `%${q}%`;
+  // Phones are typed as "+91 90000-00001", "090000 00001" or bare: compare the
+  // last 10 digits only. Fewer than 4 digits would match half the clinic.
+  const digits = q.replace(/\D/g, "");
+  const byDigits = digits.length >= 4;
+  const tail = digits.slice(-10);
 
   // The audit row does not depend on what the search returns, so it goes out
   // with the read instead of after it — one round trip to Neon rather than two.
@@ -53,7 +58,8 @@ export async function searchPatients(
              )::int as active_prescriptions
         from patients p
        where p.clinic_id = ${clinicId} and p.deleted_at is null
-         and (${q === ""} or p.name ilike ${like} or p.phone ilike ${like})
+         and (${q === ""} or p.name ilike ${like} or p.phone ilike ${like}
+              or (${byDigits} and right(regexp_replace(p.phone, '[^0-9]', '', 'g'), 10) like ${"%" + tail + "%"}))
          ${ownedBy(db, doctorId)}
        order by p.name nulls last, p.created_at desc
        limit 100`,
