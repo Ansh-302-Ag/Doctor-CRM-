@@ -132,7 +132,7 @@ export default async function EscalationsPage() {
 
       {emergencies.length > 0 && (
         <div>
-          <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-danger">
+          <h2 className="flex items-center gap-2 text-sm font-bold tracking-wide text-danger">
             <TriangleAlert aria-hidden="true" className="size-5" />
             Medical emergency — call now ({emergencies.length})
           </h2>
@@ -183,7 +183,7 @@ export default async function EscalationsPage() {
 
       {waiting.length > 0 && (
         <div>
-          <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-3">
+          <h2 className="text-xs font-semibold tracking-wide text-ink-3">
             Waiting ({waiting.length})
           </h2>
           <Reveal as="ul" className="mt-3 space-y-3">

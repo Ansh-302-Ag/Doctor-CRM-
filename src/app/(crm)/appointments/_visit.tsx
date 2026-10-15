@@ -10,7 +10,7 @@ export function VisitActions({
   a, from, day, doctor, now,
 }: {
   a: { id: string; status: string; arrived_at: Date | null; starts_at: Date };
-  from: "calendar" | "queue"; day: string; doctor?: string | null; now: Date;
+  from: "calendar" | "queue" | "board"; day: string; doctor?: string | null; now: Date;
 }) {
   if (a.status !== "booked") return null;
   return (

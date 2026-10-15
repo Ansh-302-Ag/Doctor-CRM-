@@ -101,7 +101,7 @@ export default async function MergePatientPage({
         className="group flex min-w-0 cursor-pointer flex-col rounded-xl border-2 border-line bg-surface p-4 shadow-card transition-colors hover:border-line-strong has-[:checked]:border-accent has-[:checked]:bg-accent-soft/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/30"
       >
         <span className="flex items-center justify-between gap-3">
-          <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">{role}</span>
+          <span className="text-xs font-semibold tracking-wide text-ink-3">{role}</span>
           <span className="flex items-center gap-2 text-xs font-semibold">
             <span className="hidden text-accent-ink group-has-[:checked]:inline">Keep</span>
             <span className="text-danger-ink group-has-[:checked]:hidden">Merge in &amp; delete</span>

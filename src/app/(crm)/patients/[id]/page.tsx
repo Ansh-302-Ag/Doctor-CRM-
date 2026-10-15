@@ -244,7 +244,7 @@ export default async function PatientRecordPage({
 
   const group = (label: string, rows: typeof rx) => rows.length > 0 && (
     <div>
-      <h3 className="border-b border-line bg-subtle px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-3 sm:px-5">
+      <h3 className="border-b border-line bg-subtle px-4 py-2 text-xs font-semibold tracking-wide text-ink-3 sm:px-5">
         {label} <span className="tabular-nums">({rows.length})</span>
       </h3>
       <Reveal as="ul" className="divide-y divide-line">{rows.map(rxRow)}</Reveal>
@@ -286,23 +286,23 @@ export default async function PatientRecordPage({
 
       <Reveal className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
-          <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">Consent</p>
+          <p className="text-xs font-semibold tracking-wide text-ink-3">Consent</p>
           <p className="mt-2"><Badge tone={consent.tone}>{consent.label}</Badge></p>
         </div>
         <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
-          <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">Next appointment</p>
+          <p className="text-xs font-semibold tracking-wide text-ink-3">Next appointment</p>
           <p className="mt-2 text-sm font-semibold tabular-nums text-ink">
             {patient.next_appointment ? when(patient.next_appointment) : "None booked"}
           </p>
         </div>
         <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
-          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-3">
+          <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-ink-3">
             <span aria-hidden="true" className="size-1.5 rounded-full bg-ok" /> Active prescriptions
           </p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-ink"><CountUp value={patient.active_prescriptions} /></p>
         </div>
         <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
-          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-3">
+          <p className="flex items-center gap-1.5 text-xs font-semibold tracking-wide text-ink-3">
             <span aria-hidden="true" className="size-1.5 rounded-full bg-warn" /> Open tasks
           </p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-ink"><CountUp value={tasks.length} /></p>

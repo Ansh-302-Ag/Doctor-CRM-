@@ -100,7 +100,7 @@ export default async function QueuePage({
         <Reveal className="grid grid-cols-3 gap-3">
           {stats.map(x => (
             <div key={x.label} className="flex min-w-0 flex-col rounded-xl border border-line bg-surface px-3 py-3 shadow-card sm:px-5 sm:py-4">
-              <p className="flex items-start gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-3 sm:text-xs">
+              <p className="flex items-start gap-1.5 text-[11px] font-semibold tracking-wide text-ink-3 sm:text-xs">
                 <span aria-hidden="true" className={`mt-1 size-2 shrink-0 rounded-full ${x.dot}`} />
                 <span className="leading-tight">{x.label}</span>
               </p>
@@ -124,7 +124,7 @@ export default async function QueuePage({
         {next ? (
           <div className="relative rounded-xl border border-accent-line bg-surface p-4 shadow-pop sm:p-6">
             <BorderBeam />
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-widest text-white">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-bold text-white">
               <span aria-hidden="true" className="size-1.5 rounded-full bg-white" />
               Next patient
             </span>

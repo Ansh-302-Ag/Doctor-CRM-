@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Plus, ShieldCheck, ScrollText, MessageSquareOff } from "lucide-react";
+import { ShieldCheck, ScrollText, MessageSquareOff } from "lucide-react";
 import { authenticate } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { getSession, signIn } from "@/lib/session";
@@ -13,8 +13,10 @@ const TRUST = [
 ];
 
 const Mark = ({ className = "" }: { className?: string }) => (
-  <span aria-hidden="true" className={`grid place-items-center rounded-lg bg-gradient-to-br from-accent to-accent-ink text-white shadow-card ${className}`}>
-    <Plus className="size-1/2" strokeWidth={2.6} />
+  <span aria-hidden="true" className={`grid place-items-center rounded-lg bg-accent text-white ${className}`}>
+    <svg viewBox="0 0 24 24" className="size-1/2" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+      <path d="M9.5 4h5v5.5H20v5h-5.5V20h-5v-5.5H4v-5h5.5Z" />
+    </svg>
   </span>
 );
 
@@ -52,13 +54,12 @@ export default async function LoginPage({
   return (
     <main className="grid min-h-dvh bg-canvas md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
       {/* Brand panel: md+ only; phones get the compact mark above the form. */}
-      <aside className="relative hidden overflow-hidden bg-gradient-to-br from-accent to-accent-ink p-10 text-white md:flex md:flex-col md:justify-between lg:p-14">
-        <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-24 size-80 rounded-full bg-white/10" />
-        <div aria-hidden="true" className="pointer-events-none absolute -bottom-32 -left-20 size-96 rounded-full bg-white/5" />
-
+      <aside className="relative hidden overflow-hidden bg-accent-ink p-10 text-white md:flex md:flex-col md:justify-between lg:p-14">
         <div className="relative flex items-center gap-2.5">
           <span aria-hidden="true" className="grid size-10 place-items-center rounded-lg bg-white/15 ring-1 ring-white/25">
-            <Plus className="size-5" strokeWidth={2.6} />
+            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+              <path d="M9.5 4h5v5.5H20v5h-5.5V20h-5v-5.5H4v-5h5.5Z" />
+            </svg>
           </span>
           <span className="text-lg font-semibold">Doctor-CRM</span>
         </div>
@@ -73,7 +74,7 @@ export default async function LoginPage({
           <ul className="mt-8 space-y-3">
             {TRUST.map(({ icon: Icon, text }) => (
               <li key={text} className="flex items-center gap-3 text-sm text-white/90">
-                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-white/15">
+                <span className="grid size-8 shrink-0 place-items-center rounded-md bg-white/10">
                   <Icon aria-hidden="true" className="size-4" />
                 </span>
                 {text}

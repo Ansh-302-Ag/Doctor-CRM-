@@ -14,12 +14,19 @@ const ICONS = {
     "M10.6 4.1 2.9 17.4A1.6 1.6 0 0 0 4.3 19.8h15.4a1.6 1.6 0 0 0 1.4-2.4L13.4 4.1a1.6 1.6 0 0 0-2.8 0ZM12 9.2v4.1M12 16.6h.01",
   tasks:
     "M9 6.5h11M9 12h11M9 17.5h11M3.5 6.5l1.2 1.2 2.3-2.4M3.5 12l1.2 1.2 2.3-2.4M3.5 17.5l1.2 1.2 2.3-2.4",
+  board:
+    "M4.5 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1ZM10.5 4h4a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1ZM16.5 4h3a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z",
+  insights:
+    "M4 20h16M7 16.5V11M12 16.5V6.5M17 16.5v-8",
 } as const;
 
-/** `count` draws a badge when above zero; `countLabel` is what a screen reader hears. */
+/** `count` draws a badge when above zero; `countLabel` is what a screen reader
+ *  hears. `primary` items make the phone's bottom bar (at most five). */
 export type NavItem = {
-  href: string; label: string; icon: keyof typeof ICONS; count?: number; countLabel?: string;
+  href: string; label: string; icon: keyof typeof ICONS;
+  count?: number; countLabel?: string; primary?: boolean;
 };
+export type NavSection = { title: string; items: NavItem[] };
 
 const Icon = ({ name, className }: { name: NavItem["icon"]; className: string }) => (
   <svg
@@ -40,21 +47,26 @@ const Icon = ({ name, className }: { name: NavItem["icon"]; className: string })
  *  navigation between its children — so this one small piece is a client
  *  component. Which items exist is decided on the server.
  *
- *  Two presentations of the same items: "rail" is the md+ sidebar list, "tabs"
- *  is the fixed bottom bar on a phone (hidden from md up). */
+ *  "rail": the grouped sidebar list (also used inside the phone menu).
+ *  "tabs": the fixed bottom bar on a phone, primary items only (hidden md+). */
 export function Nav({
-  items, variant,
-}: { items: NavItem[]; variant: "rail" | "tabs" }) {
+  sections, variant,
+}: { sections: NavSection[]; variant: "rail" | "tabs" }) {
   const path = usePathname();
   const isActive = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
+  // Inside the phone menu (<details>), a tap should also close the menu: the
+  // layout, and so the open disclosure, survives client-side navigation.
+  const closeMenu = (e: React.MouseEvent<HTMLElement>) =>
+    e.currentTarget.closest("details")?.removeAttribute("open");
   const badge = (item: NavItem, cls: string) => !!item.count && (
-    <span className={`rounded-full bg-danger px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-white ${cls}`}>
+    <span className={`rounded-md bg-danger px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white ${cls}`}>
       {item.count}
       <span className="sr-only"> {item.countLabel}</span>
     </span>
   );
 
   if (variant === "tabs") {
+    const items = sections.flatMap(s => s.items).filter(i => i.primary).slice(0, 5);
     return (
       <nav
         aria-label="Main"
@@ -87,29 +99,35 @@ export function Nav({
   }
 
   return (
-    <nav aria-label="Main" className="flex-1 p-3">
-      <ul className="flex flex-col gap-1">
-        {items.map((item) => {
-          const active = isActive(item.href);
-          return (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={`flex items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                  active
-                    ? "bg-rail-active text-accent-ink"
-                    : "text-rail-ink hover:bg-subtle hover:text-ink"
-                }`}
-              >
-                <Icon name={item.icon} className={`size-[18px] shrink-0 ${active ? "text-accent" : "text-ink-3"}`} />
-                {item.label}
-                {badge(item, "ml-auto")}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
+    <nav aria-label="Main" className="mt-4 flex flex-col gap-4">
+      {sections.map(section => (
+        <div key={section.title}>
+          <p className="px-3 pb-1 text-xs font-medium text-ink-3">{section.title}</p>
+          <ul className="flex flex-col gap-0.5">
+            {section.items.map((item) => {
+              const active = isActive(item.href);
+              return (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    onClick={closeMenu}
+                    aria-current={active ? "page" : undefined}
+                    className={`flex items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                      active
+                        ? "bg-rail-active text-accent-ink"
+                        : "text-rail-ink hover:bg-subtle hover:text-ink"
+                    }`}
+                  >
+                    <Icon name={item.icon} className={`size-[18px] shrink-0 ${active ? "text-accent" : "text-ink-3"}`} />
+                    {item.label}
+                    {badge(item, "ml-auto")}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
     </nav>
   );
 }

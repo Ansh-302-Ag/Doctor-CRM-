@@ -10,7 +10,7 @@ import { Plus } from "lucide-react";
 import { Alert, Avatar, Badge, Card, PageHeader, btnPrimary, field, fieldLabel } from "../_ui";
 import { TaskList } from "./_list";
 
-const heading = "mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3";
+const heading = "mb-2 text-xs font-semibold tracking-wide text-ink-3";
 
 /** Run a desk write; a refusal comes back as ?error= on `back`, anything else is a real fault. */
 async function attempt(back: string, write: () => Promise<unknown>) {

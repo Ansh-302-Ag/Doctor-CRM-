@@ -30,7 +30,7 @@ export function TaskList({
   const group = (label: string, list: Task[], warn: boolean) => list.length > 0 && (
     <div>
       {overdue.length > 0 && (
-        <p className={`px-4 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide ${warn ? "text-warn-ink" : "text-ink-3"}`}>
+        <p className={`px-4 pb-1 pt-3 text-[11px] font-semibold tracking-wide ${warn ? "text-warn-ink" : "text-ink-3"}`}>
           {label} · {list.length}
         </p>
       )}

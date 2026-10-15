@@ -18,7 +18,7 @@ export type Tone = keyof typeof TONES;
 export function Badge({ tone = "neutral", children }: { tone?: Tone; children: ReactNode }) {
   return (
     <span
-      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium ${TONES[tone]}`}
+      className={`inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-1.5 py-0.5 text-xs font-medium ${TONES[tone]}`}
     >
       {children}
     </span>
@@ -80,13 +80,13 @@ export const btnSm = "!px-2.5 !py-1.5 !text-xs";
 /** Form fields. Use with a <label htmlFor>; `fieldLabel` sits above the input. */
 export const field =
   "mt-1.5 block w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink shadow-[inset_0_1px_1px_rgb(13_27_42/0.04)] transition-colors hover:border-ink-3 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20";
-export const fieldLabel = "block text-xs font-semibold uppercase tracking-wide text-ink-3";
+export const fieldLabel = "block text-sm font-medium text-ink-2";
 export const fieldHint = "mt-1 text-xs text-ink-3";
 
 /** Tables: wrap in `tableWrap`, headers `th`, cells `td`, body rows `tr`. */
 export const tableWrap = "overflow-x-auto rounded-xl border border-line bg-surface shadow-card";
 export const th =
-  "border-b border-line bg-subtle px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-ink-3";
+  "border-b border-line bg-subtle px-4 py-2.5 text-left text-xs font-semibold text-ink-3";
 export const td = "px-4 py-3 align-middle text-sm text-ink-2";
 export const tr = "border-b border-line last:border-0 transition-colors hover:bg-subtle/70";
 

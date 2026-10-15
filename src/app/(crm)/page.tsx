@@ -216,7 +216,7 @@ export default async function CalendarPage({
       <Reveal className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map(x => (
           <div key={x.label} className="rounded-xl border border-line bg-surface px-4 py-3.5 shadow-card">
-            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-ink-3">
+            <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-ink-3">
               <span aria-hidden="true" className={`size-2 rounded-full ${x.dot}`} />{x.label}
             </p>
             <CountUp value={x.n} className="mt-2 block text-2xl font-semibold leading-none text-ink" />

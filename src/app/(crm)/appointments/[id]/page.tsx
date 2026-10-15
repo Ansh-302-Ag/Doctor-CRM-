@@ -177,7 +177,7 @@ export default async function AppointmentPage({
             <div className="flex gap-3">
               <MessageSquareText aria-hidden className="mt-0.5 size-4 shrink-0 text-ink-3" />
               <div className="min-w-0">
-                <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">Reason (as given)</dt>
+                <dt className="text-xs font-semibold tracking-wide text-ink-3">Reason (as given)</dt>
                 <dd className="mt-0.5 break-words text-ink-2">{appt.reason_text ?? "—"}</dd>
               </div>
             </div>

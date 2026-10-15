@@ -173,7 +173,7 @@ export function RxForm({
         </div>
 
         <div aria-live="polite" className="rounded-lg border border-accent-line bg-accent-soft px-3.5 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-accent-ink">Will be saved as</p>
+          <p className="text-xs font-semibold tracking-wide text-accent-ink">Will be saved as</p>
           {review ? (
             <p className="mt-1 break-words text-sm font-semibold text-ink">{review}</p>
           ) : (

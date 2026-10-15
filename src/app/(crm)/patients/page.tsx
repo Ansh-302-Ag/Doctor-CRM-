@@ -124,11 +124,11 @@ export default async function PatientsPage({
                 </div>
                 <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-line pt-3 text-sm">
                   <div>
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">Next appointment</dt>
+                    <dt className="text-xs font-semibold tracking-wide text-ink-3">Next appointment</dt>
                     <dd className="mt-0.5 tabular-nums text-ink-2">{when(p.next_appointment)}</dd>
                   </div>
                   <div>
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">Active prescriptions</dt>
+                    <dt className="text-xs font-semibold tracking-wide text-ink-3">Active prescriptions</dt>
                     <dd className="mt-0.5 tabular-nums text-ink-2">{p.active_prescriptions}</dd>
                   </div>
                 </dl>
