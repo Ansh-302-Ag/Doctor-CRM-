@@ -1078,3 +1078,37 @@ the next deploy; fixes belong in `main`.
 the classifier decision (Anthropic key, or a non-forced retry for Groq — the
 `pickOffered` fix covers only the slot step); changing the demo passwords;
 the rollback proof on the server.
+
+## 2026-10-15 — Inbound calls book through the CRM (Sarvam voice agent)
+
+Krishna built an inbound-call receptionist on Sarvam (Krishna's Workspace,
+"Reciptionsist", number +91 79654 80810). It now books against the CRM instead
+of guessing: three bearer-protected endpoints under `/api/voice/` (README,
+"Inbound phone calls") give it today's date and the doctors at call start,
+check a slot before it is offered — answering a taken slot with the three
+nearest open times, or the next open day — and book it. Same rules as
+WhatsApp: the `clinic_agent` role, clinic hours, the no-double-booking
+constraint, consent before booking (recorded with channel `voice`).
+
+Tested from the laptop through a quick tunnel before anything was pushed, by
+text chat against the Sarvam draft and then real calls. What testing caught:
+
+- **The agent announced a booking that had been refused.** Sarvam passes only
+  the reply's `message` to the model; `booked: false` sat in another field.
+  Every message now starts with its status word, and the prompt books on
+  BOOKED only.
+- **Sarvam sends a Boolean parameter as a string** in some paths, so `consent`
+  read as false. Parsed leniently now.
+- **The model said "16 October" for parson from a Thursday** while sending the
+  17th; replies now name the day checked, and the prompt says to repeat it.
+- A real caller hung up while the consent notice was read three times in three
+  languages. Not booked — correct — but the notice is too long for a call.
+
+Sarvam's connector attaches a secret only to allow-listed URLs, so the bearer
+secret on each tool is selected in the Sarvam console. A deployment can be
+moved to a new version only while paused (pause, switch, resume — ~10 s).
+
+**Still owed:** a shorter spoken consent notice; offering the caller-ID number
+instead of asking for ten digits; names are stored as transcribed (Devanagari);
+reschedule and cancel by phone (the prompt takes a message for staff instead).
+

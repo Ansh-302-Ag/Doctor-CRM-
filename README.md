@@ -100,6 +100,24 @@ Caveats:
   Setup (up to five).
 - **The temporary token expires in 24 hours.** Sends then fail with 401.
 
+## Inbound phone calls (Sarvam voice agent)
+
+A Sarvam voice agent answers the clinic's phone and books through three
+endpoints, all `Authorization: Bearer $VOICE_API_SECRET`, all running as the
+restricted `clinic_agent` role:
+
+| Endpoint | When | What it does |
+|---|---|---|
+| `GET /api/voice/context` | call start | today's date, clinic name, doctors, hours — so the agent can turn "kal" into a date |
+| `POST /api/voice/availability` | before offering a time | `{date: YYYY-MM-DD, time: HH:MM, doctor?}` → free, or the three nearest open times |
+| `POST /api/voice/book` | after the caller agrees | `{date, time, phone, name, consent, doctor?, reason?}` → booked, or alternatives if just taken |
+
+Every reply's `message` starts with AVAILABLE, NOT AVAILABLE, BOOKED, NOT BOOKED
+or ERROR — the voice agent reads only `message`, and once read a refused
+booking as a success when the status was in another field. No booking without
+`consent` true; it is recorded in `consent_log` with channel `voice`. Unset
+`VOICE_API_SECRET` = all three refuse.
+
 ## The agent
 
 `src/lib/agent/screen.ts` is deterministic keyword matching and runs first. If

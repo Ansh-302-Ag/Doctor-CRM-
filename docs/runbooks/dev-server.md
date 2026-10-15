@@ -19,6 +19,7 @@ clinic, the Meta **test** number, the Neon **dev** database. Set up
 | Tunnel | system service `cloudflared-doctor-crm` (token in `/etc/cloudflared/doctor-crm.env`, 600 root), drop-in `10-ipv4-edge.conf` sets `TUNNEL_EDGE_IP_VERSION=4` |
 | Cloudflare | Tunnel `doctor-crm-dev` → `http://127.0.0.1:3000`; DNS: one proxied CNAME `clinic` → `<id>.cfargotunnel.com`. Access apps: **Doctor-CRM dev** (whole host, Allow, email one-time PIN) and **Doctor-CRM webhook** (path `api/webhook/whatsapp`, **Bypass**, Everyone) |
 | Meta | webhook callback `https://clinic.concilio.solutions/api/webhook/whatsapp`, field `messages` subscribed |
+| Voice agent | Sarvam, Krishna's Workspace, agent **Reciptionsist** (`Reciptionsi-8a339a38-98e7`), deployment **TEST CRM** on +91 79654 80810. Tools `load_clinic_context` (on start), `check_availability`, `book_appointment` → `/api/voice/*`, bearer secret `doctor-crm-voice` = `VOICE_API_SECRET` in `.env.local`. Access app **Doctor-CRM voice** (path `api/voice`, **Bypass**) |
 | Database | Neon project `super-truth-39272047` (Singapore), database `neondb`; tests use `neondb_test` |
 
 ## How code gets here
