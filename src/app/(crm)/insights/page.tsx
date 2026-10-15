@@ -1,5 +1,8 @@
 import Link from "next/link";
-import { CalendarCheck, CalendarDays, Sparkles, UserPlus, UserX } from "lucide-react";
+import { BarChart3, CalendarCheck, CalendarDays, Clock3, Sparkles, UserPlus, UserX, Users } from "lucide-react";
+import { StatTile } from "@/components/ui/stat-tile";
+import { Hero, HeroStat } from "@/components/ui/hero";
+import { Ring } from "@/components/motion/ring";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { isId } from "@/lib/desk";
@@ -45,12 +48,12 @@ export default async function InsightsPage({
   const doctorName = doctor ? ins.doctors[0]?.name : null;
 
   const tiles = [
-    { label: "Appointments", value: onBook, icon: CalendarDays, tone: "text-accent", hint: `${t.booked} still booked` },
-    { label: "Completed", value: t.completed, icon: CalendarCheck, tone: "text-ok", hint: `${t.cancelled} cancelled` },
-    { label: "No-show rate", value: noShow, unit: "%", icon: UserX, tone: "text-warn",
+    { label: "Appointments", value: onBook, icon: CalendarDays, tone: "accent" as const, hint: `${t.booked} still booked` },
+    { label: "Completed", value: t.completed, icon: CalendarCheck, tone: "ok" as const, hint: `${t.cancelled} cancelled` },
+    { label: "No-show rate", value: noShow, unit: "%", icon: UserX, tone: "warn" as const,
       hint: `${t.no_show} of ${t.completed + t.no_show} with an outcome` },
-    { label: "New patients", value: ins.newPatients, icon: UserPlus, tone: "text-accent", hint: "registered" },
-    { label: "AI-booked", value: aiShare, unit: "%", icon: Sparkles, tone: "text-accent",
+    { label: "New patients", value: ins.newPatients, icon: UserPlus, tone: "sky" as const, hint: "registered" },
+    { label: "AI-booked", value: aiShare, unit: "%", icon: Sparkles, tone: "accent" as const,
       hint: `${ins.sources.agent} of ${made} bookings made` },
   ];
 
@@ -73,20 +76,33 @@ export default async function InsightsPage({
 
   return (
     <section className="space-y-6">
+      <Hero
+        eyebrow={doctorName ?? staff.clinicName}
+        title={`The last ${days} days at a glance`}
+        timeZone={staff.timezone}
+        scene="sphere"
+        subtitle={<>{period} · {onBook} {onBook === 1 ? "appointment" : "appointments"}{onBook > 0 && <> · busiest at {busiestHour.tip}</>}</>}
+      >
+        <Ring value={ins.sources.agent} total={made} label="AI-booked" />
+        <HeroStat label="Completed" value={t.completed} />
+        <div className="hidden sm:block"><HeroStat label="New patients" value={ins.newPatients} /></div>
+      </Hero>
+
       <PageHeader
+        icon={BarChart3}
         title="Insights"
         subtitle={<>
           <span className="font-medium text-ink">{period}</span>
           <span className="text-ink-3">{doctorName ? doctorName : "Whole clinic"}</span>
         </>}
         actions={
-          <nav aria-label="Period" className="inline-flex rounded-lg border border-line-strong bg-surface p-0.5">
+          <nav aria-label="Period" className="inline-flex rounded-xl border border-line bg-surface p-1 shadow-card">
             {RANGES.map(d => (
               <Link
                 key={d}
                 href={href(d)}
                 aria-current={d === days ? "page" : undefined}
-                className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${d === days ? "bg-accent text-white" : "text-ink-2 hover:bg-subtle hover:text-ink"}`}
+                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-all ${d === days ? "bg-brand text-white shadow-glow" : "text-ink-2 hover:bg-subtle hover:text-ink"}`}
               >
                 {d} days
               </Link>
@@ -111,21 +127,17 @@ export default async function InsightsPage({
 
       <Reveal className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {tiles.map(x => (
-          <div key={x.label} className="rounded-xl border border-line bg-surface px-4 py-3.5 shadow-card">
-            <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-ink-3">
-              <x.icon aria-hidden className={`size-3.5 ${x.tone}`} />{x.label}
-            </p>
-            <p className="mt-2 text-2xl font-semibold leading-none text-ink">
+          <StatTile key={x.label} label={x.label} icon={x.icon} tone={x.tone} hint={x.hint}>
+            <p className="text-[28px] font-semibold leading-none text-ink">
               {x.value === null ? <span title="Nothing to measure yet">—</span> : <>
                 <CountUp value={x.value} />{x.unit && <span className="text-lg">{x.unit}</span>}
               </>}
             </p>
-            <p className="mt-1.5 text-xs text-ink-3">{x.hint}</p>
-          </div>
+          </StatTile>
         ))}
       </Reveal>
 
-      <Card title="Appointments per day" description="Booked, completed and no-show visits by start date. Cancelled and moved ones are left out.">
+      <Card icon={CalendarDays} title="Appointments per day" description="Booked, completed and no-show visits by start date. Cancelled and moved ones are left out.">
         <ColumnChart
           bars={daily}
           head={["Day", "Appointments"]}
@@ -138,7 +150,7 @@ export default async function InsightsPage({
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-        <Card title="Busiest hours" description="Appointments by start hour, clinic time.">
+        <Card icon={Clock3} title="Busiest hours" description="Appointments by start hour, clinic time.">
           <ColumnChart
             bars={hourly}
             head={["Hour", "Appointments"]}
@@ -149,13 +161,13 @@ export default async function InsightsPage({
             </>}
           />
         </Card>
-        <Card title="Who booked" description="Appointments made in this period, by who made them.">
+        <Card icon={Sparkles} title="Who booked" description="Appointments made in this period, by who made them.">
           <SplitBar ai={ins.sources.agent} staff={ins.sources.staff} />
         </Card>
       </div>
 
       {isDesk && (
-        <Card title="By doctor" description="No-show rate = no-shows ÷ (completed + no-shows)." bodyClassName="">
+        <Card icon={Users} title="By doctor" className="overflow-hidden" description="No-show rate = no-shows ÷ (completed + no-shows)." bodyClassName="">
           <div className="hidden md:block">
             <table className="w-full">
               <thead className="bg-subtle">

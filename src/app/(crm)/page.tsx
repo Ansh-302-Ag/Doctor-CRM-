@@ -1,12 +1,18 @@
 import Link from "next/link";
-import { ChevronDown, ChevronLeft, ChevronRight, Download, Plus, Stethoscope, UserPlus } from "lucide-react";
+import {
+  Ban, CalendarCheck2, CalendarDays, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, Download, Plus,
+  Stethoscope, UserPlus, UserX,
+} from "lucide-react";
 import { validDay } from "@/lib/valid-day";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { requirePermission } from "@/lib/rbac";
 import { isId } from "@/lib/desk";
-import { CountUp } from "@/components/lightswind/count-up";
+import { Hero, HeroStat, greeting } from "@/components/ui/hero";
+import { StatTile } from "@/components/ui/stat-tile";
+import { Ring } from "@/components/motion/ring";
+import { Bars } from "@/components/motion/bars";
 import { Reveal } from "@/components/motion/reveal";
 import {
   Alert, Avatar, Badge, Card, EmptyState, PageHeader, appointmentStatus,
@@ -93,11 +99,12 @@ export default async function CalendarPage({
   const rows = all;
   const onBook = all.filter(r => r.status !== "cancelled").length;
   const stats = [
-    { label: "Booked", status: "booked", dot: "bg-accent" },
-    { label: "Completed", status: "completed", dot: "bg-ok" },
-    { label: "Cancelled", status: "cancelled", dot: "bg-ink-3" },
-    { label: "No-show", status: "no_show", dot: "bg-warn" },
-  ].map(x => ({ ...x, n: all.filter(r => r.status === x.status).length }));
+    { label: "Booked", status: "booked", tone: "accent", icon: CalendarCheck2 },
+    { label: "Completed", status: "completed", tone: "ok", icon: CheckCheck },
+    { label: "Cancelled", status: "cancelled", tone: "neutral", icon: Ban },
+    { label: "No-show", status: "no_show", tone: "warn", icon: UserX },
+  ] as const;
+  const count = (status: string) => all.filter(r => r.status === status).length;
 
   const time = (at: Date) => new Intl.DateTimeFormat("en-GB", {
     timeZone: staff.timezone, hour: "2-digit", minute: "2-digit", hour12: false,
@@ -115,12 +122,46 @@ export default async function CalendarPage({
     timeZone: "UTC", weekday: "long", day: "numeric", month: "long", year: "numeric",
   }).format(new Date(`${day}T12:00:00Z`));
 
+  // The hero's numbers: how far through the day the book is, and how the
+  // appointments spread across the hours (same rows as the list below).
+  const hourOf = (at: Date) => Number(new Intl.DateTimeFormat("en-GB", {
+    timeZone: staff.timezone, hour: "2-digit", hour12: false,
+  }).format(at));
+  const live = all.filter(r => r.status !== "cancelled");
+  const hours = live.map(r => hourOf(r.starts_at));
+  const nowHour = day === today ? hourOf(now) : -1;
+  const from = Math.min(9, ...hours), to = Math.max(from + 7, ...hours);
+  const perHour = Array.from({ length: to - from + 1 }, (_, i) => from + i).map(h => ({
+    label: String(h).padStart(2, "0"), value: hours.filter(x => x === h).length, highlight: h === nowHour,
+  }));
+  const toCome = all.filter(r => r.status === "booked" && r.starts_at > now).length;
+  const firstName = staff.name.replace(/^(dr\.?\s+)/i, "").split(/\s+/)[0];
+  // Where "now" falls in today's list, for the marker between rows.
+  const nowIndex = day === today ? rows.findIndex(r => r.starts_at > now) : -1;
+
   const step = "grid size-9 shrink-0 place-items-center rounded-lg border border-line-strong bg-surface text-ink-2 transition-colors hover:border-ink-3 hover:text-ink";
   const control = "h-9 rounded-lg border border-line-strong bg-surface px-2.5 text-sm text-ink transition-colors hover:border-ink-3 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20";
 
   return (
     <section className="space-y-6">
+      <Hero
+        eyebrow={staff.clinicName}
+        title={`${greeting(staff.timezone, now)}, ${firstName}`}
+        timeZone={staff.timezone}
+        subtitle={day === today
+          ? <>{onBook} on the book today · {toCome} still to come{nowIndex === -1 && onBook > 0 ? " · that's everyone" : ""}</>
+          : <>{dayLabel} · {onBook} on the book</>}
+      >
+        <Ring value={count("completed")} total={onBook} label="completed" />
+        <div className="w-36 min-w-0 sm:w-56">
+          <p className="mb-6 text-[11px] font-medium uppercase tracking-wider text-white/70">By hour</p>
+          <Bars data={perHour} label="Appointments per hour" />
+        </div>
+        <div className="hidden xl:block"><HeroStat label="Still to come" value={toCome} /></div>
+      </Hero>
+
       <PageHeader
+        icon={CalendarDays}
         title={staff.role === "doctor" ? "Clinic day" : "Appointments"}
         subtitle={<>
           <span className="font-medium text-ink">{dayLabel}</span>
@@ -215,12 +256,7 @@ export default async function CalendarPage({
 
       <Reveal className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map(x => (
-          <div key={x.label} className="rounded-xl border border-line bg-surface px-4 py-3.5 shadow-card">
-            <p className="flex items-center gap-2 text-xs font-semibold tracking-wide text-ink-3">
-              <span aria-hidden="true" className={`size-2 rounded-full ${x.dot}`} />{x.label}
-            </p>
-            <CountUp value={x.n} className="mt-2 block text-2xl font-semibold leading-none text-ink" />
-          </div>
+          <StatTile key={x.label} label={x.label} value={count(x.status)} tone={x.tone} icon={x.icon} />
         ))}
       </Reveal>
 
@@ -236,19 +272,25 @@ export default async function CalendarPage({
           {day === today ? "Patients can book on WhatsApp at any time." : undefined}
         </EmptyState>
       ) : (
-        <Card title="Schedule" description="Cancelled appointments stay listed, greyed out." bodyClassName="">
+        <Card title="Schedule" icon={CalendarDays} description="Cancelled appointments stay listed, greyed out." bodyClassName="" className="overflow-hidden">
           <Reveal as="ul" className="divide-y divide-line">
-            {rows.map(r => {
+            {rows.map((r, i) => {
               const status = appointmentStatus(r.status);
               const cancelled = r.status === "cancelled";
               return (
                 <li
                   key={r.id}
-                  className={`flex gap-3 px-4 py-4 transition-colors hover:bg-subtle/70 sm:gap-5 sm:px-5 ${cancelled ? "opacity-60" : ""}`}
+                  className={`relative flex gap-3 px-4 py-4 transition-colors hover:bg-accent-soft/30 sm:gap-5 sm:px-5 ${cancelled ? "opacity-60" : ""}`}
                 >
+                  {i === nowIndex && (
+                    <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 -top-px z-10 flex items-center">
+                      <span className="ml-3 rounded-full bg-danger px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-card">Now</span>
+                      <span className="h-0.5 flex-1 bg-gradient-to-r from-danger to-transparent" />
+                    </span>
+                  )}
                   {/* The time is the anchor of the row: it is the first thing
                       the receptionist looks for. */}
-                  <div className="w-14 shrink-0 border-r border-line pr-3 sm:w-16">
+                  <div className="w-14 shrink-0 border-r-2 border-accent-line/60 pr-3 sm:w-16">
                     <span className="block text-base font-semibold tabular-nums leading-tight text-ink">
                       {time(r.starts_at)}
                     </span>

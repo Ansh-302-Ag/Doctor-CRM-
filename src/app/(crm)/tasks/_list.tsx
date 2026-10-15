@@ -20,7 +20,7 @@ export function TaskList({
 }) {
   if (tasks.length === 0) {
     return (
-      <p className="rounded-xl border border-dashed border-line-strong bg-surface/60 p-6 text-center text-sm text-ink-3">
+      <p className="rounded-2xl border border-dashed border-line-strong bg-surface/70 p-6 text-center text-sm text-ink-3">
         {empty}
       </p>
     );
@@ -38,7 +38,7 @@ export function TaskList({
         {list.map(t => (
           <li
             key={t.id}
-            className={`flex flex-wrap items-center gap-x-4 gap-y-2 border-l-2 px-4 py-3 ${t.overdue ? "border-l-warn bg-warn-soft/50" : "border-l-transparent"}`}
+            className={`flex flex-wrap items-center gap-x-4 gap-y-2 border-l-2 px-4 py-3 transition-colors hover:bg-accent-soft/30 ${t.overdue ? "border-l-warn bg-warn-soft/50" : "border-l-transparent"}`}
           >
             <div className="min-w-0 flex-1">
               <p className="break-words text-sm font-medium text-ink">{t.title}</p>
@@ -72,7 +72,7 @@ export function TaskList({
     </div>
   );
   return (
-    <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+    <div className="overflow-hidden rounded-2xl border border-line bg-surface shadow-card">
       {group("Overdue", overdue, true)}
       {group("Due later", later, false)}
     </div>

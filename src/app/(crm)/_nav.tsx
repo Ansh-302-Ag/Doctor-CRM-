@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useId } from "react";
+import { motion } from "framer-motion";
 
 const ICONS = {
   queue:
@@ -53,13 +55,15 @@ export function Nav({
   sections, variant,
 }: { sections: NavSection[]; variant: "rail" | "tabs" }) {
   const path = usePathname();
+  // Two rails mount (desktop, phone menu); each glides its own highlight.
+  const uid = useId();
   const isActive = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
   // Inside the phone menu (<details>), a tap should also close the menu: the
   // layout, and so the open disclosure, survives client-side navigation.
   const closeMenu = (e: React.MouseEvent<HTMLElement>) =>
     e.currentTarget.closest("details")?.removeAttribute("open");
   const badge = (item: NavItem, cls: string) => !!item.count && (
-    <span className={`rounded-md bg-danger px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white ${cls}`}>
+    <span className={`rounded-full bg-danger px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white shadow-[0_0_0_3px_var(--color-danger-soft)] ${cls}`}>
       {item.count}
       <span className="sr-only"> {item.countLabel}</span>
     </span>
@@ -70,7 +74,7 @@ export function Nav({
     return (
       <nav
         aria-label="Main"
-        className="fixed inset-x-0 bottom-0 z-20 border-t border-rail-line bg-rail/95 pb-[env(safe-area-inset-bottom)] shadow-pop backdrop-blur md:hidden"
+        className="glass fixed inset-x-0 bottom-0 z-20 border-t border-rail-line pb-[env(safe-area-inset-bottom)] shadow-pop md:hidden"
       >
         <ul className="flex">
           {items.map((item) => {
@@ -102,7 +106,7 @@ export function Nav({
     <nav aria-label="Main" className="mt-4 flex flex-col gap-4">
       {sections.map(section => (
         <div key={section.title}>
-          <p className="px-3 pb-1 text-xs font-medium text-ink-3">{section.title}</p>
+          <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-3">{section.title}</p>
           <ul className="flex flex-col gap-0.5">
             {section.items.map((item) => {
               const active = isActive(item.href);
@@ -112,15 +116,24 @@ export function Nav({
                     href={item.href}
                     onClick={closeMenu}
                     aria-current={active ? "page" : undefined}
-                    className={`flex items-center gap-2.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                      active
-                        ? "bg-rail-active text-accent-ink"
-                        : "text-rail-ink hover:bg-subtle hover:text-ink"
+                    className={`group relative flex items-center gap-2.5 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                      active ? "text-accent-ink" : "text-rail-ink hover:bg-subtle hover:text-ink"
                     }`}
                   >
-                    <Icon name={item.icon} className={`size-[18px] shrink-0 ${active ? "text-accent" : "text-ink-3"}`} />
-                    {item.label}
-                    {badge(item, "ml-auto")}
+                    {/* One highlight that glides between items (framer layoutId). */}
+                    {active && (
+                      <motion.span
+                        layoutId={`rail-active-${uid}`}
+                        aria-hidden="true"
+                        className="absolute inset-0 rounded-xl bg-rail-active shadow-[inset_3px_0_0_var(--color-accent)] ring-1 ring-accent-line/50"
+                        transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                      />
+                    )}
+                    <span className="relative flex flex-1 items-center gap-2.5">
+                      <Icon name={item.icon} className={`size-[18px] shrink-0 transition-transform duration-300 group-hover:scale-110 ${active ? "text-accent" : "text-ink-3"}`} />
+                      {item.label}
+                      {badge(item, "ml-auto")}
+                    </span>
                   </Link>
                 </li>
               );

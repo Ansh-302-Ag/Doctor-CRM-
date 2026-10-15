@@ -1203,3 +1203,33 @@ new booking; a WhatsApp cancel that loses a race replies plainly instead of
 escalating; the CSV BOM is written as `﻿`; `listEscalations` returns
 `patient_id`. Full suite: 312 tests: 305 passing, 7 skipped. `next build` after the redesign is still
 to verify.
+
+## 2026-10-16 — UI/UX pass (branch `ui-overhaul`, fast-forwarded onto `front-desk`)
+
+Built in a separate clone so the session working on `front-desk` was never
+interrupted; no `src/lib`, test or migration changes — restyle only, apart
+from "Open record & prescribe" on My day now landing on the Rx pad
+(`#prescribe`).
+
+Tokens gain decoration-only colours (accent-2, sky, iris, deep), lift/glow
+shadows, `glass`, `bg-brand`, `shine`, `lift` utilities, an ambient dot-grid
+canvas, and a global reduced-motion stop. Lightswind components copied from
+its public registry and recoloured: interactive-card → `TiltCard`,
+top-loader (route progress bar), typing-text (as CSS), magnetic-button,
+beam-circle → `OrbitRings`, shiny-text. anime.js: page entrance
+(`(crm)/template.tsx`), progress ring, bar chart, split bar. A canvas 3D scene
+(`src/components/three/scene.tsx`: helix / network sphere; no WebGL library,
+pauses off screen and in background tabs) in the heroes and sign-in. Shared
+pieces: `components/ui/hero.tsx`, `components/ui/stat-tile.tsx`; `PageHeader`
+and `Card` take an `icon`; avatars get a stable gradient per name; skeletons
+shimmer; styled not-found pages. Every page restyled: sign-in, calendar,
+My day, board, patients, patient record and Rx pad, print sheet,
+appointments, walk-in, merge, escalations, tasks, Insights, error, loading.
+No new dependency.
+
+Checks: suite 334 (327 pass, 7 skipped), typecheck, lint clean on every UI
+file, `next build`. A scripted click-through of every route as desk, admin and
+doctor, at 1440 px, 390 px and with reduced motion: no console errors (only
+the deliberate 404), no 5xx, no horizontal overflow, Ctrl+K and the record's
+tabs work. An independent review of the diff found no behaviour change; its
+accessibility/hydration findings were fixed.
