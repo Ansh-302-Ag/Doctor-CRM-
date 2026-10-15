@@ -1,14 +1,11 @@
-import Link from "next/link";
+import { MessageSquareQuote } from "lucide-react";
 import { redirect } from "next/navigation";
 import { currentStaff } from "@/lib/session";
 import { sql, type Db } from "@/lib/db";
 import { requirePermission } from "@/lib/rbac";
 import { CONSENT_NOTICE } from "@/lib/consent";
 import { registerPatient, refusal } from "@/lib/desk";
-import { btnPrimary } from "../../_ui";
-
-const field = "mt-1.5 w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink";
-const fieldLabel = "block text-xs font-semibold uppercase tracking-wide text-ink-3";
+import { Alert, Card, PageHeader, btnPrimary, field, fieldLabel } from "../../_ui";
 
 /** Register a walk-in, then go straight to booking them. A number the clinic
  *  already knows opens that patient instead of making a second record. */
@@ -50,38 +47,49 @@ export default async function NewPatientPage({
   }
 
   return (
-    <section className="max-w-xl">
-      <Link href="/" className="text-sm text-ink-3 transition-colors hover:text-ink">
-        &larr; Calendar
-      </Link>
-      <h1 className="mt-3 text-xl font-semibold tracking-tight text-ink">Register walk-in</h1>
+    <section className="mx-auto max-w-xl">
+      <PageHeader
+        back={{ href: "/", label: "Calendar" }}
+        title="Register walk-in"
+        subtitle="New patients get a record, then go straight to booking. A number the clinic already knows opens that patient instead."
+      />
 
-      {error && (
-        <p role="alert" className="mt-4 rounded-md border border-danger-line bg-danger-soft px-3.5 py-2.5 text-sm font-medium text-danger-ink">
-          {error}
-        </p>
-      )}
+      {error && <Alert className="mb-4">{error}</Alert>}
 
-      <form action={register} className="mt-4 space-y-4 rounded-lg border border-line bg-surface p-4">
-        <div>
-          <label htmlFor="name" className={fieldLabel}>Name</label>
-          <input id="name" name="name" required autoComplete="off" className={field} />
-        </div>
-        <div>
-          <label htmlFor="phone" className={fieldLabel}>Phone</label>
-          <input id="phone" name="phone" type="tel" required autoComplete="off" placeholder="98765 43210" className={field} />
-        </div>
-        <div className="rounded-md border border-line bg-subtle p-3 text-sm text-ink-2">
-          <p className="font-medium text-ink">Read this to the patient:</p>
-          {/* The WhatsApp notice ends "Reply YES"; at the desk they say it. */}
-          <p className="mt-1">{CONSENT_NOTICE.replace(/ Reply YES to agree\.$/, "")}</p>
-          <label className="mt-3 flex items-center gap-2 font-medium text-ink">
-            <input type="checkbox" name="consent" value="yes" required />
-            The patient agreed
-          </label>
-        </div>
-        <button className={`${btnPrimary} w-full`}>Register and book</button>
-      </form>
+      <Card title="Patient details" description="Name and phone as the patient gives them.">
+        <form action={register} className="space-y-5">
+          <div>
+            <label htmlFor="name" className={fieldLabel}>Name</label>
+            <input id="name" name="name" required autoComplete="off" className={field} />
+          </div>
+          <div>
+            <label htmlFor="phone" className={fieldLabel}>Phone</label>
+            <input id="phone" name="phone" type="tel" required autoComplete="off" placeholder="98765 43210" className={`${field} tabular-nums`} />
+          </div>
+
+          <fieldset className="rounded-xl border border-accent-line bg-accent-soft/60 p-4">
+            <legend className="sr-only">Consent</legend>
+            <p className="flex items-center gap-2 text-sm font-semibold text-accent-ink">
+              <MessageSquareQuote className="size-4" aria-hidden="true" />
+              Read this to the patient
+            </p>
+            {/* The WhatsApp notice ends "Reply YES"; at the desk they say it. */}
+            <p id="consent-notice" className="mt-2 text-sm leading-relaxed text-ink">
+              {CONSENT_NOTICE.replace(/ Reply YES to agree\.$/, "")}
+            </p>
+            <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-lg border border-accent-line bg-surface px-3 py-2.5 text-sm font-medium text-ink transition-colors hover:border-accent">
+              <input
+                type="checkbox" name="consent" value="yes" required
+                aria-describedby="consent-notice"
+                className="size-4 accent-accent"
+              />
+              The patient agreed
+            </label>
+          </fieldset>
+
+          <button className={`${btnPrimary} w-full`}>Register and book</button>
+        </form>
+      </Card>
     </section>
   );
 }

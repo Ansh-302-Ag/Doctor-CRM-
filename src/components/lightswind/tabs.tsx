@@ -12,8 +12,9 @@ import { cn } from "@/components/lib/utils";
 type Ctx = {
   value: string; setValue: (v: string) => void; base: string;
   register: (v: string, el: HTMLButtonElement | null) => void;
-  indicator: React.CSSProperties; listRef: React.RefObject<HTMLDivElement | null>;
+  indicator: Indicator; listRef: React.RefObject<HTMLDivElement | null>;
 };
+type Indicator = { left: number; width: number };
 const TabsContext = React.createContext<Ctx | null>(null);
 const useTabs = () => {
   const c = React.useContext(TabsContext);
@@ -25,7 +26,7 @@ export function Tabs({
   defaultValue, className, children,
 }: { defaultValue: string; className?: string; children: React.ReactNode }) {
   const [value, setValue] = React.useState(defaultValue);
-  const [indicator, setIndicator] = React.useState<React.CSSProperties>({});
+  const [indicator, setIndicator] = React.useState<Indicator>({ left: 0, width: 0 });
   const listRef = React.useRef<HTMLDivElement | null>(null);
   const triggers = React.useRef(new Map<string, HTMLButtonElement>());
   const base = React.useId();
@@ -79,7 +80,7 @@ export function TabsList({ className, children, label }: { className?: string; c
       <motion.div
         aria-hidden="true"
         className="absolute top-1 bottom-1 rounded-lg bg-surface shadow-card ring-1 ring-line"
-        animate={indicator}
+        animate={{ left: indicator.left, width: indicator.width }}
         initial={false}
         transition={{ type: "spring", stiffness: 380, damping: 34 }}
       />

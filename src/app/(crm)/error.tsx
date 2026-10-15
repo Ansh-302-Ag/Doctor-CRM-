@@ -1,27 +1,30 @@
 "use client";
 
 import Link from "next/link";
+import { CircleAlert, ShieldOff } from "lucide-react";
+import { btnPrimary, btnSecondary } from "./_ui";
 
 /** A failed CRM page shows this instead of Next's bare crash screen. A refused
  *  permission (rbac's Forbidden: "role '…' is not permitted …") reads as such. */
 export default function CrmError({ error, retry }: { error: Error & { digest?: string }; retry: () => void }) {
   const forbidden = error.message.startsWith("role '");
+  const Icon = forbidden ? ShieldOff : CircleAlert;
   return (
-    <section role="alert" className="mx-auto mt-10 max-w-md rounded-lg border border-line bg-surface p-6 text-center">
-      <h1 className="text-lg font-semibold text-ink">
+    <section role="alert" className="mx-auto mt-10 max-w-md rounded-xl border border-line bg-surface p-8 text-center shadow-card">
+      <span aria-hidden="true" className="mx-auto grid size-12 place-items-center rounded-full bg-warn-soft text-warn ring-1 ring-warn-line">
+        <Icon className="size-6" />
+      </span>
+      <h1 className="mt-4 text-lg font-semibold text-ink">
         {/* Production hides Server Component messages, so the fallback has to cover a refusal too. */}
         {forbidden ? "You are not allowed to do that." : "Something went wrong, or you don't have access to this."}
       </h1>
-      <div className="mt-5 flex items-center justify-center gap-3">
-        <button
-          type="button"
-          onClick={() => retry()}
-          className="rounded-md bg-accent px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-hover"
-        >
+      <p className="mt-1 text-sm text-ink-3">Try again, or go back to the calendar.</p>
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+        <button type="button" onClick={() => retry()} className={btnPrimary}>
           Try again
         </button>
-        <Link href="/" className="rounded-md border border-line px-3 py-2 text-sm font-medium text-ink-2 hover:bg-subtle">
-          Go home
+        <Link href="/" className={btnSecondary}>
+          Back to calendar
         </Link>
       </div>
     </section>

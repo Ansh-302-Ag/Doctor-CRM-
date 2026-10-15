@@ -13,23 +13,42 @@ import { completeTask, listTasks } from "@/lib/tasks";
 import { isId, refusal } from "@/lib/desk";
 import { TaskList } from "../../tasks/_list";
 import {
-  Badge, consentStatus, prescriptionStatus, btnPrimary, btnSecondary, type Tone,
+  Alert, Avatar, Badge, Card, EmptyState, PageHeader, consentStatus, prescriptionStatus,
+  btnPrimary, btnSecondary, btnSm, field, type Tone,
 } from "../../_ui";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/lightswind/tabs";
+import { Reveal } from "@/components/motion/reveal";
+import { CountUp } from "@/components/lightswind/count-up";
+import {
+  CalendarDays, CalendarPlus, GitMerge, ListChecks, MessageCircle, Pill, ShieldCheck,
+  StickyNote, TriangleAlert, type LucideIcon,
+} from "lucide-react";
+import { HashTab, RepeatButton, RxForm } from "./_rx-form";
 
-const field = "mt-1.5 w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink";
-const fieldLabel = "block text-xs font-semibold uppercase tracking-wide text-ink-3";
-const notice = "mt-4 rounded-md border px-3.5 py-2.5 text-sm";
 const PAGE = 50;
 
-const KIND: Record<TimelineItem["kind"], { label: string; tone: Tone }> = {
-  appointment: { label: "Appointment", tone: "accent" },
-  message: { label: "WhatsApp", tone: "neutral" },
-  escalation: { label: "Escalation", tone: "warn" },
-  prescription: { label: "Prescription", tone: "ok" },
-  consent: { label: "Consent", tone: "neutral" },
-  note: { label: "Note", tone: "neutral" },
-  task: { label: "Task", tone: "neutral" },
+const KIND: Record<TimelineItem["kind"], { label: string; tone: Tone; icon: LucideIcon }> = {
+  appointment: { label: "Appointment", tone: "accent", icon: CalendarDays },
+  message: { label: "WhatsApp", tone: "neutral", icon: MessageCircle },
+  escalation: { label: "Escalation", tone: "warn", icon: TriangleAlert },
+  prescription: { label: "Prescription", tone: "ok", icon: Pill },
+  consent: { label: "Consent", tone: "neutral", icon: ShieldCheck },
+  note: { label: "Note", tone: "neutral", icon: StickyNote },
+  task: { label: "Task", tone: "neutral", icon: ListChecks },
 };
+
+const DOT: Record<Tone, string> = {
+  neutral: "bg-subtle text-ink-2 ring-line",
+  accent: "bg-accent-soft text-accent-ink ring-accent-line",
+  ok: "bg-ok-soft text-ok-ink ring-ok-line",
+  warn: "bg-warn-soft text-warn-ink ring-warn-line",
+  danger: "bg-danger-soft text-danger-ink ring-danger-line",
+};
+
+/** Which tab a returning ?error= belongs to. Note and task refusals come from
+ *  src/lib/notes.ts / tasks.ts / rbac (DeskError, Forbidden); everything else
+ *  that lands here is an InvalidPrescription from the prescribe form. */
+const isDeskError = (e: string) => /^(note|task)\b|not found|staff only|not permitted/i.test(e);
 
 /** A refused note or task comes back as ?error= on the record; anything else is a real fault. */
 async function deskWrite(patientId: string, write: () => Promise<unknown>) {
@@ -68,7 +87,8 @@ export default async function PatientRecordPage({
   // prescriptions by a join back to patients — so none of them depends on the
   // existence check to stay safe, and the check can move after them. Neon is a
   // continent away; three sequential hops here were most of the page's latency.
-  const [patient, timeline, prescriptions, doctors, tasks] = await Promise.all([
+  const canPrescribe = can(staff.role, "prescriptions:write");
+  const [patient, timeline, prescriptions, doctors, tasks, drugNames] = await Promise.all([
     getPatient(sql, actor, staff.role, staff.clinicId, id, scope),
     getTimeline(sql, actor, staff.role, staff.clinicId, id, { before, limit: PAGE, doctorId: scope }),
     listPrescriptions(sql, actor, staff.role, staff.clinicId, id),
@@ -77,6 +97,13 @@ export default async function PatientRecordPage({
     isDoctor ? [] : sql<{ id: string; name: string }[]>`
       select id, name from doctors where clinic_id = ${staff.clinicId} order by name`,
     listTasks(sql, actor, staff.role, staff.clinicId, { patientId: id, open: true }, scope),
+    // Suggestions for the drug name field: what this clinic has prescribed
+    // before, most-used first. Names only — nothing about who they were for.
+    canPrescribe ? sql<{ drug_name: string }[]>`
+      select p.drug_name from prescriptions p
+        join patients pt on pt.id = p.patient_id
+       where pt.clinic_id = ${staff.clinicId}
+       group by p.drug_name order by count(*) desc, p.drug_name limit 200` : [],
   ]);
   if (!patient) notFound();
 
@@ -163,127 +190,218 @@ export default async function PatientRecordPage({
     (a, b) => Number(b.status === "active") - Number(a.status === "active"));
 
   const consent = consentStatus(patient.consent_status);
-  const canPrescribe = can(staff.role, "prescriptions:write");
   const canWrite = can(staff.role, "patients:write");
+  const active = rx.filter(p => p.status === "active");
+  const past = rx.filter(p => p.status !== "active");
+  // A message that came back from a form opens on the tab that form lives on.
+  const tab = sent ? "rx" : error ? (isDeskError(error) ? "notes" : "rx") : "timeline";
+
+  const rxRow = (p: (typeof rx)[number]) => {
+    const status = prescriptionStatus(p.status);
+    return (
+      <li key={p.id} className="p-4 sm:px-5">
+        <div className="flex items-start gap-3">
+          <span
+            aria-hidden="true"
+            className={`mt-0.5 grid size-9 shrink-0 place-items-center rounded-lg ring-1 ${DOT[p.status === "active" ? "ok" : "neutral"]}`}
+          >
+            <Pill className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+              <span className="min-w-0 break-words font-semibold text-ink">{p.drug_name}</span>
+              <span className="ml-auto"><Badge tone={status.tone}>{status.label}</Badge></span>
+            </div>
+            <p className="mt-0.5 break-words text-sm text-ink-2">
+              {p.dosage}
+              {p.duration_days !== null && (
+                <span className="text-ink-3"> · for {p.duration_days} day{p.duration_days === 1 ? "" : "s"}</span>
+              )}
+            </p>
+            {p.notes && <p className="mt-1.5 break-words text-sm text-ink">{p.notes}</p>}
+            <p className="mt-1.5 text-xs text-ink-3">
+              {p.doctor_name} · recorded by {p.created_by_name} · {when(p.created_at)}
+            </p>
+            {canPrescribe && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <RepeatButton
+                  rx={{ drugName: p.drug_name, dosage: p.dosage, durationDays: p.duration_days, notes: p.notes }}
+                />
+                {p.status === "active" && (
+                  <form action={discontinue}>
+                    <input type="hidden" name="patientId" value={patient.id} />
+                    <input type="hidden" name="prescriptionId" value={p.id} />
+                    <button className={`${btnSecondary} ${btnSm}`}>Discontinue</button>
+                  </form>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </li>
+    );
+  };
+
+  const group = (label: string, rows: typeof rx) => rows.length > 0 && (
+    <div>
+      <h3 className="border-b border-line bg-subtle px-4 py-2 text-xs font-semibold uppercase tracking-wide text-ink-3 sm:px-5">
+        {label} <span className="tabular-nums">({rows.length})</span>
+      </h3>
+      <Reveal as="ul" className="divide-y divide-line">{rows.map(rxRow)}</Reveal>
+    </div>
+  );
 
   return (
     <section>
-      <Link
-        href="/patients"
-        className="inline-flex items-center gap-1.5 text-sm text-ink-3 transition-colors hover:text-ink"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M14.5 5.5 8 12l6.5 6.5" />
-        </svg>
-        {isDoctor ? "My patients" : "All patients"}
-      </Link>
-      {can(staff.role, "patients:merge") && (
-        <Link
-          href={`/patients/${patient.id}/merge`}
-          className="float-right text-sm text-ink-3 underline underline-offset-2 transition-colors hover:text-ink"
-        >
-          Merge with another record
-        </Link>
-      )}
+      <HashTab />
+      <PageHeader
+        back={{ href: "/patients", label: isDoctor ? "My patients" : "All patients" }}
+        title={
+          <span className="flex min-w-0 items-center gap-3">
+            <Avatar name={patient.name} size="lg" />
+            <span className="min-w-0 break-words">{patient.name ?? "Unnamed patient"}</span>
+          </span>
+        }
+        subtitle={
+          <a
+            href={`tel:${patient.phone}`}
+            className="tabular-nums text-ink-2 underline decoration-line-strong underline-offset-2 hover:text-accent"
+          >
+            {patient.phone}
+          </a>
+        }
+        actions={<>
+          {can(staff.role, "appointments:write") && (
+            <Link href={`/appointments/new?patient=${patient.id}`} className={btnPrimary}>
+              <CalendarPlus aria-hidden className="size-4" /> Book appointment
+            </Link>
+          )}
+          {can(staff.role, "patients:merge") && (
+            <Link href={`/patients/${patient.id}/merge`} className={btnSecondary}>
+              <GitMerge aria-hidden className="size-4" /> Merge with another record
+            </Link>
+          )}
+        </>}
+      />
 
-      <header className="mt-3 rounded-lg border border-line bg-surface p-5">
-        <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-5">
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight break-words text-ink">
-              {patient.name ?? "Unnamed patient"}
-            </h1>
-            <a
-              href={`tel:${patient.phone}`}
-              className="mt-1 inline-block tabular-nums text-ink-2 underline decoration-line-strong underline-offset-2 hover:text-accent"
-            >
-              {patient.phone}
-            </a>
-          </div>
-
-          <dl className="flex flex-wrap gap-x-8 gap-y-3 text-sm">
-            <div>
-              <dt className={fieldLabel}>Consent</dt>
-              <dd className="mt-1.5"><Badge tone={consent.tone}>{consent.label}</Badge></dd>
-            </div>
-            <div>
-              <dt className={fieldLabel}>Next appointment</dt>
-              <dd className="mt-1.5 tabular-nums text-ink">
-                {patient.next_appointment ? when(patient.next_appointment) : "None booked"}
-              </dd>
-            </div>
-            <div>
-              <dt className={fieldLabel}>Active prescriptions</dt>
-              <dd className="mt-1.5 tabular-nums text-ink">{patient.active_prescriptions}</dd>
-            </div>
-          </dl>
+      <Reveal className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">Consent</p>
+          <p className="mt-2"><Badge tone={consent.tone}>{consent.label}</Badge></p>
         </div>
-      </header>
+        <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
+          <p className="text-xs font-semibold uppercase tracking-wide text-ink-3">Next appointment</p>
+          <p className="mt-2 text-sm font-semibold tabular-nums text-ink">
+            {patient.next_appointment ? when(patient.next_appointment) : "None booked"}
+          </p>
+        </div>
+        <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
+          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-3">
+            <span aria-hidden="true" className="size-1.5 rounded-full bg-ok" /> Active prescriptions
+          </p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-ink"><CountUp value={patient.active_prescriptions} /></p>
+        </div>
+        <div className="rounded-xl border border-line bg-surface p-4 shadow-card">
+          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-3">
+            <span aria-hidden="true" className="size-1.5 rounded-full bg-warn" /> Open tasks
+          </p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-ink"><CountUp value={tasks.length} /></p>
+        </div>
+      </Reveal>
 
-      {error && (
-        <p role="alert" className={`${notice} border-danger-line bg-danger-soft font-medium text-danger-ink`}>
-          {error}
-        </p>
-      )}
+      <div className="mt-4 space-y-3 empty:hidden">
+        {error && <Alert tone="danger">{error}</Alert>}
+        {sent === "1" && (
+          <Alert tone="ok">Prescription saved and sent to the patient on WhatsApp.</Alert>
+        )}
+        {sent === "outside_window" && (
+          <Alert tone="warn">
+            <span className="font-semibold">Saved, but not delivered.</span>{" "}
+            <span className="font-normal">
+              WhatsApp only allows us to message a patient within 24 hours of their own last message.{" "}
+              {nudged
+                ? "They have been sent a note asking them to reply, and the assistant will read this " +
+                  "record back to them when they do. Call them if it cannot wait."
+                : "We could not reach them at all — please call them."}
+            </span>
+          </Alert>
+        )}
+        {sent === "send_failed" && (
+          <Alert tone="warn">
+            <span className="font-semibold">Saved, but not delivered.</span>{" "}
+            <span className="font-normal">
+              WhatsApp would not accept the message. Nothing was lost — the record below is on file.
+              Please tell the patient another way.
+            </span>
+          </Alert>
+        )}
+      </div>
 
-      {sent === "1" && (
-        <p role="status" className={`${notice} border-ok-line bg-ok-soft text-ok-ink`}>
-          Prescription saved and sent to the patient on WhatsApp.
-        </p>
-      )}
-      {sent === "outside_window" && (
-        <p role="status" className={`${notice} border-warn-line bg-warn-soft text-warn-ink`}>
-          <span className="font-semibold">Saved, but not delivered.</span>{" "}
-          WhatsApp only allows us to message a patient within 24 hours of their own last message.{" "}
-          {nudged
-            ? "They have been sent a note asking them to reply, and the assistant will read this " +
-              "record back to them when they do. Call them if it cannot wait."
-            : "We could not reach them at all — please call them."}
-        </p>
-      )}
-      {sent === "send_failed" && (
-        <p role="status" className={`${notice} border-warn-line bg-warn-soft text-warn-ink`}>
-          <span className="font-semibold">Saved, but not delivered.</span>{" "}
-          WhatsApp would not accept the message. Nothing was lost — the record below is on file.
-          Please tell the patient another way.
-        </p>
-      )}
+      <Tabs defaultValue={tab} className="mt-6">
+        <TabsList label="Patient record sections" className="w-fit">
+          <TabsTrigger value="timeline"><CalendarDays aria-hidden className="hidden size-4 sm:block" /> Timeline</TabsTrigger>
+          <TabsTrigger value="rx">
+            <Pill aria-hidden className="hidden size-4 sm:block" /> Prescriptions
+            {active.length > 0 && (
+              <span className="rounded-full bg-ok-soft px-1.5 text-xs font-semibold tabular-nums text-ok-ink">{active.length}</span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="notes">
+            <StickyNote aria-hidden className="hidden size-4 sm:block" /> Notes &amp; tasks
+            {tasks.length > 0 && (
+              <span className="rounded-full bg-warn-soft px-1.5 text-xs font-semibold tabular-nums text-warn-ink">{tasks.length}</span>
+            )}
+          </TabsTrigger>
+        </TabsList>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <div className="min-w-0 space-y-6">
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-3">Timeline</h2>
+        <TabsContent value="timeline">
+          <Card id="timeline" title="Activity" description="Appointments, messages, prescriptions, consent, notes and tasks, newest first." bodyClassName="">
             {timeline.length === 0 ? (
-              <p className="mt-2 rounded-lg border border-dashed border-line-strong bg-surface p-8 text-center text-sm text-ink-3">
-                {before ? "Nothing older on record." : "Nothing on record yet."}
-              </p>
+              <div className="p-4 sm:p-5">
+                <EmptyState title={before ? "Nothing older on record." : "Nothing on record yet."} />
+              </div>
             ) : (
-              <ol className="mt-2 divide-y divide-line rounded-lg border border-line bg-surface">
+              <Reveal as="ol" step={20} className="px-4 py-2 sm:px-5">
                 {timeline.map((t, i) => {
                   const kind = KIND[t.kind];
+                  const Icon = kind.icon;
                   const by = t.byName ?? (t.by ? BY[t.by] : null);
                   return (
-                    <li key={`${t.refId}-${i}`} className="p-4">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
-                        <Badge tone={kind.tone}>{kind.label}</Badge>
-                        <time dateTime={t.at.toISOString()} className="tabular-nums">{when(t.at)}</time>
-                        {by && <span>· {by}</span>}
+                    <li key={`${t.refId}-${i}`} className="relative flex gap-3 py-3">
+                      {/* The rail joining one event to the next. */}
+                      {i < timeline.length - 1 && (
+                        <span aria-hidden="true" className="absolute top-12 bottom-0 left-4 w-px -translate-x-1/2 bg-line" />
+                      )}
+                      <span
+                        aria-hidden="true"
+                        className={`relative grid size-8 shrink-0 place-items-center rounded-full ring-1 ${DOT[kind.tone]}`}
+                      >
+                        <Icon className="size-4" />
+                      </span>
+                      <div className="min-w-0 flex-1 pt-0.5">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-3">
+                          <span className="font-semibold text-ink-2">{kind.label}</span>
+                          <span aria-hidden="true">·</span>
+                          <time dateTime={t.at.toISOString()} className="tabular-nums">{when(t.at)}</time>
+                          {by && <span>· {by}</span>}
+                        </div>
+                        <p className="mt-1 break-words text-sm text-ink">{t.title}</p>
+                        {t.detail && (t.kind === "message" ? (
+                          <details className="mt-1 text-sm text-ink-2">
+                            <summary className="cursor-pointer text-xs font-medium text-accent hover:text-accent-hover">Full message</summary>
+                            <p className="mt-1.5 whitespace-pre-wrap break-words rounded-lg bg-subtle px-3 py-2">{t.detail}</p>
+                          </details>
+                        ) : (
+                          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-ink-2">{t.detail}</p>
+                        ))}
                       </div>
-                      <p className="mt-1.5 break-words text-sm text-ink">{t.title}</p>
-                      {t.detail && (t.kind === "message" ? (
-                        <details className="mt-1 text-sm text-ink-2">
-                          <summary className="cursor-pointer text-xs text-ink-3">Full message</summary>
-                          <p className="mt-1 whitespace-pre-wrap break-words">{t.detail}</p>
-                        </details>
-                      ) : (
-                        <p className="mt-1 whitespace-pre-wrap break-words text-sm text-ink-2">{t.detail}</p>
-                      ))}
                     </li>
                   );
                 })}
-              </ol>
+              </Reveal>
             )}
             {(before || timeline.length >= PAGE) && (
-              <div className="mt-3 flex gap-3">
+              <div className="flex flex-wrap gap-3 border-t border-line px-4 py-3 sm:px-5">
                 {before && <Link href={`/patients/${patient.id}`} className={btnSecondary}>Newest</Link>}
                 {timeline.length >= PAGE && (
                   <Link
@@ -295,130 +413,75 @@ export default async function PatientRecordPage({
                 )}
               </div>
             )}
-          </div>
+          </Card>
+        </TabsContent>
 
-          <div className="min-w-0">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-3">Prescriptions</h2>
-            <p className="mt-1 max-w-2xl text-sm text-ink-2">
-              Stored exactly as entered. The assistant reads these back to the patient verbatim and never interprets them.
-            </p>
+        <TabsContent value="rx">
+          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
+            <Card
+              id="prescriptions"
+              title="Prescriptions"
+              description="Stored exactly as entered. The assistant reads these back to the patient verbatim and never interprets them."
+              bodyClassName=""
+              className="min-w-0 overflow-hidden"
+            >
+              {rx.length === 0 ? (
+                <div className="p-4 sm:p-5"><EmptyState title="No prescriptions on record." /></div>
+              ) : (
+                <>
+                  {group("Active", active)}
+                  {group("Past", past)}
+                </>
+              )}
+            </Card>
 
-            {rx.length === 0 ? (
-              <p className="mt-2 rounded-lg border border-dashed border-line-strong bg-surface p-8 text-center text-sm text-ink-3">
-                No prescriptions on record.
-              </p>
-            ) : (
-              <ul className="mt-3 space-y-3">
-                {rx.map(p => {
-                  const status = prescriptionStatus(p.status);
-                  return (
-                    <li
-                      key={p.id}
-                      className={`rounded-lg border bg-surface p-4 ${
-                        p.status === "active" ? "border-l-4 border-line border-l-ok" : "border-line"
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                        <span className="min-w-0 break-words text-base font-semibold text-ink">{p.drug_name}</span>
-                        <span className="min-w-0 break-words text-sm text-ink-2">{p.dosage}</span>
-                        {p.duration_days !== null && (
-                          <span className="text-sm text-ink-3">
-                            for {p.duration_days} day{p.duration_days === 1 ? "" : "s"}
-                          </span>
-                        )}
-                        <span className="ml-auto"><Badge tone={status.tone}>{status.label}</Badge></span>
-                      </div>
-                      <p className="mt-1.5 text-xs text-ink-3">
-                        {p.doctor_name} · recorded by {p.created_by_name} · {when(p.created_at)}
-                      </p>
-                      {p.notes && <p className="mt-2 break-words text-sm text-ink">{p.notes}</p>}
-                      {p.status === "active" && canPrescribe && (
-                        <form action={discontinue} className="mt-3">
-                          <input type="hidden" name="patientId" value={patient.id} />
-                          <input type="hidden" name="prescriptionId" value={p.id} />
-                          <button className={btnSecondary}>Discontinue</button>
-                        </form>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </div>
-
-        {/* Not sticky: with notes and tasks this column outgrows the viewport. */}
-        <div className="min-w-0 space-y-6 lg:self-start">
-          {canPrescribe ? (
-            <form action={addPrescription} className="rounded-lg border border-line bg-surface">
-              <input type="hidden" name="patientId" value={patient.id} />
-              <h2 className="border-b border-line px-4 py-3 text-sm font-semibold text-ink">
-                Add prescription
-              </h2>
-              <div className="space-y-4 p-4">
-                {!isDoctor && (
-                  <div>
-                    <label htmlFor="doctorId" className={fieldLabel}>Doctor</label>
-                    <select id="doctorId" name="doctorId" required className={field}>
-                      {doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                    </select>
-                  </div>
-                )}
-                <div>
-                  <label htmlFor="drugName" className={fieldLabel}>Drug name</label>
-                  <input id="drugName" name="drugName" required autoComplete="off" className={field} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label htmlFor="dosage" className={fieldLabel}>Dosage</label>
-                    <input id="dosage" name="dosage" required autoComplete="off" placeholder="1 tablet twice daily" className={field} />
-                  </div>
-                  <div>
-                    <label htmlFor="durationDays" className={fieldLabel}>Duration (days)</label>
-                    <input id="durationDays" name="durationDays" type="number" min={1} inputMode="numeric" className={field} />
-                  </div>
-                </div>
-                <div>
-                  <label htmlFor="notes" className={fieldLabel}>Notes</label>
-                  <textarea id="notes" name="notes" rows={3} className={field} />
-                </div>
-                <p className="text-xs leading-relaxed text-ink-3">
-                  Saved exactly as typed, attributed to {isDoctor ? "you" : "the doctor named above"},
-                  and sent to the patient on WhatsApp as written.
+            {/* First on a phone: entering a medicine is what the doctor opens this tab for. */}
+            <div className="order-first min-w-0 lg:order-none lg:self-start">
+              {canPrescribe ? (
+                <RxForm
+                  action={addPrescription}
+                  patientId={patient.id}
+                  doctors={doctors}
+                  isDoctor={isDoctor}
+                  drugNames={drugNames.map(d => d.drug_name)}
+                />
+              ) : (
+                <p className="rounded-xl border border-dashed border-line-strong bg-surface p-4 text-sm text-ink-3">
+                  Only a doctor or admin can prescribe. Everything on file is shown on this page.
                 </p>
-                <button className={`${btnPrimary} w-full`}>Save &amp; send to patient</button>
-              </div>
-            </form>
-          ) : (
-            <p className="rounded-lg border border-dashed border-line-strong bg-surface p-4 text-sm text-ink-3">
-              Only a doctor or admin can prescribe. Everything on file is shown on this page.
-            </p>
-          )}
-
-          {canWrite && (
-            <form action={note} className="rounded-lg border border-line bg-surface">
-              <input type="hidden" name="patientId" value={patient.id} />
-              <h2 className="border-b border-line px-4 py-3 text-sm font-semibold text-ink">Add note</h2>
-              <div className="space-y-3 p-4">
-                <label htmlFor="body" className="sr-only">Note</label>
-                <textarea id="body" name="body" rows={3} required maxLength={NOTE_MAX} className={field} />
-                <p className="text-xs text-ink-3">Visible to all staff who can see this patient. Notes cannot be edited later.</p>
-                <button className={`${btnSecondary} w-full`}>Save note</button>
-              </div>
-            </form>
-          )}
-
-          <div>
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-3">Open tasks</h2>
-              <Link href={`/tasks?patient=${patient.id}`} className="text-sm font-medium text-accent underline underline-offset-2 hover:text-accent-hover">
-                New task
-              </Link>
+              )}
             </div>
-            <TaskList tasks={tasks} done={taskDone} empty="No open tasks for this patient." showPatient={false} />
           </div>
-        </div>
-      </div>
+        </TabsContent>
+
+        <TabsContent value="notes">
+          <div className="grid items-start gap-6 lg:grid-cols-2">
+            {canWrite && (
+              <form action={note} id="notes" className="min-w-0 self-start rounded-xl border border-line bg-surface shadow-card">
+                <input type="hidden" name="patientId" value={patient.id} />
+                <h2 className="border-b border-line px-4 py-3 text-sm font-semibold text-ink sm:px-5">Add note</h2>
+                <div className="space-y-3 p-4 sm:p-5">
+                  <label htmlFor="body" className="sr-only">Note</label>
+                  <textarea id="body" name="body" rows={4} required maxLength={NOTE_MAX} className={field} />
+                  <p className="text-xs text-ink-3">Visible to all staff who can see this patient. Notes cannot be edited later.</p>
+                  <button className={btnPrimary}>Save note</button>
+                </div>
+              </form>
+            )}
+
+            {/* TaskList is its own card; only a heading row sits above it. */}
+            <section id="tasks" className="min-w-0 self-start">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold text-ink">Open tasks</h2>
+                <Link href={`/tasks?patient=${patient.id}`} className={`${btnSecondary} ${btnSm}`}>
+                  New task
+                </Link>
+              </div>
+              <TaskList tasks={tasks} done={taskDone} empty="No open tasks for this patient." showPatient={false} />
+            </section>
+          </div>
+        </TabsContent>
+      </Tabs>
     </section>
   );
 }

@@ -1,11 +1,22 @@
 import { redirect } from "next/navigation";
+import { Plus, ShieldCheck, ScrollText, MessageSquareOff } from "lucide-react";
 import { authenticate } from "@/lib/auth";
 import { sql } from "@/lib/db";
 import { getSession, signIn } from "@/lib/session";
 import { TooManyAttempts } from "@/lib/throttle";
+import { Alert, btnPrimary, field, fieldLabel } from "../(crm)/_ui";
 
-const field =
-  "mt-1.5 w-full rounded-md border border-line bg-surface px-3 py-2.5 text-sm text-ink";
+const TRUST = [
+  { icon: ShieldCheck, text: "Patient data stays with your clinic." },
+  { icon: ScrollText, text: "Every action is recorded in the audit log." },
+  { icon: MessageSquareOff, text: "The assistant never answers clinical questions." },
+];
+
+const Mark = ({ className = "" }: { className?: string }) => (
+  <span aria-hidden="true" className={`grid place-items-center rounded-lg bg-gradient-to-br from-accent to-accent-ink text-white shadow-card ${className}`}>
+    <Plus className="size-1/2" strokeWidth={2.6} />
+  </span>
+);
 
 export default async function LoginPage({
   searchParams,
@@ -39,58 +50,83 @@ export default async function LoginPage({
   }
 
   return (
-    <main className="grid min-h-dvh place-items-center bg-rail p-6">
-      <div className="w-full max-w-sm">
-        <div className="flex items-center justify-center gap-2.5">
-          <span aria-hidden="true" className="grid size-9 place-items-center rounded-md bg-accent text-white">
-            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-              <path d="M12 6v12M6 12h12" />
-            </svg>
+    <main className="grid min-h-dvh bg-canvas md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+      {/* Brand panel: md+ only; phones get the compact mark above the form. */}
+      <aside className="relative hidden overflow-hidden bg-gradient-to-br from-accent to-accent-ink p-10 text-white md:flex md:flex-col md:justify-between lg:p-14">
+        <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-24 size-80 rounded-full bg-white/10" />
+        <div aria-hidden="true" className="pointer-events-none absolute -bottom-32 -left-20 size-96 rounded-full bg-white/5" />
+
+        <div className="relative flex items-center gap-2.5">
+          <span aria-hidden="true" className="grid size-10 place-items-center rounded-lg bg-white/15 ring-1 ring-white/25">
+            <Plus className="size-5" strokeWidth={2.6} />
           </span>
-          <span className="text-lg font-semibold text-white">Doctor-CRM</span>
+          <span className="text-lg font-semibold">Doctor-CRM</span>
         </div>
-        <p className="mt-2 text-center text-sm text-rail-ink">
-          Appointments, patients and WhatsApp for your clinic
-        </p>
 
-        <form action={login} className="mt-6 rounded-xl border border-line bg-surface p-7 shadow-lg">
-          <h1 className="text-lg font-semibold text-ink">Sign in</h1>
-          <p className="mt-1 text-sm text-ink-2">Use your clinic staff account.</p>
+        <div className="relative max-w-md">
+          <p className="text-3xl font-semibold leading-tight tracking-tight lg:text-4xl">
+            The clinic front desk, handled.
+          </p>
+          <p className="mt-3 text-base text-white/80">
+            Appointments, patients and WhatsApp for your clinic.
+          </p>
+          <ul className="mt-8 space-y-3">
+            {TRUST.map(({ icon: Icon, text }) => (
+              <li key={text} className="flex items-center gap-3 text-sm text-white/90">
+                <span className="grid size-8 shrink-0 place-items-center rounded-full bg-white/15">
+                  <Icon aria-hidden="true" className="size-4" />
+                </span>
+                {text}
+              </li>
+            ))}
+          </ul>
+        </div>
 
-          {error && (
-            <p role="alert" className="mt-4 rounded-md border border-danger-line bg-danger-soft px-3 py-2 text-sm font-medium text-danger-ink">
-              {error === "throttled"
-                ? "Too many sign-in attempts. Please wait a few minutes and try again."
-                : "That email and password did not match."}
-            </p>
-          )}
+        <p className="relative text-xs text-white/70">Patient data. Sessions end after eight hours.</p>
+      </aside>
 
-          <div className="mt-5 space-y-4">
-            <div>
-              <label htmlFor="email" className="block text-xs font-semibold uppercase tracking-wide text-ink-3">
-                Email
-              </label>
-              <input id="email" name="email" type="email" required autoFocus autoComplete="username" className={field} />
+      <div className="flex items-center justify-center px-4 py-10 sm:px-6">
+        <div className="w-full max-w-sm">
+          <div className="mb-6 flex flex-col items-center text-center md:hidden">
+            <div className="flex items-center gap-2.5">
+              <Mark className="size-9" />
+              <span className="text-lg font-semibold text-ink">Doctor-CRM</span>
             </div>
-            <div>
-              <label htmlFor="password" className="block text-xs font-semibold uppercase tracking-wide text-ink-3">
-                Password
-              </label>
-              <input id="password" name="password" type="password" required autoComplete="current-password" className={field} />
-            </div>
+            <p className="mt-2 text-sm text-ink-2">The clinic front desk, handled.</p>
           </div>
 
-          <button
-            type="submit"
-            className="mt-6 w-full rounded-md bg-accent px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-accent-hover"
-          >
-            Sign in
-          </button>
-        </form>
+          <form action={login} className="rounded-xl border border-line bg-surface p-6 shadow-pop sm:p-8">
+            <h1 className="text-xl font-semibold tracking-tight text-ink">Sign in</h1>
+            <p className="mt-1 text-sm text-ink-2">Use your clinic staff account.</p>
 
-        <p className="mt-5 text-center text-xs text-rail-ink">
-          Patient data. Sessions end after eight hours.
-        </p>
+            {error && (
+              <Alert tone="danger" className="mt-4">
+                {error === "throttled"
+                  ? "Too many sign-in attempts. Please wait a few minutes and try again."
+                  : "That email and password did not match."}
+              </Alert>
+            )}
+
+            <div className="mt-5 space-y-4">
+              <div>
+                <label htmlFor="email" className={fieldLabel}>Email</label>
+                <input id="email" name="email" type="email" required autoFocus autoComplete="username" className={`${field} py-2.5`} />
+              </div>
+              <div>
+                <label htmlFor="password" className={fieldLabel}>Password</label>
+                <input id="password" name="password" type="password" required autoComplete="current-password" className={`${field} py-2.5`} />
+              </div>
+            </div>
+
+            <button type="submit" className={`${btnPrimary} mt-6 w-full py-2.5`}>
+              Sign in
+            </button>
+          </form>
+
+          <p className="mt-5 text-center text-xs text-ink-3 md:hidden">
+            Patient data. Sessions end after eight hours.
+          </p>
+        </div>
       </div>
     </main>
   );

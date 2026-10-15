@@ -6,12 +6,11 @@ import { sql } from "@/lib/db";
 import { getPatient, patientScope } from "@/lib/patients";
 import { createTask, completeTask, listTasks, TITLE_MAX } from "@/lib/tasks";
 import { isId, refusal } from "@/lib/desk";
-import { btnPrimary } from "../_ui";
+import { Plus } from "lucide-react";
+import { Alert, Avatar, Badge, Card, PageHeader, btnPrimary, field, fieldLabel } from "../_ui";
 import { TaskList } from "./_list";
 
-const field = "mt-1.5 w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink";
-const fieldLabel = "block text-xs font-semibold uppercase tracking-wide text-ink-3";
-const heading = "text-sm font-semibold uppercase tracking-wide text-ink-3";
+const heading = "mb-2 text-xs font-semibold uppercase tracking-wide text-ink-3";
 
 /** Run a desk write; a refusal comes back as ?error= on `back`, anything else is a real fault. */
 async function attempt(back: string, write: () => Promise<unknown>) {
@@ -69,17 +68,24 @@ export default async function TasksPage({
     revalidatePath("/tasks");
   }
 
+  const overdue = open.filter(t => t.overdue).length;
+
   return (
-    <section>
-      <h1 className="text-xl font-semibold tracking-tight text-ink">Tasks</h1>
+    <section className="space-y-6">
+      <PageHeader
+        title="Tasks"
+        subtitle={
+          <>
+            <Badge tone="accent">{open.length} open</Badge>
+            {overdue > 0 && <Badge tone="warn">{overdue} overdue</Badge>}
+            <span className="text-ink-3">{mine.length} assigned to you</span>
+          </>
+        }
+      />
 
-      {error && (
-        <p role="alert" className="mt-4 rounded-md border border-danger-line bg-danger-soft px-3.5 py-2.5 text-sm font-medium text-danger-ink">
-          {error}
-        </p>
-      )}
+      {error && <Alert>{error}</Alert>}
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-6">
           <div>
             <h2 className={heading}>Assigned to me</h2>
@@ -91,29 +97,29 @@ export default async function TasksPage({
           </div>
         </div>
 
-        <form action={create} className="self-start rounded-lg border border-line bg-surface">
-          <h2 className="border-b border-line px-4 py-3 text-sm font-semibold text-ink">New task</h2>
-          <div className="space-y-4 p-4">
+        <Card title="New task" description="A follow-up for someone at the clinic." className="self-start lg:sticky lg:top-6">
+          <form action={create} className="space-y-4">
             {patient && (
-              <p className="text-sm text-ink-2">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border border-accent-line bg-accent-soft/60 px-3 py-2 text-sm text-ink-2">
                 <input type="hidden" name="patientId" value={patient.id} />
-                For{" "}
-                <Link href={`/patients/${patient.id}`} className="font-medium text-accent underline underline-offset-2 hover:text-accent-hover">
+                <Avatar name={patient.name} size="sm" />
+                <span>For</span>
+                <Link href={`/patients/${patient.id}`} className="font-medium text-accent-ink hover:underline">
                   {patient.name ?? "Unnamed patient"}
-                </Link>{" "}
-                · <Link href="/tasks" className="text-ink-3 underline underline-offset-2 hover:text-ink">general task instead</Link>
-              </p>
+                </Link>
+                <Link href="/tasks" className="ml-auto text-xs text-ink-3 underline underline-offset-2 hover:text-ink">general task instead</Link>
+              </div>
             )}
             <div>
               <label htmlFor="title" className={fieldLabel}>Task</label>
               <input id="title" name="title" required maxLength={TITLE_MAX} autoComplete="off" className={field} />
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div>
+              <div className="min-w-0">
                 <label htmlFor="dueOn" className={fieldLabel}>Due</label>
                 <input id="dueOn" name="dueOn" type="date" className={field} />
               </div>
-              <div>
+              <div className="min-w-0">
                 <label htmlFor="assignedTo" className={fieldLabel}>Assign to</label>
                 <select id="assignedTo" name="assignedTo" defaultValue={staff.id} className={field}>
                   <option value="">Unassigned</option>
@@ -121,9 +127,11 @@ export default async function TasksPage({
                 </select>
               </div>
             </div>
-            <button className={`${btnPrimary} w-full`}>Add task</button>
-          </div>
-        </form>
+            <button className={`${btnPrimary} w-full`}>
+              <Plus className="size-4" aria-hidden="true" /> Add task
+            </button>
+          </form>
+        </Card>
       </div>
     </section>
   );

@@ -1,9 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { CalendarClock, Download, Phone, Pill, Search, UserPlus } from "lucide-react";
 import { currentStaff } from "@/lib/session";
+import { can } from "@/lib/rbac";
 import { sql } from "@/lib/db";
 import { searchPatients, patientScope } from "@/lib/patients";
-import { Badge, consentStatus, btnPrimary, btnSecondary } from "../_ui";
+import { Reveal } from "@/components/motion/reveal";
+import {
+  Avatar, Badge, EmptyState, PageHeader, consentStatus,
+  btnGhost, btnPrimary, btnSecondary, btnSm, field, tableWrap, td, th, tr,
+} from "../_ui";
 
 export default async function PatientsPage({
   searchParams,
@@ -27,81 +33,96 @@ export default async function PatientsPage({
     timeZone: staff.timezone, dateStyle: "medium", timeStyle: "short",
   }).format(at);
 
-  return (
-    <section>
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-ink">
-            {staff.role === "doctor" ? "My patients" : "Patients"}
-          </h1>
-          <p className="mt-1 text-sm text-ink-2">
-            {patients.length === 100
-              ? "Showing the first 100 — search to narrow"
-              : q
-              ? `${patients.length} ${patients.length === 1 ? "match" : "matches"} for “${q}”`
-              : staff.role === "doctor"
-                ? `${patients.length} seen by you at this clinic`
-                : `${patients.length} on file`}
-          </p>
-        </div>
+  const link = "font-medium break-words text-ink transition-colors hover:text-accent";
 
-        <form method="GET" className="flex w-full items-center gap-2 sm:w-auto">
-          <label htmlFor="q" className="sr-only">Search patients by name or phone</label>
-          <div className="relative flex-1 sm:w-72 sm:flex-none">
-            <svg viewBox="0 0 24 24" aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-              <circle cx="11" cy="11" r="6.5" />
-              <path d="m16 16 4 4" />
-            </svg>
-            <input
-              id="q"
-              type="search"
-              name="q"
-              defaultValue={q ?? ""}
-              placeholder="Name or phone number"
-              className="w-full rounded-md border border-line bg-surface py-2 pl-9 pr-3 text-sm text-ink"
-            />
-          </div>
-          <button className={btnPrimary}>Search</button>
-          {q && (
-            <Link href="/patients" className="text-sm text-ink-3 underline underline-offset-2 hover:text-ink">
-              Clear
-            </Link>
-          )}
-          {/* Every patient in scope, not just the current search. */}
-          <a href="/export/patients" className={btnSecondary}>Download CSV</a>
-        </form>
-      </header>
+  return (
+    <section className="space-y-6">
+      <PageHeader
+        title={staff.role === "doctor" ? "My patients" : "Patients"}
+        subtitle={
+          <>
+            <Badge tone="accent">{patients.length === 100 ? "100+" : patients.length}</Badge>
+            <span>
+              {patients.length === 100
+                ? "Showing the first 100 — search to narrow"
+                : q
+                ? `${patients.length === 1 ? "match" : "matches"} for “${q}”`
+                : staff.role === "doctor"
+                  ? "seen by you at this clinic"
+                  : "on file"}
+            </span>
+          </>
+        }
+        actions={
+          <>
+            {/* Every patient in scope, not just the current search. */}
+            <a href="/export/patients" className={btnSecondary}>
+              <Download className="size-4" aria-hidden="true" /> Download CSV
+            </a>
+            {can(staff.role, "patients:write") && (
+              <Link href="/patients/new" className={btnPrimary}>
+                <UserPlus className="size-4" aria-hidden="true" /> Register walk-in
+              </Link>
+            )}
+          </>
+        }
+      />
+
+      <form method="GET" className="flex items-center gap-2" role="search">
+        <label htmlFor="q" className="sr-only">Search patients by name or phone</label>
+        <div className="relative min-w-0 flex-1 sm:max-w-md">
+          <Search aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 mt-[3px] size-4 -translate-y-1/2 text-ink-3" />
+          <input
+            id="q"
+            type="search"
+            name="q"
+            defaultValue={q ?? ""}
+            placeholder="Search by name or phone number"
+            className={`${field} !py-2.5 pl-10`}
+          />
+        </div>
+        <button className={`${btnPrimary} mt-1.5 !py-2.5`}>Search</button>
+        {q && (
+          <Link href="/patients" className={`${btnGhost} mt-1.5`}>Clear</Link>
+        )}
+      </form>
 
       {patients.length === 0 ? (
-        <p className="mt-6 rounded-lg border border-dashed border-line-strong bg-surface p-10 text-center text-sm text-ink-3">
-          {q ? "No patients match that search."
-             : staff.role === "doctor" ? "No patients have been booked with you yet."
-             : "No patients yet."}
-        </p>
+        <EmptyState
+          title={q ? "No patients match that search"
+            : staff.role === "doctor" ? "No patients have been booked with you yet"
+            : "No patients yet"}
+          action={q ? <Link href="/patients" className={`${btnSecondary} ${btnSm}`}>Clear search</Link> : undefined}
+        >
+          {q ? "Check the spelling, or try the last few digits of the phone number." : undefined}
+        </EmptyState>
       ) : (
         <>
         {/* Below md the same rows render as cards. */}
-        <ul className="mt-5 space-y-3 md:hidden">
+        <Reveal as="ul" className="space-y-3 md:hidden">
           {patients.map(p => {
             const consent = consentStatus(p.consent_status);
             return (
-              <li key={p.id} className="rounded-lg border border-line bg-surface p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <Link
-                    href={`/patients/${p.id}`}
-                    className="min-w-0 text-lg font-semibold leading-tight break-words text-ink underline decoration-line-strong underline-offset-2 hover:text-accent"
-                  >
-                    {p.name ?? "Unnamed"}
-                  </Link>
-                  <Badge tone={consent.tone}>{consent.label}</Badge>
+              <li key={p.id} className="rounded-xl border border-line bg-surface p-4 shadow-card">
+                <div className="flex items-start gap-3">
+                  <Avatar name={p.name} />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-2">
+                      <Link href={`/patients/${p.id}`} className={`${link} min-w-0 text-base leading-tight`}>
+                        {p.name ?? "Unnamed"}
+                      </Link>
+                      <Badge tone={consent.tone}>{consent.label}</Badge>
+                    </div>
+                    <a
+                      href={`tel:${p.phone}`}
+                      className="mt-1 inline-flex items-center gap-1.5 text-sm tabular-nums text-ink-2 hover:text-accent"
+                    >
+                      <Phone className="size-3.5 text-ink-3" aria-hidden="true" />
+                      {p.phone}
+                    </a>
+                  </div>
                 </div>
-                <a
-                  href={`tel:${p.phone}`}
-                  className="mt-1 inline-block tabular-nums text-ink-2 underline decoration-line-strong underline-offset-2 hover:text-accent"
-                >
-                  {p.phone}
-                </a>
-                <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <dl className="mt-3 grid grid-cols-2 gap-3 border-t border-line pt-3 text-sm">
                   <div>
                     <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">Next appointment</dt>
                     <dd className="mt-0.5 tabular-nums text-ink-2">{when(p.next_appointment)}</dd>
@@ -114,53 +135,60 @@ export default async function PatientsPage({
               </li>
             );
           })}
-        </ul>
+        </Reveal>
 
-        <div className="mt-5 hidden overflow-x-auto rounded-lg border border-line bg-surface md:block">
-          <table className="w-full min-w-[700px] border-collapse text-sm">
+        <div className={`hidden md:block ${tableWrap}`}>
+          <table className="w-full min-w-[700px] border-collapse">
             <thead>
-              <tr className="border-b border-line bg-subtle text-left text-xs uppercase tracking-wide whitespace-nowrap text-ink-3">
-                <th scope="col" className="px-4 py-2.5 font-semibold">Name</th>
-                <th scope="col" className="px-4 py-2.5 font-semibold">Phone</th>
-                <th scope="col" className="px-4 py-2.5 font-semibold">Consent</th>
-                <th scope="col" className="px-4 py-2.5 font-semibold">Next appointment</th>
-                <th scope="col" className="px-4 py-2.5 text-right font-semibold">Active prescriptions</th>
+              <tr className="whitespace-nowrap">
+                <th scope="col" className={th}>Name</th>
+                <th scope="col" className={th}>Phone</th>
+                <th scope="col" className={th}>Consent</th>
+                <th scope="col" className={th}>Next appointment</th>
+                <th scope="col" className={`${th} text-right`}>Active prescriptions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-line">
+            <Reveal as="tbody">
               {patients.map(p => {
                 const consent = consentStatus(p.consent_status);
                 return (
-                  <tr key={p.id} className="transition-colors hover:bg-subtle">
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/patients/${p.id}`}
-                        className="font-medium break-words text-ink underline decoration-line-strong underline-offset-2 hover:text-accent"
-                      >
-                        {p.name ?? "Unnamed"}
-                      </Link>
+                  <tr key={p.id} className={tr}>
+                    <td className={td}>
+                      <div className="flex items-center gap-3">
+                        <Avatar name={p.name} size="sm" />
+                        <Link href={`/patients/${p.id}`} className={link}>
+                          {p.name ?? "Unnamed"}
+                        </Link>
+                      </div>
                     </td>
-                    <td className="px-4 py-3">
-                      <a
-                        href={`tel:${p.phone}`}
-                        className="tabular-nums text-ink-2 underline decoration-line-strong underline-offset-2 hover:text-accent"
-                      >
+                    <td className={td}>
+                      <a href={`tel:${p.phone}`} className="whitespace-nowrap tabular-nums hover:text-accent">
                         {p.phone}
                       </a>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className={td}>
                       <Badge tone={consent.tone}>{consent.label}</Badge>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 tabular-nums text-ink-2">
-                      {when(p.next_appointment)}
+                    <td className={`${td} whitespace-nowrap tabular-nums`}>
+                      {p.next_appointment ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <CalendarClock className="size-3.5 text-ink-3" aria-hidden="true" />
+                          {when(p.next_appointment)}
+                        </span>
+                      ) : <span className="text-ink-3">—</span>}
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-ink-2">
-                      {p.active_prescriptions}
+                    <td className={`${td} text-right tabular-nums`}>
+                      {p.active_prescriptions > 0 ? (
+                        <span className="inline-flex items-center gap-1 font-medium text-ok-ink">
+                          <Pill className="size-3.5" aria-hidden="true" />
+                          {p.active_prescriptions}
+                        </span>
+                      ) : <span className="text-ink-3">{p.active_prescriptions}</span>}
                     </td>
                   </tr>
                 );
               })}
-            </tbody>
+            </Reveal>
           </table>
         </div>
         </>

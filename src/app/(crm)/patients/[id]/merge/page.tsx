@@ -3,13 +3,16 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
-import { requirePermission } from "@/lib/rbac";
+import { can } from "@/lib/rbac";
 import { getPatient, searchPatients, type PatientSummary } from "@/lib/patients";
 import { previewMerge, mergePatients, type MergeCounts } from "@/lib/merge";
 import { isId, refusal } from "@/lib/desk";
-import { Badge, consentStatus, btnPrimary, btnSecondary } from "../../../_ui";
+import {
+  Alert, Avatar, Badge, Card, EmptyState, PageHeader, consentStatus, btnDanger, btnSecondary, field,
+} from "../../../_ui";
+import { Reveal } from "@/components/motion/reveal";
+import { Search } from "lucide-react";
 
-const notice = "mt-4 rounded-md border px-3.5 py-2.5 text-sm";
 
 const LABELS: Record<keyof MergeCounts, string> = {
   appointments: "Appointments", conversations: "Conversations", messages: "Messages",
@@ -25,8 +28,18 @@ export default async function MergePatientPage({
   searchParams: Promise<{ q?: string; with?: string; error?: string }>;
 }) {
   const staff = await currentStaff();
-  // Merging is a desk judgement; a doctor never merges (src/lib/rbac.ts).
-  requirePermission(staff.role, "patients:merge");
+  // Merging is a desk judgement; a doctor never merges (src/lib/rbac.ts). Said
+  // plainly here rather than thrown to the error page; the action re-checks.
+  if (!can(staff.role, "patients:merge")) {
+    return (
+      <section>
+        <PageHeader title="Merge duplicate records" back={{ href: "/patients", label: "Patients" }} />
+        <EmptyState title="Not available for your role">
+          The front desk or an admin merges duplicate records.
+        </EmptyState>
+      </section>
+    );
+  }
   const { id } = await params;
   const { q, with: otherId, error: errorParam } = await searchParams;
   if (!isId(id)) notFound();
@@ -80,87 +93,111 @@ export default async function MergePatientPage({
     redirect(`/patients/${keep}`);
   }
 
-  const card = (p: PatientSummary, checked: boolean) => {
+  const card = (p: PatientSummary, checked: boolean, role: string) => {
     const consent = consentStatus(p.consent_status);
     return (
-      <label key={p.id} className="flex cursor-pointer gap-3 rounded-lg border border-line bg-surface p-4 has-[:checked]:border-accent">
-        <input type="radio" name="keep" value={p.id} defaultChecked={checked} className="mt-1" />
-        <span className="min-w-0">
-          <span className="block font-semibold break-words text-ink">{p.name ?? "Unnamed patient"}</span>
-          <span className="block tabular-nums text-sm text-ink-2">{p.phone}</span>
-          <span className="mt-1.5 block"><Badge tone={consent.tone}>{consent.label}</Badge></span>
-          <span className="mt-2 block text-xs text-ink-3">
-            {(Object.keys(LABELS) as (keyof MergeCounts)[])
-              .map(k => `${LABELS[k]} ${held[p.id][k]}`).join(" · ")}
+      <label
+        key={p.id}
+        className="group flex min-w-0 cursor-pointer flex-col rounded-xl border-2 border-line bg-surface p-4 shadow-card transition-colors hover:border-line-strong has-[:checked]:border-accent has-[:checked]:bg-accent-soft/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent/30"
+      >
+        <span className="flex items-center justify-between gap-3">
+          <span className="text-xs font-semibold uppercase tracking-wide text-ink-3">{role}</span>
+          <span className="flex items-center gap-2 text-xs font-semibold">
+            <span className="hidden text-accent-ink group-has-[:checked]:inline">Keep</span>
+            <span className="text-danger-ink group-has-[:checked]:hidden">Merge in &amp; delete</span>
+            <input type="radio" name="keep" value={p.id} defaultChecked={checked} className="size-4 accent-accent" />
           </span>
+        </span>
+        <span className="mt-3 flex min-w-0 items-center gap-3">
+          <Avatar name={p.name} />
+          <span className="min-w-0">
+            <span className="block font-semibold break-words text-ink">{p.name ?? "Unnamed patient"}</span>
+            <span className="block tabular-nums text-sm text-ink-2">{p.phone}</span>
+          </span>
+        </span>
+        <span className="mt-3 block"><Badge tone={consent.tone}>Consent: {consent.label}</Badge></span>
+        <span className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1.5 border-t border-line pt-3 text-sm">
+          {(Object.keys(LABELS) as (keyof MergeCounts)[]).map(k => (
+            <span key={k} className="flex justify-between gap-2">
+              <span className="text-ink-3">{LABELS[k]}</span>
+              <span className="font-semibold tabular-nums text-ink">{held[p.id][k]}</span>
+            </span>
+          ))}
         </span>
       </label>
     );
   };
 
   return (
-    <section className="max-w-3xl">
-      <Link href={`/patients/${id}`} className="text-sm text-ink-3 transition-colors hover:text-ink">
-        &larr; {patient.name ?? "Patient record"}
-      </Link>
-      <h1 className="mt-3 text-xl font-semibold tracking-tight text-ink">Merge with another record</h1>
-      <p className="mt-1 text-sm text-ink-2">
-        Find the duplicate of {patient.name ?? patient.phone}. Everything on it moves to the record you keep,
-        and the other record is deleted.
-      </p>
+    <section className="max-w-4xl">
+      <PageHeader
+        back={{ href: `/patients/${id}`, label: patient.name ?? "Patient record" }}
+        title="Merge with another record"
+        subtitle={<>
+          Find the duplicate of {patient.name ?? patient.phone}. Everything on it moves to the record you keep,
+          and the other record is deleted.
+        </>}
+      />
 
-      {error && (
-        <p role="alert" className={`${notice} border-danger-line bg-danger-soft font-medium text-danger-ink`}>
-          {error}
-        </p>
-      )}
+      <div className="space-y-6">
+        {error && <Alert tone="danger">{error}</Alert>}
 
-      <form method="GET" className="mt-5 flex items-center gap-2">
-        <label htmlFor="merge-q" className="sr-only">Search by name or phone</label>
-        <input
-          id="merge-q" type="search" name="q" defaultValue={q ?? ""} placeholder="Name or phone number"
-          className="w-full max-w-sm rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink"
-        />
-        <button className={btnSecondary}>Search</button>
-      </form>
+        <Card title="Find the duplicate">
+          <form method="GET" className="flex flex-wrap items-center gap-2">
+            <label htmlFor="merge-q" className="sr-only">Search by name or phone</label>
+            <input
+              id="merge-q" type="search" name="q" defaultValue={q ?? ""} placeholder="Name or phone number"
+              className={`${field} !mt-0 min-w-0 flex-1 sm:max-w-sm`}
+            />
+            <button className={btnSecondary}><Search aria-hidden className="size-4" /> Search</button>
+          </form>
 
-      {q && (candidates.length === 0 ? (
-        <p className="mt-3 text-sm text-ink-3">No other records match that search.</p>
-      ) : (
-        <ul className="mt-3 divide-y divide-line rounded-lg border border-line bg-surface">
-          {candidates.map(p => (
-            <li key={p.id}>
-              <Link
-                href={`/patients/${id}/merge?${new URLSearchParams({ q, with: p.id })}`}
-                className="flex flex-wrap items-center gap-x-3 px-4 py-2.5 text-sm hover:bg-subtle"
-              >
-                <span className="font-medium text-ink">{p.name ?? "Unnamed"}</span>
-                <span className="tabular-nums text-ink-2">{p.phone}</span>
-              </Link>
-            </li>
+          {q && (candidates.length === 0 ? (
+            <div className="mt-4"><EmptyState title="No other records match that search." /></div>
+          ) : (
+            <Reveal as="ul" className="mt-4 divide-y divide-line overflow-hidden rounded-lg border border-line">
+              {candidates.map(p => (
+                <li key={p.id}>
+                  <Link
+                    href={`/patients/${id}/merge?${new URLSearchParams({ q, with: p.id })}`}
+                    aria-current={p.id === otherId ? "true" : undefined}
+                    className="flex min-w-0 items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-subtle aria-[current]:bg-accent-soft"
+                  >
+                    <Avatar name={p.name} size="sm" />
+                    <span className="min-w-0 truncate font-medium text-ink">{p.name ?? "Unnamed"}</span>
+                    <span className="ml-auto shrink-0 tabular-nums text-ink-2">{p.phone}</span>
+                  </Link>
+                </li>
+              ))}
+            </Reveal>
           ))}
-        </ul>
-      ))}
+        </Card>
 
-      {other && (
-        <form action={merge} className="mt-6 rounded-lg border border-line bg-surface p-4">
-          <input type="hidden" name="a" value={patient.id} />
-          <input type="hidden" name="b" value={other.id} />
-          <fieldset>
-            <legend className="text-sm font-semibold text-ink">Which record do you keep?</legend>
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              {card(patient, true)}
-              {card(other, false)}
-            </div>
-          </fieldset>
-          <p className="mt-4 text-xs leading-relaxed text-ink-3">
-            Everything on the record not kept moves to the one kept, and that record is deleted.
-            Consent follows the most recent consent decision on either record.
-            A later message from the deleted record&rsquo;s number starts as a new contact. This cannot be undone.
-          </p>
-          <button className={`${btnPrimary} mt-4`}>Merge records</button>
-        </form>
-      )}
+        {other && (
+          <form action={merge}>
+            <input type="hidden" name="a" value={patient.id} />
+            <input type="hidden" name="b" value={other.id} />
+            <Card title="Which record do you keep?" description="Pick one. The other is merged into it.">
+              <fieldset>
+                <legend className="sr-only">Which record do you keep?</legend>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {card(patient, true, "This record")}
+                  {card(other, false, "Duplicate")}
+                </div>
+              </fieldset>
+              <div className="mt-5 rounded-lg border border-danger-line bg-danger-soft/50 px-4 py-3 text-sm leading-relaxed text-ink-2">
+                Everything on the record not kept moves to the one kept, and that record is deleted.
+                Consent follows the most recent consent decision on either record.
+                A later message from the deleted record&rsquo;s number starts as a new contact.{" "}
+                <strong className="font-semibold text-danger-ink">This cannot be undone.</strong>
+              </div>
+              <div className="mt-4 flex justify-end">
+                <button className={btnDanger}>Merge records</button>
+              </div>
+            </Card>
+          </form>
+        )}
+      </div>
     </section>
   );
 }

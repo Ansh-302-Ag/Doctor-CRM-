@@ -9,10 +9,13 @@ import { validDay } from "@/lib/valid-day";
 import { searchPatients, patientScope } from "@/lib/patients";
 import { bookAppointment, checkAvailability } from "@/lib/booking";
 import { isId, refusal } from "@/lib/desk";
-import { Badge, consentStatus, btnPrimary, btnSecondary } from "../../_ui";
-
-const field = "mt-1.5 w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink";
-const fieldLabel = "block text-xs font-semibold uppercase tracking-wide text-ink-3";
+import { Search, UserPlus } from "lucide-react";
+import { Reveal } from "@/components/motion/reveal";
+import {
+  Alert, Avatar, Badge, Card, EmptyState, PageHeader, consentStatus,
+  btnPrimary, btnSecondary, btnSm, field, fieldLabel,
+} from "../../_ui";
+import { slotChip } from "../_slots";
 
 /** Who a doctor may book: his own patients, or someone nobody has seen yet (the
  *  walk-in he just registered). Not another doctor's patient — typing a known
@@ -105,122 +108,149 @@ export default async function BookPage({
   const time = (at: Date) => new Intl.DateTimeFormat("en-GB", {
     timeZone: staff.timezone, hour: "2-digit", minute: "2-digit", hour12: false,
   }).format(at);
+  // A plain calendar date: format at UTC noon so no timezone shifts it.
+  const dayLabel = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "UTC", weekday: "long", day: "numeric", month: "long",
+  }).format(new Date(`${day}T12:00:00Z`));
 
   return (
-    <section className="max-w-3xl">
-      <Link href={`/?day=${day}`} className="text-sm text-ink-3 transition-colors hover:text-ink">
-        &larr; Calendar
-      </Link>
-      <h1 className="mt-3 text-xl font-semibold tracking-tight text-ink">Book appointment</h1>
+    <section className="max-w-5xl space-y-6">
+      <PageHeader
+        title="Book appointment"
+        back={{ href: `/?day=${day}`, label: "Calendar" }}
+        subtitle={patient ? "Pick the doctor and day, then an open slot." : "Find the patient first."}
+      />
 
-      {params.error && (
-        <p role="alert" className="mt-4 rounded-md border border-danger-line bg-danger-soft px-3.5 py-2.5 text-sm font-medium text-danger-ink">
-          {params.error}
-        </p>
-      )}
+      {params.error && <Alert>{params.error}</Alert>}
 
       {!patient && patientId && (
-        <p role="status" className="mt-4 rounded-md border border-line bg-subtle px-3.5 py-2.5 text-sm text-ink-2">
+        <Alert tone="warn">
           {params.existing
             ? "This number is already registered as another doctor's patient — ask the front desk to book."
             : "That patient is not one you can book."}
-        </p>
+        </Alert>
       )}
 
       {!patient ? (
-        <div className="mt-4 rounded-lg border border-line bg-surface p-4">
+        <Card title="Find the patient" description="Search by name or phone number.">
           <form method="GET" className="flex flex-wrap items-end gap-2">
             <input type="hidden" name="day" value={day} />
             {doctor && <input type="hidden" name="doctor" value={doctor.id} />}
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0 flex-1 basis-56">
               <label htmlFor="q" className={fieldLabel}>Patient name or phone</label>
               <input id="q" name="q" type="search" required defaultValue={params.q ?? ""} className={field} />
             </div>
-            <button className={btnPrimary}>Find</button>
-            <Link href="/patients/new" className={btnSecondary}>Register new patient</Link>
+            <button className={btnPrimary}><Search aria-hidden className="size-4" />Find</button>
+            <Link href="/patients/new" className={btnSecondary}>
+              <UserPlus aria-hidden className="size-4" />Register new patient
+            </Link>
           </form>
           {params.q && (
             matches.length === 0 ? (
-              <p className="mt-4 text-sm text-ink-3">No patient matches. Register them as new.</p>
+              <div className="mt-4">
+                <EmptyState title="No patient matches.">Register them as new.</EmptyState>
+              </div>
             ) : (
-              <ul className="mt-4 divide-y divide-line">
+              <Reveal as="ul" className="mt-4 divide-y divide-line rounded-lg border border-line">
                 {matches.map(m => (
-                  <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                    <span>
-                      <span className="font-medium text-ink">{m.name ?? "Unnamed"}</span>{" "}
-                      <span className="text-sm tabular-nums text-ink-3">{m.phone}</span>
+                  <li key={m.id} className="flex items-center gap-3 px-3 py-2.5">
+                    <Avatar name={m.name} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium break-words text-ink">{m.name ?? "Unnamed"}</span>
+                      <span className="block text-xs tabular-nums text-ink-3">{m.phone}</span>
                     </span>
                     <Link
                       href={`/appointments/new?patient=${m.id}&day=${day}${doctor ? `&doctor=${doctor.id}` : ""}`}
-                      className={btnSecondary}
+                      className={`${btnSecondary} ${btnSm}`}
                     >
                       Choose
                     </Link>
                   </li>
                 ))}
-              </ul>
+              </Reveal>
             )
           )}
-        </div>
+        </Card>
       ) : (
         <>
           {params.existing && (
-            <p role="status" className="mt-4 rounded-md border border-line bg-subtle px-3.5 py-2.5 text-sm text-ink-2">
-              This number is already registered — booking for the existing patient.
-            </p>
+            <Alert tone="info">This number is already registered — booking for the existing patient.</Alert>
           )}
-          <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-line bg-surface p-4">
-            <span className="font-semibold text-ink">{patient.name ?? "Unnamed patient"}</span>
-            <span className="text-sm tabular-nums text-ink-3">{patient.phone}</span>
-            <Badge tone={consentStatus(patient.consent_status).tone}>
-              Consent: {consentStatus(patient.consent_status).label}
-            </Badge>
-            <Link href={`/appointments/new?day=${day}`} className="ml-auto text-sm text-ink-3 underline underline-offset-2 hover:text-ink">
-              Change patient
-            </Link>
-          </div>
-
-          <form method="GET" className="mt-4 flex flex-wrap items-end gap-2">
-            <input type="hidden" name="patient" value={patient.id} />
-            <div>
-              <label htmlFor="doctor" className={fieldLabel}>Doctor</label>
-              <select id="doctor" name="doctor" defaultValue={doctor?.id} className={field}>
-                {doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="day" className={fieldLabel}>Day</label>
-              <input id="day" name="day" type="date" required min={today} defaultValue={day} className={field} />
-            </div>
-            <button className={btnSecondary}>Show open slots</button>
-          </form>
-
-          {doctor && (
-            <form action={book} className="mt-4 rounded-lg border border-line bg-surface p-4">
-              <input type="hidden" name="patientId" value={patient.id} />
-              <input type="hidden" name="doctorId" value={doctor.id} />
-              <input type="hidden" name="day" value={day} />
-              <label htmlFor="reason" className={fieldLabel}>Reason (optional)</label>
-              <input id="reason" name="reason" autoComplete="off" className={field} />
-              <p className={`${fieldLabel} mt-4`}>Open slots with {doctor.name}</p>
-              {slots.length === 0 ? (
-                <p className="mt-2 text-sm text-ink-3">No open slots on this day. Try another day.</p>
-              ) : (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {slots.map(s => (
-                    <button
-                      key={s.startsAt.toISOString()}
-                      name="startsAt"
-                      value={s.startsAt.toISOString()}
-                      className={`${btnSecondary} tabular-nums`}
-                    >
-                      {time(s.startsAt)}
-                    </button>
-                  ))}
+          <div className="grid gap-6 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] md:items-start">
+            <div className="space-y-6">
+              <Card
+                title="Patient"
+                actions={
+                  <Link href={`/appointments/new?day=${day}`} className="text-sm text-ink-3 underline underline-offset-2 hover:text-ink">
+                    Change patient
+                  </Link>
+                }
+              >
+                <div className="flex items-center gap-3">
+                  <Avatar name={patient.name} size="lg" />
+                  <div className="min-w-0">
+                    <p className="font-semibold break-words text-ink">{patient.name ?? "Unnamed patient"}</p>
+                    <p className="text-sm tabular-nums text-ink-3">{patient.phone}</p>
+                  </div>
                 </div>
-              )}
-            </form>
-          )}
+                <div className="mt-3">
+                  <Badge tone={consentStatus(patient.consent_status).tone}>
+                    Consent: {consentStatus(patient.consent_status).label}
+                  </Badge>
+                </div>
+              </Card>
+
+              <Card title="Doctor and day">
+                <form method="GET" className="space-y-4">
+                  <input type="hidden" name="patient" value={patient.id} />
+                  <div>
+                    <label htmlFor="doctor" className={fieldLabel}>Doctor</label>
+                    <select id="doctor" name="doctor" defaultValue={doctor?.id} className={field}>
+                      {doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="day" className={fieldLabel}>Day</label>
+                    <input id="day" name="day" type="date" required min={today} defaultValue={day} className={field} />
+                  </div>
+                  <button className={`${btnSecondary} w-full`}>Show open slots</button>
+                </form>
+              </Card>
+            </div>
+
+            {doctor && (
+              <Card title={`Open slots with ${doctor.name}`} description={dayLabel}>
+                <form action={book} className="space-y-4">
+                  <input type="hidden" name="patientId" value={patient.id} />
+                  <input type="hidden" name="doctorId" value={doctor.id} />
+                  <input type="hidden" name="day" value={day} />
+                  <div>
+                    <label htmlFor="reason" className={fieldLabel}>Reason (optional)</label>
+                    <input id="reason" name="reason" autoComplete="off" className={field} />
+                  </div>
+                  {slots.length === 0 ? (
+                    <EmptyState title="No open slots on this day.">Try another day.</EmptyState>
+                  ) : (
+                    <fieldset>
+                      <legend className={fieldLabel}>Pick a time to book</legend>
+                      <Reveal className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5" step={20}>
+                        {slots.map(s => (
+                          <button
+                            key={s.startsAt.toISOString()}
+                            name="startsAt"
+                            value={s.startsAt.toISOString()}
+                            className={slotChip}
+                          >
+                            {time(s.startsAt)}
+                          </button>
+                        ))}
+                      </Reveal>
+                    </fieldset>
+                  )}
+                </form>
+              </Card>
+            )}
+          </div>
         </>
       )}
     </section>
