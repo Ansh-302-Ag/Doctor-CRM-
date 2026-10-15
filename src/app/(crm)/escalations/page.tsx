@@ -160,7 +160,11 @@ export default async function EscalationsPage() {
                     <div className="flex min-w-0 items-center gap-3">
                       <Avatar name={r.patient_name} size="lg" />
                       <p className="flex min-w-0 flex-wrap items-center gap-2 break-words text-lg font-semibold text-ink">
-                        {r.patient_name ?? "Unknown patient"}
+                        {r.consentWithdrawn ? (r.patient_name ?? "Unknown patient") : (
+  <Link href={`/patients/${r.patient_id}`} className="underline-offset-2 hover:text-accent hover:underline">
+    {r.patient_name ?? "Unknown patient"}
+  </Link>
+)}
                         {r.consentWithdrawn && <Badge tone="warn">Consent withdrawn</Badge>}
                       </p>
                     </div>
@@ -195,7 +199,11 @@ export default async function EscalationsPage() {
                       <Avatar name={r.patient_name} />
                       <div className="min-w-0">
                         <p className="flex flex-wrap items-center gap-2 break-words font-semibold text-ink">
-                          {r.patient_name ?? "Unknown patient"}
+                          {r.consentWithdrawn ? (r.patient_name ?? "Unknown patient") : (
+  <Link href={`/patients/${r.patient_id}`} className="underline-offset-2 hover:text-accent hover:underline">
+    {r.patient_name ?? "Unknown patient"}
+  </Link>
+)}
                           {r.consentWithdrawn && <Badge tone="warn">Consent withdrawn</Badge>}
                           <Badge tone={r.status === "open" ? "warn" : "neutral"}>
                             {r.status === "open"
@@ -239,7 +247,11 @@ export default async function EscalationsPage() {
             {resolved.map(r => (
               <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm sm:px-5">
                 <Avatar name={r.patient_name} size="sm" />
-                <span className="font-medium text-ink-2">{r.patient_name ?? "Unknown patient"}</span>
+                <span className="font-medium text-ink-2">{r.consentWithdrawn ? (r.patient_name ?? "Unknown patient") : (
+  <Link href={`/patients/${r.patient_id}`} className="underline-offset-2 hover:text-accent hover:underline">
+    {r.patient_name ?? "Unknown patient"}
+  </Link>
+)}</span>
                 <a href={`tel:${r.patient_phone}`} className="tabular-nums text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-accent">
                   {r.patient_phone}
                 </a>
