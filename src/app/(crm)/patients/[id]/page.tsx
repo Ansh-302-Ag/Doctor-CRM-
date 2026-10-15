@@ -7,7 +7,7 @@ import { can } from "@/lib/rbac";
 import { getPatient, patientScope } from "@/lib/patients";
 import { getTimeline, type TimelineItem } from "@/lib/timeline";
 import { listPrescriptions, discontinuePrescription, InvalidPrescription } from "@/lib/prescriptions";
-import { prescribeAndNotify, NotYourPatient } from "@/lib/doctor";
+import { prescribeManyAndNotify, NotYourPatient } from "@/lib/doctor";
 import { addNote, NOTE_MAX } from "@/lib/notes";
 import { completeTask, listTasks } from "@/lib/tasks";
 import { isId, refusal } from "@/lib/desk";
@@ -20,7 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/lightswin
 import { Reveal } from "@/components/motion/reveal";
 import { CountUp } from "@/components/lightswind/count-up";
 import {
-  CalendarDays, CalendarPlus, GitMerge, ListChecks, MessageCircle, Pill, ShieldCheck,
+  CalendarDays, CalendarPlus, GitMerge, ListChecks, MessageCircle, Pill, Printer, ShieldCheck,
   StickyNote, TriangleAlert, type LucideIcon,
 } from "lucide-react";
 import { HashTab, RepeatButton, RxForm } from "./_rx-form";
@@ -111,19 +111,25 @@ export default async function PatientRecordPage({
     "use server";
     const me = await currentStaff();
     const patientId = String(form.get("patientId"));
-    const durationRaw = String(form.get("durationDays") ?? "").trim();
-
-    // prescribeAndNotify re-resolves the patient under this staff member's own
-    // scope before writing: the hidden field is not proof of anything (docs/08).
+    // One entry per medicine, in the order written: the pad posts all four
+    // fields for every row, so index i of each list is the same medicine.
+    const list = (k: string) => form.getAll(k).map(v => String(v));
+    const [dosages, durations, notes] = [list("dosage"), list("durationDays"), list("notes")];
+    const items = list("drugName").map((drugName, i) => {
+      const durationRaw = (durations[i] ?? "").trim();
+      return {
+        drugName, dosage: dosages[i] ?? "",
+        durationDays: durationRaw ? Number(durationRaw) : undefined,
+        notes: notes[i] || undefined,
+      };
+    });
+    // prescribeManyAndNotify re-resolves the patient under this staff member's
+    // own scope before writing (the hidden field is not proof of anything,
+    // docs/08), saves every medicine or none, then sends one message.
     let delivery;
     try {
-      ({ delivery } = await prescribeAndNotify(sql, me, {
-        patientId,
-        doctorId: String(form.get("doctorId") ?? ""),
-        drugName: String(form.get("drugName") ?? ""),
-        dosage: String(form.get("dosage") ?? ""),
-        durationDays: durationRaw ? Number(durationRaw) : undefined,
-        notes: String(form.get("notes") ?? "") || undefined,
+      ({ delivery } = await prescribeManyAndNotify(sql, me, {
+        patientId, doctorId: String(form.get("doctorId") ?? ""), items,
       }));
     } catch (e) {
       if (e instanceof NotYourPatient) notFound();
@@ -417,13 +423,37 @@ export default async function PatientRecordPage({
         </TabsContent>
 
         <TabsContent value="rx">
-          <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
+          <div className="space-y-6">
+            {/* First: writing the medicines is what the doctor opens this tab for. */}
+            {canPrescribe ? (
+              <RxForm
+                action={addPrescription}
+                patientId={patient.id}
+                patientName={patient.name ?? patient.phone}
+                today={new Intl.DateTimeFormat("en-GB", { timeZone: staff.timezone, dateStyle: "medium" }).format(new Date())}
+                prescriberName={staff.name}
+                doctors={doctors}
+                isDoctor={isDoctor}
+                drugNames={drugNames.map(d => d.drug_name)}
+              />
+            ) : (
+              <p className="rounded-xl border border-dashed border-line-strong bg-surface p-4 text-sm text-ink-3">
+                Only a doctor or admin can prescribe. Everything on file is shown on this page.
+              </p>
+            )}
+
             <Card
               id="prescriptions"
               title="Prescriptions"
               description="Stored exactly as entered. The assistant reads these back to the patient verbatim and never interprets them."
+              actions={active.length > 0 && (
+                <a href={`/print/prescription/${patient.id}`} target="_blank" rel="noopener"
+                  className={`${btnSecondary} ${btnSm}`}>
+                  <Printer aria-hidden className="size-3.5" /> Print prescription
+                </a>
+              )}
               bodyClassName=""
-              className="min-w-0 overflow-hidden"
+              className="min-w-0 scroll-mt-4 overflow-hidden"
             >
               {rx.length === 0 ? (
                 <div className="p-4 sm:p-5"><EmptyState title="No prescriptions on record." /></div>
@@ -434,23 +464,6 @@ export default async function PatientRecordPage({
                 </>
               )}
             </Card>
-
-            {/* First on a phone: entering a medicine is what the doctor opens this tab for. */}
-            <div className="order-first min-w-0 lg:order-none lg:self-start">
-              {canPrescribe ? (
-                <RxForm
-                  action={addPrescription}
-                  patientId={patient.id}
-                  doctors={doctors}
-                  isDoctor={isDoctor}
-                  drugNames={drugNames.map(d => d.drug_name)}
-                />
-              ) : (
-                <p className="rounded-xl border border-dashed border-line-strong bg-surface p-4 text-sm text-ink-3">
-                  Only a doctor or admin can prescribe. Everything on file is shown on this page.
-                </p>
-              )}
-            </div>
           </div>
         </TabsContent>
 

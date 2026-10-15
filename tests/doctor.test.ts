@@ -9,8 +9,10 @@ import { hashPassword } from "../src/lib/password";
 import { can, Forbidden } from "../src/lib/rbac";
 import { listEscalations } from "../src/lib/escalations";
 import { getPatient, searchPatients, patientScope } from "../src/lib/patients";
+import { InvalidPrescription } from "../src/lib/prescriptions";
 import {
-  doctorQueue, nextInQueue, prescribeAndNotify, prescriptionMessage, NotYourPatient,
+  doctorQueue, nextInQueue, prescribeAndNotify, prescribeManyAndNotify,
+  prescriptionMessage, prescriptionsMessage, NotYourPatient,
 } from "../src/lib/doctor";
 
 let f: Fixture;
@@ -289,4 +291,118 @@ test("the message says who prescribed, when, and where to ask — and nothing el
   assert.match(text, /1 day\b/, "singular, not '1 days'");
   assert.doesNotMatch(text, /Notes:/, "no empty fields");
   assert.match(text, /call the clinic on \+911140001234/);
+});
+
+// ------------------------------------------------- several medicines at once
+
+const items = () => [
+  { drugName: "Amoxicillin 500 mg", dosage: "1-0-1 after food", durationDays: 5, notes: "finish the course" },
+  { drugName: "Paracetamol 650 mg", dosage: "SOS", durationDays: 3 },
+  { drugName: "Cetirizine 10 mg", dosage: "0-0-1" },
+];
+
+test("several medicines are saved together, or not at all", async () => {
+  await book(f.doctorId, f.patientId, 9);
+  const io = spy();
+  const bad = [items()[0], { drugName: "Paracetamol", dosage: "  " }];
+
+  await assert.rejects(
+    prescribeManyAndNotify(db, doctorStaff(), { patientId: f.patientId, items: bad }, io),
+    (e: Error) => e instanceof InvalidPrescription && /^Medicine 2: /.test(e.message));
+  assert.equal((await db`select id from prescriptions`).length, 0, "the first one rolled back too");
+  assert.equal(io.free.length + io.templates.length, 0, "nothing is sent for a failed sitting");
+
+  await assert.rejects(
+    prescribeManyAndNotify(db, doctorStaff(), { patientId: f.patientId, items: [] }, io),
+    InvalidPrescription);
+});
+
+test("several medicines go out as ONE message listing every one, verbatim and in order", async () => {
+  await book(f.doctorId, f.patientId, 9);
+  const now = new Date();
+  await patientMessagedAgo(2, now);
+
+  const io = spy();
+  const { ids, delivery } = await prescribeManyAndNotify(
+    db, doctorStaff(), { patientId: f.patientId, items: items() }, { ...io, now });
+
+  assert.equal(ids.length, 3);
+  const rows = await db<{ doctor_id: string }[]>`select doctor_id from prescriptions`;
+  assert.equal(rows.length, 3);
+  assert.ok([...rows].every(r => r.doctor_id === f.doctorId));
+  assert.deepEqual(delivery, { delivered: true });
+  assert.equal(io.free.length, 1, "one message, not one per medicine");
+  assert.equal(io.templates.length, 0);
+
+  const text = io.free[0].text;
+  const at = (s: string) => text.indexOf(s);
+  for (const s of ["Amoxicillin 500 mg", "Dosage: 1-0-1 after food", "Duration: 5 days",
+                   "Notes: finish the course", "Paracetamol 650 mg", "Dosage: SOS",
+                   "Duration: 3 days", "Cetirizine 10 mg", "Dosage: 0-0-1"]) {
+    assert.ok(at(s) >= 0, `message carries "${s}"`);
+  }
+  assert.ok(at("Amoxicillin") < at("Paracetamol") && at("Paracetamol") < at("Cetirizine"));
+  assert.doesNotMatch(text, /\b(should|recommend|advise|safe)\b/i, "it never advises");
+
+  const sent = await db<{ target_id: string }[]>`
+    select target_id from audit_log where action = 'prescription_message_sent'`;
+  assert.deepEqual(new Set(sent.map(r => r.target_id)), new Set(ids), "audited per prescription");
+});
+
+test("one medicine through the many-path reads exactly as the single message", async () => {
+  await book(f.doctorId, f.patientId, 9);
+  const now = new Date();
+  await patientMessagedAgo(2, now);
+
+  const io = spy();
+  const one = items()[0];
+  const { ids } = await prescribeManyAndNotify(
+    db, doctorStaff(), { patientId: f.patientId, items: [one] }, { ...io, now });
+
+  const [row] = await db<{ created_at: Date }[]>`
+    select created_at from prescriptions where id = ${ids[0]}`;
+  assert.equal(io.free[0].text, prescriptionMessage({
+    clinicName: "Test Clinic", clinicPhone: "+911140000000", doctorName: "Dr. Rao",
+    at: row.created_at, timezone: TZ, ...one,
+  }));
+});
+
+test("prescriptionsMessage with one item is prescriptionMessage", () => {
+  const head = {
+    clinicName: "Sunrise Clinic", clinicPhone: null, doctorName: "Dr. Rao",
+    at: new Date("2026-09-22T10:30:00+05:30"), timezone: TZ,
+  };
+  const one = { drugName: "Amoxicillin", dosage: "500mg twice daily", durationDays: 1, notes: "x" };
+  assert.equal(prescriptionsMessage({ ...head, items: [one] }), prescriptionMessage({ ...head, ...one }));
+});
+
+test("a doctor cannot prescribe several medicines for someone who is not his patient", async () => {
+  await book(second.doctorId, f.patientId, 9);  // his colleague's patient
+  const io = spy();
+  await assert.rejects(
+    prescribeManyAndNotify(db, doctorStaff(),
+      { patientId: f.patientId, doctorId: second.doctorId, items: items() }, io),
+    NotYourPatient);
+  assert.equal((await db`select id from prescriptions`).length, 0);
+  assert.equal(io.free.length + io.templates.length, 0);
+});
+
+test("outside the window several medicines still send one content-free nudge", async () => {
+  await book(f.doctorId, f.patientId, 9);
+  const now = new Date();
+  await patientMessagedAgo(25, now);
+
+  const io = spy();
+  const { ids, delivery } = await prescribeManyAndNotify(
+    db, doctorStaff(), { patientId: f.patientId, items: items() }, { ...io, now });
+
+  assert.equal((await db`select id from prescriptions`).length, 3);
+  assert.deepEqual(delivery, { delivered: false, reason: "outside_window", nudged: true });
+  assert.equal(io.free.length, 0);
+  assert.equal(io.templates.length, 1, "one nudge for the sitting");
+  assert.equal(io.templates[0].name, "record_updated");
+  assert.ok(!io.templates[0].parameters.some(p => /Amoxicillin|Paracetamol|Cetirizine/.test(p)));
+
+  const deferred = await db`select id from audit_log where action = 'prescription_message_deferred'`;
+  assert.equal(deferred.length, ids.length);
 });
