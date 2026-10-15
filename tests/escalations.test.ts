@@ -30,6 +30,7 @@ test("each escalation shows the message that raised it", async () => {
   const byId = (id: string) => rows.find(r => r.id === id)!;
   assert.equal(byId(early.id).trigger_message, "first message");
   assert.equal(byId(late.id).trigger_message, "second message");
+  assert.equal(byId(late.id).patient_id, f.patientId);
 });
 
 test("describeReason gives staff a plain label and keeps the raw text", () => {

@@ -886,3 +886,26 @@ test("moving an appointment staff already cancelled gets a plain reply, not an e
   assert.deepEqual(c.state, {});
   assert.equal((await db`select 1 from appointments where status = 'booked'`).length, 0);
 });
+
+test("cancelling an appointment staff just moved gets a plain reply, not an escalation", async () => {
+  await db`insert into appointments (clinic_id, doctor_id, patient_id, starts_at, ends_at, created_by)
+           values (${f.clinicId}, ${f.doctorId}, ${f.patientId}, ${futureSlot(10, 3)},
+                   ${new Date(futureSlot(10, 3).getTime() + 30 * 60_000)}, 'agent')`;
+  // Losing the race = the guarded update matching no row. A trigger that swallows
+  // the update reproduces that deterministically, between the agent's read and write.
+  await db.unsafe(`create function test_swallow_cancel() returns trigger language plpgsql as
+    $$ begin if new.status = 'cancelled' then return null; end if; return new; end $$`);
+  await db.unsafe(`create trigger test_swallow_cancel before update on appointments
+    for each row execute function test_swallow_cancel()`);
+  try {
+    const r = await say("cancel");
+    assert.equal(r!.escalated, false);
+    assert.match(r!.text, /no longer booked/i);
+    assert.equal((await escalations()).length, 0);
+    const [c] = await db`select state from conversations where id = ${f.conversationId}`;
+    assert.deepEqual(c.state, {});
+  } finally {
+    await db.unsafe(`drop trigger test_swallow_cancel on appointments`);
+    await db.unsafe(`drop function test_swallow_cancel()`);
+  }
+});

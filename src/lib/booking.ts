@@ -173,6 +173,7 @@ export async function rescheduleAppointment(
   if (moved.length === 0) {
     await db`update appointments set status = 'cancelled', updated_at = now() where id = ${booked.id}`;
     await cancelReminders(db, booked.id);
+    await audit(db, actor, "cancel_appointment", "appointments", booked.id);
     throw new BookingError("not_active", "that appointment is no longer active");
   }
 

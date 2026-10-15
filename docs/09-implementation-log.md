@@ -20,7 +20,7 @@ an earlier entry — add a new one saying what changed and why.
 | Phase 4 — voice | Voice booking **live** via Sarvam (inbound calls; see "2026-10-15 — Inbound calls book through the CRM") |
 | Front desk + patient record | **Done** (2026-10-15) |
 
-**204 tests: 197 passing, 7 skipped** against a real Postgres. The 7 skipped
+**312 tests: 305 passing, 7 skipped** against a real Postgres. The 7 skipped
 are the live Anthropic API tests in `tests/intent.live.test.ts`, which skip
 without `ANTHROPIC_API_KEY` and have still never been run, so the default
 `ANTHROPIC_MODEL` value remains unverified. All six items on the docs/08
@@ -1181,3 +1181,25 @@ local runner script. Two test runs at once against the same database collide
 **Still owed:** a browser walk-through of every new screen (not done in this
 pass — no browser available); the UI/UX phase is next; and WORK_TO_DO.md,
 "Pending / owed".
+
+## 2026-10-15 — UI redesign, and review fixes on the front desk work
+
+A parallel session redesigned the CRM UI: light theme tokens and the `_ui.tsx`
+kit (`77b203c`), then every page and login (`22ec808`). New dependencies:
+framer-motion, clsx, tailwind-merge, animejs, lucide-react. Lightswind
+components (count-up, border-beam, tabs) are copied source under
+`src/components/lightswind`, recoloured to design tokens; the Lightswind CLI
+was not used because it phones home. anime.js entrances live in
+`src/components/motion/reveal.tsx`; both respect reduced motion. Rule for UI
+work: the default Tailwind palette is disabled, use tokens, compose `_ui.tsx`.
+Prescription entry gained past-drug suggestions, dose/timing and duration
+chips, Repeat, and a "will be saved as" line (no lib change). Behaviour:
+patients export 403 for a refused role, plain refusal when a doctor opens
+merge, "Book appointment" and "Register walk-in" links. Migration 011 was
+applied to `neondb` with Ansh's OK.
+
+Review fixes: a reschedule that loses a race now audits the cancel of its own
+new booking; a WhatsApp cancel that loses a race replies plainly instead of
+escalating; the CSV BOM is written as `﻿`; `listEscalations` returns
+`patient_id`. Full suite: 312 tests: 305 passing, 7 skipped. `next build` after the redesign is still
+to verify.

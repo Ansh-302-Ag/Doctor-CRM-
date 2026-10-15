@@ -229,6 +229,12 @@ test("simultaneous moves and cancels of one appointment leave at most one booked
   }
   const booked = await db`select 1 from appointments where status = 'booked'`;
   assert.ok(booked.length <= 1, `${booked.length} booked visits`);
+  // A reschedule that loses and cancels its own new booking leaves an audit trail too.
+  const cancelled = await db<{ id: string }[]>`select id from appointments where status = 'cancelled'`;
+  for (const { id } of cancelled) {
+    const rows = await db`select 1 from audit_log where action = 'cancel_appointment' and target_id = ${id}`;
+    assert.equal(rows.length, 1, `cancelled appointment ${id} has no audit row`);
+  }
 });
 
 test("upcoming appointments exclude cancelled and past ones", async () => {

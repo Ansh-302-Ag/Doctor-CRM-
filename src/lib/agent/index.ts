@@ -441,7 +441,15 @@ async function route(
           "You have more than one upcoming appointment, so I have asked the clinic team " +
           "to help you cancel the right one.", c.intent);
       }
-      await tools.cancel_appointment(db, { appointmentId: rows[0].id, patientId: ctx.patient.id });
+      try {
+        await tools.cancel_appointment(db, { appointmentId: rows[0].id, patientId: ctx.patient.id });
+      } catch (e) {
+        // Staff cancelled or moved it between our read and this write.
+        if (!(e instanceof BookingError && e.code === "not_active")) throw e;
+        await clearState(db, ctx.conversation.id);
+        return { text: "That appointment is no longer booked, so there is nothing to cancel.",
+                 escalated: false, intent: c.intent };
+      }
       await clearState(db, ctx.conversation.id);
       return {
         text: `Cancelled: ${rows[0].doctor_name} on ${fmtTime(rows[0].starts_at, ctx.clinic.timezone)}.`,

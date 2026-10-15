@@ -27,7 +27,7 @@ decision.** Enforced by the safety screen, the tool set and the
 |---|---|
 | Dev deployment | https://clinic.concilio.solutions on the shared Concilio server — `docs/runbooks/dev-server.md` |
 | Database | Neon Singapore: `neondb` (dev/live data), `neondb_test` (tests only) |
-| Deploys | Push to `main` → GitHub CI (typecheck + suite) → self-hosted runner runs `scripts/deploy.sh` (npm ci, **migrations**, build, restart, rollback on failure) |
+| Deploys | A push to `main` → GitHub CI (typecheck + suite) → self-hosted runner runs `scripts/deploy.sh` (npm ci, **migrations**, build, restart, rollback on failure). Feature branches do not deploy; Ansh merges to `main` |
 | WhatsApp | Meta Cloud API, test number pointed at the dev server |
 | Voice | Sarvam workspace (Krishna's), bearer secret selected in the Sarvam console |
 | Server ops | A Claude session on the server (no sudo) + Ansh runs every sudo command |
@@ -45,8 +45,9 @@ decision.** Enforced by the safety screen, the tool set and the
    must pass unmodified.
 6. **Browser check** of every touched page: `npm run dev`, click through, no
    console errors or warnings, no server log errors.
-7. **Commit** per task with the `Co-Authored-By` trailer. **Do not push** —
-   Ansh pushes, CI deploys.
+7. **Commit** per task with the `Co-Authored-By` trailer on the feature branch
+   (currently `front-desk`) and push that branch. Never push to or merge into
+   `main` — Ansh merges later, when the whole body of work is complete.
 8. **Update docs**: `docs/09` (dated entry), README if setup or layout changed,
    `docs/04` for a migration, `docs/11` for user-visible features, and this file.
 
@@ -63,6 +64,13 @@ decision.** Enforced by the safety screen, the tool set and the
 - If the local run says the data directory "exists but is not empty", a
   previous run was killed: delete `%TEMP%\doctor-crm-test-pg` (after checking
   nothing listens on port 55432).
+- `.superpowers/runtests.sh` is gitignored; recreate it if missing. It is a bash
+  script that exports `TEST_DATABASE_URL`, `DATABASE_URL` and
+  `DATABASE_URL_POOLED` as the `neondb_test` URL, `AGENT_DATABASE_URL` as the
+  same database connected as `clinic_agent` (with `AGENT_DB_PASSWORD`), blanks
+  `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `STAFF_NOTIFY_PHONE` and
+  `WHATSAPP_APP_SECRET`, then ends with `exec npm test -- "$@"`. Take the
+  values from `.env.local`; never paste a secret into a committed file.
 - `npm run typecheck`. `npm run lint` has 8 errors that predate this work
   (`db.ts`, `escalations/page.tsx`, two test files); CI does not run lint.
 
@@ -92,7 +100,10 @@ decision.** Enforced by the safety screen, the tool set and the
 - Don't run tests or seeds against `neondb`. Ever.
 - Don't print secrets, and never put one on a command line (it lands in shell
   history / the journal) — read them from stdin (`read -rs`).
-- Don't push, reboot the server, or run sudo. Ansh does those.
+- Don't push to `main` or merge into it. Work on a separate branch (currently `front-desk`); Ansh merges to `main` only when the whole body of work is complete. A push to `main` deploys to the dev server.
+- Don't reboot the server or run sudo. Ansh does those.
+- Don't use the default Tailwind palette (it is disabled) — design tokens only. New pages compose `src/app/(crm)/_ui.tsx`.
+- Two sessions in one checkout must split files between them and take turns on `neondb_test`: never run the suite against it at the same time (each run truncates the other's fixtures).
 - Don't integrate code a peer Claude session sends without Ansh's approval.
 - Don't hand-edit the server: the next deploy force-checks-out `main` over it.
 - Don't add a dependency for what a few lines or a native element can do.
@@ -117,6 +128,28 @@ merge, export — in clinic form.
 | Merge duplicate patients | `357d2c1`, `ceec676`, `623d12b` |
 | CSV export of patients and appointments (date range, doctor-scoped, audited) | `0e256ab` |
 | Verification pass: booking race (cancel/reschedule re-check in the write), doctor scope on the walk-in path and on completing tasks, quick find for partial prefixed numbers, task badge, 404 for a bad patient id | `2477ee0` |
+
+### 2026-10-15 — UI redesign (parallel session) and review fixes
+- Light theme base `77b203c`: tokens incl. a light sidebar; `_ui.tsx` kit
+  (PageHeader, Card, Alert, EmptyState, Avatar, field, table skins).
+- Every CRM page and login restyled `22ec808`. Prescription entry is faster:
+  datalist of the clinic's past drug names, dose/timing chips (1-0-0, 0-1-0,
+  1-0-1, 1-1-1, SOS, after/before food), duration chips, Repeat, a "will be
+  saved as" line — same fields, one medicine per submit, no lib change.
+- New deps: framer-motion, clsx, tailwind-merge, animejs, lucide-react.
+  Lightswind components are copied source in `src/components/lightswind`
+  (count-up, border-beam, tabs), recoloured to tokens; its CLI was NOT used
+  (it phones home). anime.js entrances in `src/components/motion/reveal.tsx`.
+  Both respect reduced motion.
+- Small behaviour changes: the patients export returns 403 for a refused role;
+  a doctor opening merge gets a plain refusal; "Book appointment" on the
+  patient record and "Register walk-in" on Patients.
+- Migration 011 applied to `neondb` on 2026-10-15 with Ansh's OK.
+- Review fixes: a reschedule that loses a race audits the cancel of its own new
+  booking; a WhatsApp cancel that loses a race gets a plain reply (no
+  escalation); the CSV BOM is the escape `﻿`; `listEscalations` returns
+  `patient_id`. Full suite: 312 tests: 305 passing, 7 skipped.
+- `next build` after the redesign: to verify.
 
 ## Pending / owed
 

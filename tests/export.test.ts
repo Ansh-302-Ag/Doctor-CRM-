@@ -1,7 +1,7 @@
 import test, { after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { db, reset, seed, futureSlot, localDay, closeAll, type Fixture } from "./helpers";
-import { toCsv, exportPatients, exportAppointments } from "../src/lib/export";
+import { toCsv, csvResponse, exportPatients, exportAppointments } from "../src/lib/export";
 import { DeskError } from "../src/lib/desk";
 
 let f: Fixture;
@@ -75,4 +75,13 @@ test("a range longer than 92 days, reversed, or malformed is refused", async () 
   await assert.rejects(run("2026-02-01", "2026-01-01"), (e) => e instanceof DeskError);
   await assert.rejects(run("nope", "2026-01-01"), (e) => e instanceof DeskError);
   await run("2026-01-01", "2026-04-02"); // exactly 92 days inclusive
+});
+
+test("csvResponse is a no-store UTF-8 download that starts with a BOM", async () => {
+  const res = csvResponse("a,b\r\n", "x.csv");
+  assert.equal(res.headers.get("content-type"), "text/csv; charset=utf-8");
+  assert.equal(res.headers.get("content-disposition"), 'attachment; filename="x.csv"');
+  assert.equal(res.headers.get("cache-control"), "no-store");
+  // text() would strip the BOM while decoding, so look at the raw bytes.
+  assert.deepEqual([...new Uint8Array(await res.arrayBuffer()).slice(0, 3)], [0xef, 0xbb, 0xbf]);
 });
