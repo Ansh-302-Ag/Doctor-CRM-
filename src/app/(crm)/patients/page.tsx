@@ -53,7 +53,8 @@ export default async function PatientsPage({
   );
 
   // Quick find (Ctrl+K) asks to jump: one match goes straight to the record.
-  if (jump === "1" && patients.length === 1) redirect(`/patients/${patients[0].id}`);
+  // An empty query lists everyone; with one patient on file that is no jump.
+  if (jump === "1" && q?.trim() && patients.length === 1) redirect(`/patients/${patients[0].id}`);
 
   // Dates are shown in the clinic's own timezone — the front desk reads these
   // out loud to the patient on the phone.

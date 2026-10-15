@@ -8,19 +8,19 @@
  * only a flourish started after hydration.
  */
 import { useEffect, useRef } from "react";
-import { animate, useMotionValue, useTransform, motion, useReducedMotion } from "framer-motion";
+import { animate, useMotionValue, useTransform, motion } from "framer-motion";
 import { cn } from "@/components/lib/utils";
 
 export function CountUp({
   value, duration = 0.9, className,
 }: { value: number; duration?: number; className?: string }) {
   const ref = useRef<HTMLSpanElement>(null);
-  const reduce = useReducedMotion();
   const count = useMotionValue(value);
   const shown = useTransform(count, v => Math.round(v).toLocaleString("en-IN"));
 
   useEffect(() => {
-    if (reduce) { count.set(value); return; }
+    // Read the preference here, after hydration, never during render.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { count.set(value); return; }
     let controls: { stop: () => void } | null = null;
     const io = new IntersectionObserver(([e]) => {
       if (!e.isIntersecting) return;
@@ -30,7 +30,7 @@ export function CountUp({
     }, { threshold: 0.1 });
     if (ref.current) io.observe(ref.current);
     return () => { controls?.stop(); io.disconnect(); };
-  }, [value, duration, reduce, count]);
+  }, [value, duration, count]);
 
   return (
     <span ref={ref} className={cn("tabular-nums", className)}>

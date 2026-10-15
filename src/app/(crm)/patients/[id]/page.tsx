@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
-import { can } from "@/lib/rbac";
+import { can, Forbidden } from "@/lib/rbac";
 import { getPatient, patientScope } from "@/lib/patients";
 import { getTimeline, type TimelineItem } from "@/lib/timeline";
 import { listPrescriptions, discontinuePrescription, InvalidPrescription } from "@/lib/prescriptions";
@@ -133,8 +133,9 @@ export default async function PatientRecordPage({
       }));
     } catch (e) {
       if (e instanceof NotYourPatient) notFound();
-      if (e instanceof InvalidPrescription) {
-        redirect(`/patients/${patientId}?error=${encodeURIComponent(e.message)}`);
+      if (e instanceof InvalidPrescription || e instanceof Forbidden) {
+        const why = e instanceof Forbidden ? "Only a doctor or an admin can prescribe." : e.message;
+        redirect(`/patients/${patientId}?error=${encodeURIComponent(why)}`);
       }
       throw e;
     }
@@ -427,6 +428,10 @@ export default async function PatientRecordPage({
             {/* First: writing the medicines is what the doctor opens this tab for. */}
             {canPrescribe ? (
               <RxForm
+                // A new key after each save (the newest prescription changes)
+                // remounts the pad blank, so a second click cannot resend.
+                // After a refused save nothing was added: the rows stay to fix.
+                key={prescriptions[0]?.id ?? "none"}
                 action={addPrescription}
                 patientId={patient.id}
                 patientName={patient.name ?? patient.phone}

@@ -221,6 +221,10 @@ export default async function BookPage({
             {doctor && (
               <Card title={`Open slots with ${doctor.name}`} description={dayLabel}>
                 <form action={book} className="space-y-4">
+                  {/* Enter in "Reason" would submit with the first slot button and
+                      book the earliest time. A disabled first submit button takes
+                      the browser's implicit submission and does nothing. */}
+                  <button type="submit" disabled hidden aria-hidden="true" tabIndex={-1} />
                   <input type="hidden" name="patientId" value={patient.id} />
                   <input type="hidden" name="doctorId" value={doctor.id} />
                   <input type="hidden" name="day" value={day} />

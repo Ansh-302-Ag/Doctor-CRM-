@@ -6,7 +6,8 @@
  *  "Repeat" from an earlier row. It posts drugName, dosage, durationDays and
  *  notes once per medicine, in order (and doctorId for an admin); every chip
  *  only edits text the doctor can see and change. */
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { useFormStatus } from "react-dom";
 import { Plus, Repeat, X } from "lucide-react";
 import { btnGhost, btnPrimary, btnSecondary, btnSm, field, fieldLabel } from "../../_ui";
 
@@ -315,11 +316,23 @@ export function RxForm({
           Saved exactly as typed, attributed to {isDoctor ? "you" : "the doctor named above"},
           and sent to the patient as one WhatsApp message.
         </p>
-        <button ref={submitRef} disabled={!ready} className={`${btnPrimary} min-h-11 w-full sm:w-auto`}>
-          Save &amp; send to patient{n > 0 && ` (${n} medicine${n === 1 ? "" : "s"})`}
-        </button>
+        <SaveButton buttonRef={submitRef} ready={ready} n={n} />
       </div>
     </form>
+  );
+}
+
+/** Disabled while the save is in flight, so a double click cannot save and
+ *  send the same medicines twice. useFormStatus must sit inside the <form>. */
+function SaveButton({ buttonRef, ready, n }: {
+  buttonRef: RefObject<HTMLButtonElement | null>; ready: boolean; n: number;
+}) {
+  const { pending } = useFormStatus();
+  return (
+    <button ref={buttonRef} disabled={!ready || pending} aria-busy={pending || undefined}
+      className={`${btnPrimary} min-h-11 w-full sm:w-auto`}>
+      {pending ? "Saving…" : <>Save &amp; send to patient{n > 0 && ` (${n} medicine${n === 1 ? "" : "s"})`}</>}
+    </button>
   );
 }
 
@@ -327,7 +340,9 @@ export function RxForm({
 export function HashTab() {
   useEffect(() => {
     const open = () => {
-      const el = location.hash.length > 1 ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
+      let id = "";
+      try { id = decodeURIComponent(location.hash.slice(1)); } catch { return; } // a malformed %-escape
+      const el = id ? document.getElementById(id) : null;
       const panel = el?.closest<HTMLElement>("[role=tabpanel]");
       if (!el || !panel) return;
       if (panel.hidden) document.getElementById(panel.getAttribute("aria-labelledby") ?? "")?.click();

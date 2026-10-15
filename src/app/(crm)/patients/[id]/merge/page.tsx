@@ -78,7 +78,8 @@ export default async function MergePatientPage({
     const me = await currentStaff();
     const a = String(form.get("a")), b = String(form.get("b"));
     const keep = String(form.get("keep"));
-    if (keep !== a && keep !== b) notFound();
+    // A tampered form must 404, not reach a ::uuid cast and 500.
+    if (!isId(a) || !isId(b) || a === b || (keep !== a && keep !== b)) notFound();
     const drop = keep === a ? b : a;
     try {
       await mergePatients(sql, { kind: "staff", id: me.id }, me.role, me.clinicId, keep, drop);
