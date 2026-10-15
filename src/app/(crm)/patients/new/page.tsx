@@ -5,6 +5,7 @@ import { sql, type Db } from "@/lib/db";
 import { requirePermission } from "@/lib/rbac";
 import { CONSENT_NOTICE } from "@/lib/consent";
 import { registerPatient, refusal } from "@/lib/desk";
+import { patientScope } from "@/lib/patients";
 import { Alert, Card, PageHeader, btnPrimary, field, fieldLabel } from "../../_ui";
 
 /** Register a walk-in, then go straight to booking them. A number the clinic
@@ -25,7 +26,8 @@ export default async function NewPatientPage({
       consent: form.get("consent") === "yes",
     };
     const run = (db: Db) =>
-      registerPatient(db, { kind: "staff", id: me.id }, me.role, me.clinicId, input);
+      // A doctor's known-number lookup stays inside his own patients (desk.ts).
+      registerPatient(db, { kind: "staff", id: me.id }, me.role, me.clinicId, input, patientScope(me));
 
     let result: { id: string; existing: boolean } | null = null;
     let error: string | null = null;
