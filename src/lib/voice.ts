@@ -82,9 +82,16 @@ export async function voiceContext(db: Db, clinicId: string, now = new Date()) {
   if (!c) throw new Error(`unknown clinic ${clinicId}`);
   const doctors = await db<{ name: string; specialty: string | null }[]>`
     select name, specialty from doctors where clinic_id = ${clinicId} order by name`;
-  const weekday = new Intl.DateTimeFormat("en-GB", { timeZone: c.timezone, weekday: "long" }).format(now);
+  // A ready-made calendar, because the model miscounts: asked for "Monday" on
+  // a Thursday it sent the 18th, a Sunday. Looking a date up beats computing it.
+  const today = local(now, c.timezone).date;
+  const days = Array.from({ length: 15 }, (_, i) => {
+    const day = addDays(today, i);
+    const name = spokenDay(day).split(",")[0];
+    return `${name} ${day}${OPEN_DAYS.has(name.slice(0, 3)) ? "" : " (closed)"}`;
+  });
   return {
-    today: `${weekday} ${local(now, c.timezone).date}`,
+    today: `${days[0]}. Coming days: ${days.slice(1).join(", ")}`,
     clinic_name: c.name,
     doctors: doctors.map(d => (d.specialty ? `${d.name} (${d.specialty})` : d.name)).join(", "),
     timings: `${[...OPEN_DAYS].join(", ")}, ${OPEN_HOUR}:00 to ${CLOSE_HOUR}:00`,

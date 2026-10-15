@@ -72,7 +72,8 @@ test("no consent, no booking; bad input is refused, not guessed", async () => {
 test("call-start context names today, the clinic and its doctors", async () => {
   const { voiceContext } = await import("../src/lib/voice");
   const c = await voiceContext(agentDb, f.clinicId, new Date("2026-10-15T06:00:00Z"));
-  assert.equal(c.today, "Thursday 2026-10-15");
+  assert.match(c.today, /^Thursday 2026-10-15\. Coming days: Friday 2026-10-16, /);
+  assert.match(c.today, /Sunday 2026-10-18 \(closed\), Monday 2026-10-19,/);
   assert.equal(c.clinic_name, "Test Clinic");
   assert.equal(c.doctors, "Dr. Rao (General)");
 });
