@@ -135,7 +135,6 @@ export default async function CalendarPage({
     label: String(h).padStart(2, "0"), value: hours.filter(x => x === h).length, highlight: h === nowHour,
   }));
   const toCome = all.filter(r => r.status === "booked" && r.starts_at > now).length;
-  const firstName = staff.name.replace(/^(dr\.?\s+)/i, "").split(/\s+/)[0];
   // Where "now" falls in today's list, for the marker between rows.
   const nowIndex = day === today ? rows.findIndex(r => r.starts_at > now) : -1;
 
@@ -146,7 +145,8 @@ export default async function CalendarPage({
     <section className="space-y-6">
       <Hero
         eyebrow={staff.clinicName}
-        title={`${greeting(staff.timezone, now)}, ${firstName}`}
+        // The full account name: desk accounts are often shared ("Front Desk").
+        title={`${greeting(staff.timezone, now)}, ${staff.name}`}
         timeZone={staff.timezone}
         subtitle={day === today
           ? <>{onBook} on the book today · {toCome} still to come{nowIndex === -1 && onBook > 0 ? " · that's everyone" : ""}</>

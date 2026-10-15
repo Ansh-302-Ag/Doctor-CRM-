@@ -14,7 +14,8 @@ import { Clock } from "@/components/motion/clock";
 
 export function greeting(timeZone: string, now = new Date()) {
   const h = Number(new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", hour12: false }).format(now));
-  return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  // Before 05:00 is still the evening before, not "morning".
+  return h >= 5 && h < 12 ? "Good morning" : h >= 12 && h < 17 ? "Good afternoon" : "Good evening";
 }
 
 export function Hero({
