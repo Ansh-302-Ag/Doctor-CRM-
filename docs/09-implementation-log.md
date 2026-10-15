@@ -1028,3 +1028,53 @@ clinic name on the dark rail meets AA contrast, copy corrections.
 **Still owed:** the prescription change for Meta's health-information policy
 (docs/02); Meta approval of all four templates (`staff_alert` copy changed);
 deployment.
+
+---
+
+## 2026-10-14/15 — CI/CD, an always-on dev server, and the first live hotfix
+
+**CI/CD** (`.github/workflows/ci.yml`, `scripts/deploy.sh`, README "CI/CD").
+Every push and PR runs typecheck and the full suite on GitHub's Ubuntu
+runners (actions v7). A green push to `main` deploys to the dev server via a
+self-hosted runner. Getting CI green surfaced a latent hazard: test files that
+import `src/lib/db.ts` had been opening connections to the *dev* database from
+`.env.local`; `scripts/test.mts` now points every DB variable at the test
+database.
+
+**Dev server.** Doctor-CRM runs on the shared Concilio server at
+**https://clinic.concilio.solutions** — see `docs/runbooks/dev-server.md` for
+the full layout and commands. In short: `doctorcrm` user, systemd user unit,
+two timers, a GitHub runner, a Cloudflare Tunnel (no open ports) behind
+Cloudflare Access (email one-time PIN; only the webhook path bypassed), the
+Meta test number pointed at it. Verified end to end on 2026-10-14: a "Hi" and
+a "CANCEL" from a real phone were answered by the server and stored in Neon.
+
+The setup was done by two Claude sessions coordinating over Remote Control —
+this one (repo side) and one on the server (audit, unit files, verification) —
+with Ansh running every privileged command, because the server's policy gives
+its agent no sudo. Decisions recorded on the way: subdomain of the company's
+own Cloudflare-managed domain (only one DNS record added); no server reboot
+(it also serves Concilio); Wi-Fi for now; demo passwords unchanged, so Access
+is mandatory.
+
+Lessons that cost time and are now in the runbook: a deploy run created before
+the repo variables existed saw them empty; Access "Allow + Everyone" still
+forces login — the webhook needs **Bypass**; WARP blocks IPv6 to Cloudflare's
+edge, so the tunnel runs IPv4-only; a registration token passed on a `sudo`
+command line lands in the journal — secrets go on stdin only.
+
+**First hotfix through the pipeline (`e40a695`).** On 15 Oct a tester picking a
+slot by typing "2.40" got "technical issue" three times: Groq's
+`gpt-oss-20b` skips the forced tool call on a bare time (`tool_use_failed`).
+While a slot list is outstanding, a reply that is only an option number or a
+clock time is now matched against the offered times in code (`pickOffered`);
+anything else still goes to the model. Classifier and booking failures now log
+`[agent] …` to the journal — they used to escalate with no server-side trace.
+The fix was first hand-applied on the server, then committed to `main`, which
+the deploy force-checked-out over it. Hand edits on the server are reverted by
+the next deploy; fixes belong in `main`.
+
+**Still owed:** prescription links (needs `APP_URL`); Meta template approval;
+the classifier decision (Anthropic key, or a non-forced retry for Groq — the
+`pickOffered` fix covers only the slot step); changing the demo passwords;
+the rollback proof on the server.

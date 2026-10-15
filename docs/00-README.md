@@ -17,6 +17,7 @@ the first time; after that, jump to whatever you're working on.
 | 09 | implementation-log.md | What is actually built, decisions made while building, what is still owed |
 | 10 | whatsapp-templates.md | The WhatsApp template text submitted to Meta |
 | 11 | product-overview.md | What Doctor-CRM does, feature by feature — AI chat and menu modes, dashboard, safety |
+| — | runbooks/ | `breach.md` (suspected DPDP breach), `dev-server.md` (the always-on dev deployment) |
 
 ## Why this document set exists
 

@@ -179,6 +179,9 @@ delivery, a clinical question mid-booking, consent not yet granted.
 
 ## CI/CD
 
+The dev deployment lives at https://clinic.concilio.solutions — layout, service names,
+everyday commands and known quirks are in `docs/runbooks/dev-server.md`.
+
 `.github/workflows/ci.yml` runs `npx tsc --noEmit` and `npm test` on every push
 and pull request (GitHub's Ubuntu runners, where the throwaway Postgres starts
 fine). A green push to `main` then deploys to the always-on dev server:
