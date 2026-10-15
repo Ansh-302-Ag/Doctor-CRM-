@@ -16,8 +16,8 @@ export function Clock({ timeZone, className }: { timeZone: string; className?: s
     ? new Intl.DateTimeFormat("en-GB", { timeZone, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(now)
     : "--:--:--";
   return (
-    <time suppressHydrationWarning className={className} aria-label="Clinic time">
-      {text}
+    <time suppressHydrationWarning className={className}>
+      <span className="sr-only">Clinic time </span>{text}
     </time>
   );
 }

@@ -117,6 +117,15 @@
   0%, 100% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
 }
+@keyframes type-in {
+  from { opacity: 0; transform: translateY(6px); filter: blur(4px); }
+}
+@keyframes grow-y {
+  from { transform: scaleY(0); }
+}
+@keyframes grow-x {
+  from { transform: scaleX(0); }
+}
 @keyframes shine-sweep {
   from { transform: translateX(-120%) skewX(-20deg); }
   to { transform: translateX(220%) skewX(-20deg); }

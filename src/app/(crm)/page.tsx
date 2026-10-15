@@ -153,7 +153,7 @@ export default async function CalendarPage({
           : <>{dayLabel} · {onBook} on the book</>}
       >
         <Ring value={count("completed")} total={onBook} label="completed" />
-        <div className="w-56 max-w-full">
+        <div className="w-36 min-w-0 sm:w-56">
           <p className="mb-6 text-[11px] font-medium uppercase tracking-wider text-white/70">By hour</p>
           <Bars data={perHour} label="Appointments per hour" />
         </div>

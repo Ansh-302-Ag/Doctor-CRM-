@@ -50,11 +50,16 @@ export default async function PrintPrescriptionPage({
         <PrintButton />
       </div>
 
-      <article className="mx-auto flex min-h-[200mm] max-w-[148mm] flex-col rounded-sm border border-line bg-surface p-8 text-ink shadow-card print:min-h-0 print:max-w-none print:border-0 print:p-0 print:shadow-none">
-        <header className="border-b-2 border-ink pb-3">
-          <h1 className="text-xl font-semibold tracking-tight">{clinic.name}</h1>
+      <article className="mx-auto flex min-h-[200mm] max-w-[148mm] flex-col rounded-2xl border border-line bg-surface p-8 text-ink shadow-pop print:min-h-0 print:rounded-none print:max-w-none print:border-0 print:p-0 print:shadow-none">
+        <header className="flex items-start gap-3 border-b-2 border-accent pb-3">
+          <span aria-hidden="true" className="bg-brand grid size-10 shrink-0 place-items-center rounded-xl text-white print:[print-color-adjust:exact]">
+            <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"><path d="M9.5 4h5v5.5H20v5h-5.5V20h-5v-5.5H4v-5h5.5Z" /></svg>
+          </span>
+          <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-accent-ink">{clinic.name}</h1>
           {clinic.phone && <p className="text-sm tabular-nums text-ink-2">Phone {clinic.phone}</p>}
           {doctors.length > 0 && <p className="mt-1 text-sm font-medium">{doctors.join(", ")}</p>}
+          </div>
         </header>
 
         <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
@@ -66,7 +71,7 @@ export default async function PrintPrescriptionPage({
           <dd className="tabular-nums">{date}</dd>
         </dl>
 
-        <p aria-hidden="true" className="mt-6 font-serif text-4xl leading-none">&#8478;</p>
+        <p aria-hidden="true" className="mt-6 font-serif text-4xl leading-none text-accent">&#8478;</p>
         {rx.length === 0 ? (
           <p className="mt-4 text-sm text-ink-3">No {ids.length ? "matching" : "active"} prescriptions on record.</p>
         ) : (

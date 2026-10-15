@@ -27,7 +27,7 @@ export default function Loading() {
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-xl border border-line bg-surface px-4 py-3.5 shadow-card">
+          <div key={i} className="rounded-2xl border border-line bg-surface px-4 py-3.5 shadow-card">
             <Skel className="h-3 w-20" />
             <Skel className="mt-2 h-6 w-10" />
           </div>

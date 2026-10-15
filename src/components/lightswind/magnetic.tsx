@@ -17,14 +17,13 @@ export function Magnetic({
   const reduce = useReducedMotion();
   const x = useSpring(0, { stiffness: 220, damping: 16, mass: 0.5 });
   const y = useSpring(0, { stiffness: 220, damping: 16, mass: 0.5 });
-  if (reduce) return <div className={className}>{children}</div>;
   return (
     <motion.div
       ref={ref}
       className={cn("inline-flex", className)}
       style={{ x, y }}
       onPointerMove={e => {
-        if (e.pointerType !== "mouse") return;
+        if (reduce || e.pointerType !== "mouse") return;
         const b = ref.current!.getBoundingClientRect();
         x.set((e.clientX - (b.left + b.width / 2)) * strength);
         y.set((e.clientY - (b.top + b.height / 2)) * strength);

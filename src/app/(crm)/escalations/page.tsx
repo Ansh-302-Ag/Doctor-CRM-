@@ -19,7 +19,7 @@ export default async function EscalationsPage() {
   if (!can(staff.role, "escalations:read")) {
     return (
       <section>
-        <PageHeader title="Escalations" />
+        <PageHeader icon={Siren} title="Escalations" />
         <EmptyState title="Not available for your role">
           The front desk handles escalations; your day is under{" "}
           <Link href="/queue" className="font-medium text-accent underline underline-offset-2 hover:text-accent-hover">

@@ -1,33 +1,35 @@
-"use client";
-
 /**
- * Lightswind UI "typing-text" (lightswind.com), recoloured: the line types
- * itself in, one character after another, once. Screen readers get the whole
- * line at once; reduced-motion users see it already typed.
+ * Lightswind UI "typing-text" (lightswind.com), as CSS: the line types itself
+ * in, one character after another, once. The text is in the server HTML at
+ * full opacity under `prefers-reduced-motion` and if no script ever runs —
+ * the keyframes only play from blurred/transparent back to rest. Characters
+ * are grouped per word so a line never wraps mid-word.
  */
-import { motion, useReducedMotion } from "framer-motion";
 import { cn } from "@/components/lib/utils";
 
 export function TypingText({
   text, className, delay = 0, duration = 0.9,
 }: { text: string; className?: string; delay?: number; duration?: number }) {
-  const reduce = useReducedMotion();
-  if (reduce) return <span className={className}>{text}</span>;
-  const chars = [...text];
+  const step = (duration * 1000) / Math.max(1, text.length);
+  // Each piece keeps the index of its first character, for the delay.
+  const pieces = text.split(/(\s+)/).filter(Boolean).reduce<{ s: string; at: number }[]>(
+    (out, s) => [...out, { s, at: out.length ? out.at(-1)!.at + out.at(-1)!.s.length : 0 }], []);
   return (
-    <span className={cn("inline-block", className)}>
+    <span className={cn("inline", className)}>
       <span className="sr-only">{text}</span>
       <span aria-hidden="true">
-        {chars.map((c, i) => (
-          <motion.span
-            key={i}
-            className="inline-block whitespace-pre"
-            initial={{ opacity: 0, y: 6, filter: "blur(4px)" }}
-            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            transition={{ delay: delay + (i * duration) / chars.length, duration: 0.3, ease: "easeOut" }}
-          >
-            {c}
-          </motion.span>
+        {pieces.map(({ s, at }) => /^\s*$/.test(s) ? <span key={at}>{s}</span> : (
+          <span key={at} className="inline-block whitespace-nowrap">
+            {[...s].map((c, k) => (
+              <span
+                key={k}
+                className="inline-block animate-[type-in_0.3s_ease-out_both]"
+                style={{ animationDelay: `${delay * 1000 + (at + k) * step}ms` }}
+              >
+                {c}
+              </span>
+            ))}
+          </span>
         ))}
       </span>
     </span>

@@ -48,13 +48,14 @@ export function Hero({
             <span aria-hidden="true">·</span>
             <Clock timeZone={timeZone} className="font-semibold tabular-nums text-white" />
           </p>
-          <h2 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
+          {/* Not a heading: the page's own <h1> sits below the hero. */}
+          <p className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">
             <TypingText text={title} />
-          </h2>
+          </p>
           {subtitle && <div className="mt-2 max-w-xl text-sm text-white/80">{subtitle}</div>}
         </div>
         {children && (
-          <div className="flex shrink-0 flex-wrap items-center gap-5 rounded-2xl bg-deep/40 p-4 ring-1 ring-white/10 backdrop-blur-md">
+          <div className="flex shrink-0 flex-wrap items-center gap-4 rounded-2xl bg-deep/40 p-3 sm:gap-5 sm:p-4 ring-1 ring-white/10 backdrop-blur-md">
             {children}
           </div>
         )}

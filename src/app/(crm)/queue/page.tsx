@@ -130,7 +130,8 @@ export default async function QueuePage({
       ) : (
         <>
         {next ? (
-          <TiltCard max={3} className="rounded-2xl border border-accent-line bg-gradient-to-br from-surface via-surface to-accent-soft/70 p-4 shadow-pop sm:p-6">
+          <TiltCard max={3} className="rounded-2xl border border-accent-line bg-gradient-to-br from-surface via-surface to-accent-soft/70 shadow-pop">
+            <div className="relative rounded-2xl p-4 sm:p-6">
             <BorderBeam />
             <span className="bg-brand inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold text-white shadow-glow">
               <span aria-hidden="true" className="size-1.5 animate-ping rounded-full bg-white" />
@@ -176,6 +177,7 @@ export default async function QueuePage({
               <Link href={`/patients/${next.patient_id}#prescribe`} className={`${btnPrimary} max-sm:w-full`}>
                 <Stethoscope className="size-4" aria-hidden="true" /> Open record &amp; prescribe
               </Link>
+            </div>
             </div>
           </TiltCard>
         ) : (

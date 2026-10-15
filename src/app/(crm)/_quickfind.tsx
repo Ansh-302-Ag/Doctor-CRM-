@@ -35,7 +35,7 @@ export function QuickFind() {
       <button
         type="button"
         onClick={() => { dialog.current?.showModal(); input.current?.select(); }}
-        className="flex w-full items-center justify-between gap-3 rounded-lg border border-line bg-subtle px-3 py-1.5 text-sm text-ink-3 transition-colors hover:border-line-strong hover:text-ink"
+        className="flex w-full items-center justify-between gap-3 rounded-xl border border-line bg-surface/70 px-3 py-2 text-sm text-ink-3 shadow-card transition-all hover:border-accent-line hover:text-ink"
       >
         <span className="flex items-center gap-2">
           <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="6.5" /><path d="m20 20-3.8-3.8" /></svg>
@@ -46,7 +46,7 @@ export function QuickFind() {
       <dialog
         ref={dialog}
         aria-label="Quick find patient"
-        className="m-auto mt-[12vh] w-[min(32rem,calc(100vw-2rem))] rounded-2xl border border-line bg-surface p-3 text-ink shadow-pop"
+        className="glass m-auto mt-[12vh] w-[min(34rem,calc(100vw-2rem))] rounded-3xl border border-line p-3 text-ink shadow-pop"
         onClick={e => { if (e.target === dialog.current) dialog.current?.close(); }}
       >
         <form method="get" action="/patients" onSubmit={() => dialog.current?.close()}>
@@ -59,7 +59,7 @@ export function QuickFind() {
             type="search"
             autoComplete="off"
             placeholder="Name or phone number, then Enter"
-            className="w-full rounded-xl border border-line-strong bg-surface px-4 py-3 text-base text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+            className="w-full rounded-2xl border border-line-strong bg-surface px-4 py-3.5 text-base text-ink shadow-card focus:border-accent focus:outline-none focus:ring-4 focus:ring-accent/15"
           />
           <p className="mt-2 px-1 text-xs text-ink-3">
             Name, or a phone in any form — 98…, +91 98…, 098…. Press Enter; Esc to close.

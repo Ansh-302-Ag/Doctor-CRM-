@@ -6,7 +6,8 @@
  * follows it across the face. Children are server-rendered as usual.
  *
  * The tilt is decoration: reduced-motion users and touch screens get a flat
- * card, and nothing inside depends on it.
+ * card (same markup, the pointer is simply ignored), and nothing inside
+ * depends on it.
  */
 import { useRef, type ReactNode } from "react";
 import { motion, useMotionTemplate, useMotionValue, useReducedMotion, useSpring, useTransform } from "framer-motion";
@@ -28,7 +29,7 @@ export function TiltCard({
   const opacity = useSpring(0, { stiffness: 200, damping: 30 });
 
   const move = (e: React.PointerEvent) => {
-    if (e.pointerType !== "mouse") return;
+    if (reduce || e.pointerType !== "mouse") return;
     const b = ref.current?.getBoundingClientRect();
     if (!b) return;
     x.set((e.clientX - b.left) / b.width);
@@ -36,8 +37,6 @@ export function TiltCard({
     opacity.set(1);
   };
   const leave = () => { x.set(0.5); y.set(0.5); opacity.set(0); };
-
-  if (reduce) return <div className={cn("relative", className)}>{children}</div>;
 
   return (
     <div className="[perspective:900px]">
