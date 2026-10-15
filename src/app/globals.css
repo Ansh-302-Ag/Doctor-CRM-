@@ -17,11 +17,13 @@
   --color-black: #000000;
 
   /* Surfaces */
-  --color-canvas: #f4f6f8;
+  --color-canvas: #f2f5f7;
   --color-surface: #ffffff;
   --color-subtle: #f6f8fa;
   --color-line: #e0e5ea;
   --color-line-strong: #c6ced7;
+  /* Frosted panels: white at 78%, over the ambient canvas below. */
+  --color-glass: rgb(255 255 255 / 0.78);
 
   /* Text: primary / secondary / muted. Measured against --color-surface
    * (white): 16.6:1, 7.5:1 and 5.0:1 — the muted one is still AA (4.7:1) on
@@ -32,7 +34,7 @@
 
   /* Navigation rail: light, like the rest of the app. The active item is
    * the accent's soft wash, so the rail never competes with the content. */
-  --color-rail: #ffffff;
+  --color-rail: rgb(255 255 255 / 0.82);
   --color-rail-line: #e6eaee;
   --color-rail-active: #e6f2f1;
   --color-rail-ink: #45566a;
@@ -43,6 +45,13 @@
   --color-accent-soft: #e6f2f1;
   --color-accent-line: #9ecac6;
   --color-accent-ink: #08423f;
+  /* Decoration only — gradients, 3D scenes, avatars. Never carries meaning. */
+  --color-accent-2: #14a39d;
+  --color-sky: #1f7fb8;
+  --color-sky-soft: #e8f3fa;
+  --color-iris: #5b5fc7;
+  --color-iris-soft: #eeeefb;
+  --color-deep: #062b2a;
 
   /* Semantic. Emergency escalations and no-shows read off these. */
   --color-danger: #b3261e;
@@ -64,15 +73,104 @@
   /* Visible on the white content area and on the dark rail alike. */
   --color-focus: #1a8f89;
 
-  /* Depth: one soft shadow for cards, one for floating layers. */
-  --shadow-card: 0 1px 2px rgb(13 27 42 / 0.04), 0 1px 3px rgb(13 27 42 / 0.06);
+  /* Depth: a resting card, a lifted card (hover), a floating layer, and the
+   * accent's own glow under primary buttons and the hero. */
+  --shadow-card: 0 1px 2px rgb(13 27 42 / 0.04), 0 2px 8px -2px rgb(13 27 42 / 0.06);
+  --shadow-lift: 0 2px 4px rgb(13 27 42 / 0.04), 0 14px 32px -12px rgb(13 27 42 / 0.18);
   --shadow-pop: 0 12px 32px -8px rgb(13 27 42 / 0.18), 0 2px 6px rgb(13 27 42 / 0.06);
+  --shadow-glow: 0 8px 24px -8px rgb(13 110 107 / 0.55);
 
   /* IBM Plex, self-hosted by next/font (see layout.tsx); system fonts behind it. */
   --font-sans: var(--font-plex), var(--font-plex-deva), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, "Noto Sans", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
+
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-aurora: aurora 18s ease-in-out infinite alternate;
+  --animate-pulse-ring: pulse-ring 2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+  --animate-spin-slow: spin 14s linear infinite;
+  --animate-gradient: gradient-pan 8s ease infinite;
+}
+
+/* Keyframes live outside @theme so they are always emitted, whichever
+ * utility or inline style uses them. */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes shimmer {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+@keyframes aurora {
+  0% { transform: translate3d(-6%, -4%, 0) rotate(0deg) scale(1); }
+  50% { transform: translate3d(4%, 3%, 0) rotate(8deg) scale(1.08); }
+  100% { transform: translate3d(-2%, 6%, 0) rotate(-6deg) scale(1.04); }
+}
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 currentColor; opacity: 0.7; }
+  100% { box-shadow: 0 0 0 10px currentColor; opacity: 0; }
+}
+@keyframes gradient-pan {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+@keyframes shine-sweep {
+  from { transform: translateX(-120%) skewX(-20deg); }
+  to { transform: translateX(220%) skewX(-20deg); }
+}
+
+/* Frosted panel: cards, rail, popovers. Falls back to plain white where
+ * backdrop-filter is unsupported (the colour is nearly opaque anyway). */
+@utility glass {
+  background-color: var(--color-glass);
+  backdrop-filter: blur(14px) saturate(1.4);
+}
+
+/* Teal-to-sky ink for headings and hero numbers. */
+@utility text-gradient {
+  background-image: linear-gradient(100deg, var(--color-ink) 0%, var(--color-accent) 55%, var(--color-sky) 100%);
+  background-clip: text;
+  color: transparent;
+}
+
+/* The primary button's gradient, also used by the brand mark and chips. */
+@utility bg-brand {
+  background-image: linear-gradient(135deg, var(--color-accent-2) 0%, var(--color-accent) 48%, var(--color-accent-ink) 100%);
+}
+
+/* A light sweep across a button on hover (Lightswind "shine-button", in CSS:
+ * these buttons live inside server-action forms, so they stay plain <button>). */
+@utility shine {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    width: 40%;
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.35), transparent);
+    transform: translateX(-120%) skewX(-20deg);
+    pointer-events: none;
+  }
+  &:hover::after {
+    animation: shine-sweep 0.75s ease-out;
+  }
+}
+
+/* A card that rises a little under the pointer. Used on lists of things you
+ * click into, never on the big content panels (they would bob as you read). */
+@utility lift {
+  transition: transform 0.25s cubic-bezier(0.2, 0.7, 0.3, 1), box-shadow 0.25s, border-color 0.25s;
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lift);
+    border-color: var(--color-line-strong);
+  }
 }
 
 @layer base {
@@ -83,6 +181,21 @@
   body {
     background-color: var(--color-canvas);
     color: var(--color-ink);
+  }
+
+  /* The ambient canvas: two soft colour fields and a faint dot grid
+   * (Lightswind "grid-dot-backgrounds"), fixed behind everything. Pure CSS,
+   * painted once. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(60rem 40rem at 105% -10%, rgb(20 163 157 / 0.10), transparent 60%),
+      radial-gradient(50rem 36rem at -10% 110%, rgb(31 127 184 / 0.08), transparent 60%),
+      radial-gradient(circle at 1px 1px, rgb(13 27 42 / 0.07) 1px, transparent 0) 0 0 / 22px 22px;
   }
 
   /* One focus style for every interactive element, so no screen has to
@@ -96,9 +209,36 @@
     color: var(--color-ink-3);
   }
 
+  ::selection {
+    background: var(--color-accent-soft);
+    color: var(--color-accent-ink);
+  }
+
   /* Native <dialog> backdrop for Ctrl+K and confirmations. */
   dialog::backdrop {
-    background: rgb(13 27 42 / 0.35);
-    backdrop-filter: blur(2px);
+    background: rgb(6 43 42 / 0.35);
+    backdrop-filter: blur(4px);
+  }
+  dialog[open] {
+    animation: dialog-in 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
+  }
+  @keyframes dialog-in {
+    from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  }
+
+  /* Thin, quiet scrollbars for the rail and the board's sideways scroll. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+
+  /* Everything decorative stops for reduced-motion users; content never
+   * depends on an animation finishing. */
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
   }
 }
