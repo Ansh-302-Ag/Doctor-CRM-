@@ -155,7 +155,7 @@ export default async function MergePatientPage({
           </fieldset>
           <p className="mt-4 text-xs leading-relaxed text-ink-3">
             Everything on the record not kept moves to the one kept, and that record is deleted.
-            Consent stays granted if either record had it.
+            Consent follows the most recent consent decision on either record.
             A later message from the deleted record&rsquo;s number starts as a new contact. This cannot be undone.
           </p>
           <button className={`${btnPrimary} mt-4`}>Merge records</button>

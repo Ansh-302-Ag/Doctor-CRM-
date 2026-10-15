@@ -1,6 +1,7 @@
 import test, { after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { db, reset, seed, futureSlot, closeAll, type Fixture } from "./helpers";
+import { recordConsent } from "../src/lib/consent";
 import { previewMerge, mergePatients } from "../src/lib/merge";
 import { DeskError } from "../src/lib/desk";
 import { Forbidden } from "../src/lib/rbac";
@@ -87,14 +88,71 @@ test("a conversation on a channel the kept record lacks is re-pointed whole", as
   assert.equal(c.patient_id, f.patientId);
 });
 
-test("consent becomes granted if the duplicate had it; a missing name is filled", async () => {
+const consent = (patientId: string, action: "granted" | "withdrawn") =>
+  recordConsent(db, DESK(), patientId, action, "desk");
+
+test("pending plus a grant on the duplicate is granted; a missing name is filled", async () => {
   await db`update patients set consent_status = 'pending', consent_recorded_at = null, name = null
             where id = ${f.patientId}`;
+  await consent(f.otherPatientId, "granted");
   await mergePatients(db, DESK(), "receptionist", f.clinicId, f.patientId, f.otherPatientId);
   const [p] = await db`select name, consent_status, consent_recorded_at from patients where id = ${f.patientId}`;
   assert.equal(p.consent_status, "granted");
   assert.ok(p.consent_recorded_at);
   assert.equal(p.name, "Bilal");
+});
+
+test("a later withdrawal beats an older grant, whichever record it is on", async () => {
+  await consent(f.patientId, "granted");
+  await consent(f.otherPatientId, "withdrawn");
+  await mergePatients(db, DESK(), "receptionist", f.clinicId, f.patientId, f.otherPatientId);
+  const [p] = await db`select consent_status, consent_recorded_at from patients where id = ${f.patientId}`;
+  assert.equal(p.consent_status, "withdrawn");
+  assert.equal(p.consent_recorded_at, null);
+});
+
+test("both granted: granted, as of the newer grant", async () => {
+  await consent(f.otherPatientId, "granted");
+  await consent(f.patientId, "granted");
+  await db`update patients set consent_recorded_at = '2026-01-01' where id = ${f.patientId}`;
+  const [d] = await db`select consent_recorded_at from patients where id = ${f.otherPatientId}`;
+  await mergePatients(db, DESK(), "receptionist", f.clinicId, f.patientId, f.otherPatientId);
+  const [p] = await db`select consent_status, consent_recorded_at from patients where id = ${f.patientId}`;
+  assert.equal(p.consent_status, "granted");
+  assert.equal(p.consent_recorded_at.getTime(), d.consent_recorded_at.getTime());
+});
+
+// The agent's transaction can hold a new message for the duplicate's
+// conversation open (across the model call) while the desk merges.
+test("a message committed mid-merge lands in the kept conversation", async () => {
+  const [conv] = await db<{ id: string }[]>`
+    insert into conversations (patient_id) values (${f.otherPatientId}) returning id`;
+  let inserted!: () => void, release!: () => void;
+  const isInserted = new Promise<void>(r => (inserted = r));
+  const held = new Promise<void>(r => (release = r));
+  const agent = db.begin(async tx => {
+    await tx`insert into messages (conversation_id, direction, body)
+             values (${conv.id}, 'inbound', 'are you open today?')`;
+    inserted();
+    await held;
+  });
+  await isInserted;
+  const merge = mergePatients(db, DESK(), "receptionist", f.clinicId, f.patientId, f.otherPatientId);
+  try {
+    for (let i = 0; ; i++) {
+      const [{ n }] = await db<{ n: number }[]>`
+        select count(*)::int as n from pg_locks where locktype = 'transactionid' and not granted`;
+      if (n === 1) break;
+      assert.ok(i < 200, "the merge should wait on the open message insert");
+      await new Promise(r => setTimeout(r, 50));
+    }
+  } finally {
+    release();
+  }
+  await agent;
+  await merge;
+  const [m] = await db`select conversation_id from messages where body = 'are you open today?'`;
+  assert.equal(m?.conversation_id, f.conversationId);
 });
 
 test("another clinic's patient, the same record twice, or a bad id are refused", async () => {
@@ -113,7 +171,10 @@ test("another clinic's patient, the same record twice, or a bad id are refused",
   assert.equal((await db`select 1 from patients where id = ${f.otherClinicPatientId}`).length, 1);
 });
 
-test("a doctor cannot merge", async () => {
+test("a doctor or the agent cannot merge", async () => {
+  await assert.rejects(
+    mergePatients(db, { kind: "agent" }, "agent", f.clinicId, f.patientId, f.otherPatientId),
+    (e: unknown) => e instanceof Forbidden);
   const doc = { kind: "staff" as const, id: f.doctorUserId };
   await assert.rejects(
     mergePatients(db, doc, "doctor", f.clinicId, f.patientId, f.otherPatientId),

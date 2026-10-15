@@ -25,7 +25,7 @@ async function checkPair(db: Db, clinicId: string, keepId: string, dropId: strin
   const rows = await db`
     select id from patients
      where id in (${keepId}, ${dropId}) and clinic_id = ${clinicId} and deleted_at is null
-     ${lock ? db`for update` : db``}`;
+     order by id ${lock ? db`for update` : db``}`;
   if (rows.length !== 2) throw new DeskError("patient not found");
 }
 
@@ -66,6 +66,11 @@ export async function mergePatients(
   return pool.begin(async tx => {
     // Locked so a second desk merging the same pair waits, then finds one gone.
     await checkPair(tx, clinicId, keepId, dropId, true);
+    // A message insert holds a key-share lock on its conversation until it
+    // commits. Waiting for it here means the message move below sees it, rather
+    // than the conversation delete cascading it away.
+    await tx`select id from conversations where patient_id in (${keepId}, ${dropId})
+              order by id for update`;
     const moved = await counts(tx, dropId);
 
     for (const t of ["appointments", "prescriptions", "reminders", "escalations",
@@ -94,15 +99,21 @@ export async function mergePatients(
        where dc.patient_id = ${dropId} and kc.patient_id = ${keepId} and kc.channel = dc.channel`;
     await tx`update conversations set patient_id = ${keepId} where patient_id = ${dropId}`;
 
-    // Granted if either agreed, as of the latest agreement.
+    // Consent is the latest decision across both records' (now merged) consent
+    // trail: a later withdrawal beats an older grant. No trail: keep's stands.
+    const [latest] = await tx<{ action: "granted" | "withdrawn"; created_at: Date }[]>`
+      select action, created_at from consent_log where patient_id = ${keepId}
+       order by created_at desc, id desc limit 1`;
+    const granted = (p: string) => tx`case when ${tx(p)}.consent_status = 'granted'
+                                         then ${tx(p)}.consent_recorded_at end`;
     await tx`
       update patients k set
         name = coalesce(k.name, d.name),
-        consent_status = case when d.consent_status = 'granted' then 'granted' else k.consent_status end,
-        consent_recorded_at = case
-          when d.consent_status <> 'granted' then k.consent_recorded_at
-          when k.consent_status <> 'granted' then d.consent_recorded_at
-          else greatest(k.consent_recorded_at, d.consent_recorded_at) end
+        consent_status = ${latest ? tx`${latest.action}::consent_status` : tx`k.consent_status`},
+        consent_recorded_at = ${!latest ? tx`k.consent_recorded_at`
+          : latest.action === "withdrawn" ? null
+          // The newer grant on record; the trail's own date if neither shows one.
+          : tx`coalesce(greatest(${granted("k")}, ${granted("d")}), ${latest.created_at})`}
         from patients d
        where k.id = ${keepId} and d.id = ${dropId}`;
     await tx`delete from patients where id = ${dropId}`;
