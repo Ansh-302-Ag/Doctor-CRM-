@@ -188,16 +188,22 @@ A web app; staff sign in with email and password.
 
 | Screen | Who | What it does | Status |
 |---|---|---|---|
-| Clinic calendar | All staff | The day's appointments across every doctor | Available |
+| Clinic calendar | All staff | The day's appointments across every doctor; filter by doctor | Available |
 | Doctor's queue | Doctor | Their own day in time order, with the next patient highlighted | Available |
 | Patients | All staff (doctors: own patients only) | Search patients, open a patient's record | Available |
-| Patient record | All staff | Appointment history and prescriptions | Available |
+| Patient record | All staff | One timeline: appointments, WhatsApp messages, escalations (not for doctors), prescriptions, consent, notes, tasks | Available |
+| Notes on a patient | All staff | Front-desk notes, append-only | Available |
+| Follow-up tasks | All staff | "Call back about the lab report": due date, assignee, My tasks list | Available |
+| Quick find (Ctrl+K) | All staff | Jump to a patient by name or phone typed any way (98…, +91…, 098…) | Available |
+| Register a walk-in | Staff | Name, phone, consent taken at the desk; an existing number opens that patient | Available |
+| Merge duplicate patients | Receptionist, admin | Pick the record to keep, see what moves, confirm; history moves over | Available |
+| CSV export | All staff (doctors: own patients) | Patients, and appointments for a date range | Available |
 | Prescription entry | Doctor, admin | Record drug, dosage, duration and notes; the patient is notified it is ready | Available (notification changing — see below) |
 | Discontinue a prescription | Doctor, admin | Marks it stopped; any pending reminder for it will not send | Available |
 | Escalation inbox | Receptionist, admin | Every conversation that needs a human; acknowledge and resolve | Available |
-| Book / reschedule / cancel from the dashboard | Staff | For walk-ins and phone bookings | Planned |
+| Book / reschedule / cancel from the dashboard | Staff | For walk-ins and phone bookings, same rules as the assistant | Available |
 | Confirm booking requests | Receptionist | Approve patient requests (Mode B) | Planned |
-| Mark completed / no-show | Staff | Close out the day | Planned |
+| Mark arrived / completed / no-show | Staff; doctors for their own patients | Close out the day; the doctor's queue counts who was seen | Available |
 | Reply to a patient from the inbox | Receptionist | Answer escalations without leaving the dashboard | Planned |
 | "Now serving" control | Doctor | Advance the token queue | Planned |
 | Staff management | Admin | Add and remove staff accounts | Planned |

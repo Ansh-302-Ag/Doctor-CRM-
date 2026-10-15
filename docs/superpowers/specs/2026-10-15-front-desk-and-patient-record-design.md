@@ -139,8 +139,9 @@ analytics beyond existing counts. UI/UX redesign comes after this work.
   rules). The desk sees the next open slots for the chosen doctor today.
 - **Merge moves everything, including `consent_log`**, then **hard-deletes the
   emptied duplicate** (all its rows now belong to the kept record, so nothing
-  personal is lost). The kept record's consent becomes `granted` if either
-  record had granted. A later message or call from the duplicate's old number
+  personal is lost). The kept record's consent follows the **latest** decision in
+  the merged consent trail (changed in `ceec676` from "granted if either": a
+  withdrawal made after a grant must win). A later message or call from the duplicate's old number
   is then a new contact and goes through consent again — bots unchanged.
 - **Undelivered reminder (`delivered:false`) counts as a failed attempt**: the
   existing back-off and, after three, the existing failure path (one

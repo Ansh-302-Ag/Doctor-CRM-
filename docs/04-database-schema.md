@@ -66,6 +66,7 @@ speculative. IDs are UUIDs. Timestamps are `timestamptz`, always UTC.
 | created_by | text | 'agent' or staff_user id — always know who booked it |
 | created_at | timestamptz | |
 | updated_at | timestamptz | |
+| arrived_at | timestamptz | nullable; set by the desk (migration 011). Status stays `booked` until completed / no-show, so every `status = 'booked'` reader is unchanged |
 
 Constraint: no two `booked` appointments for the same `doctor_id` with
 overlapping `[starts_at, ends_at)` — enforced at the DB level (exclusion
@@ -143,6 +144,32 @@ UPDATE grant on this table at all (belt and suspenders — see doc 08).
 | target_table | text | |
 | target_id | uuid | |
 | created_at | timestamptz | append-only |
+
+## patient_notes (migration 011)
+| column | type | notes |
+|---|---|---|
+| id | uuid PK | |
+| patient_id | uuid FK → patients | `on delete cascade` — the purge removes them |
+| body | text | non-blank; append-only by convention (no edit, no delete) |
+| created_by | uuid FK → staff_users | |
+| created_at | timestamptz | |
+
+## tasks (migration 011)
+| column | type | notes |
+|---|---|---|
+| id | uuid PK | |
+| clinic_id | uuid FK → clinics | |
+| patient_id | uuid FK → patients | nullable (a clinic task); `on delete cascade` |
+| title | text | non-blank |
+| due_on | date | nullable |
+| assigned_to | uuid FK → staff_users | nullable |
+| done_at | timestamptz | null while open |
+| created_by | uuid FK → staff_users | |
+| created_at | timestamptz | |
+
+`clinic_agent` has no grants on either table: notes and tasks are staff-only.
+The patient timeline has no table of its own — it is a read-time UNION over
+the tables above (`src/lib/timeline.ts`).
 
 ## Explicitly deferred (not in v1 schema)
 

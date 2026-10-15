@@ -17,7 +17,8 @@ an earlier entry — add a new one saying what changed and why.
 | Phase 1 — WhatsApp booking loop | **Done**, verified end to end via a local simulator |
 | Phase 2 — prescriptions + refill reminders | Prescriptions **done**; refill reminders **built, not wired** (deliberate — see "Not built yet, on purpose") |
 | Phase 3 — second clinic + hardening | **Partly done** — load test and tenant isolation covered; tabletop rehearsal outstanding |
-| Phase 4 — voice | Not started, and deliberately so |
+| Phase 4 — voice | Voice booking **live** via Sarvam (inbound calls; see "2026-10-15 — Inbound calls book through the CRM") |
+| Front desk + patient record | **Done** (2026-10-15) |
 
 **204 tests: 197 passing, 7 skipped** against a real Postgres. The 7 skipped
 are the live Anthropic API tests in `tests/intent.live.test.ts`, which skip
@@ -25,6 +26,7 @@ without `ANTHROPIC_API_KEY` and have still never been run, so the default
 `ANTHROPIC_MODEL` value remains unverified. All six items on the docs/08
 testing bar are now covered, including the last one (a reminder for a
 discontinued prescription must not send — `tests/reminders.test.ts`).
+See WORK_TO_DO.md for the current suite status.
 
 ---
 
@@ -1112,3 +1114,70 @@ moved to a new version only while paused (pause, switch, resume — ~10 s).
 instead of asking for ten digits; names are stored as transcribed (Devanagari);
 reschedule and cancel by phone (the prompt takes a message for staff instead).
 
+---
+
+## 2026-10-15 — The front desk, the patient record, and bugs fixed at the root
+
+**Why.** Staff could not run the desk inside the CRM: walk-ins, arrivals,
+booking on someone's behalf, a note about a patient all happened elsewhere.
+Spec `docs/superpowers/specs/2026-10-15-front-desk-and-patient-record-design.md`,
+plan `docs/superpowers/plans/2026-10-15-front-desk-and-patient-record.md`.
+Ideas were borrowed from twentyhq/twenty (timeline, notes, tasks, quick find,
+merge, export) and translated to a clinic. Twenty's separate events table was
+*not* copied: the timeline is a read-time UNION over the existing tables, so
+no bot write path changed.
+
+**Bugs fixed first (`29fc88a`, `20c2e38`, `7f60d95`).** A reminder that was not
+delivered (WhatsApp unconfigured, `delivered: false`) is now a failed attempt
+with back-off, not "sent". A deleted staff account no longer loops at login.
+Cancel and reschedule refuse an appointment that is not booked; booking refuses
+a patient from another clinic. Voice booking is one transaction and never
+overwrites an existing name. Permission errors show a CRM error page or an
+on-page message instead of a 500.
+
+**Front desk (`1378020`, `8159bc0`).** Migration 011: `appointments.arrived_at`
+(arrival is a timestamp; status stays `booked`, so every bot query is
+unchanged), `patient_notes`, `tasks` — none granted to `clinic_agent`. Walk-in
+registration records consent with channel `desk`; arrived / completed / no-show
+from the queue, which now counts who has been seen; a doctor filter on the
+calendar; staff book, reschedule and cancel through the same `booking.ts` the
+bots use.
+
+**Patient record (`5aa50d9`, `ef31356`, `5b5da20`, `0f76303`, `357d2c1`,
+`ceec676`, `623d12b`).** One timeline per patient; append-only notes; follow-up
+tasks (`/tasks`, a badge in the nav); Ctrl+K quick find with phone
+normalisation; merging duplicates in one transaction — conversations locked
+before patients, as the agent does; the messages of both WhatsApp
+conversations kept in one; consent follows the latest decision; the duplicate
+hard-deleted.
+
+**CSV export** (`0e256ab`). Patients, and appointments for a
+date range of at most 92 days from the calendar; doctor-scoped, audited,
+formula-injection safe, UTF-8 BOM so Excel reads it.
+
+**A verification pass (`2477ee0`).** The previous agent stopped mid-export; this session
+finished it and ran two read-only reviews against the brief. Found and fixed,
+each with a test where there is logic:
+1. Cancel/reschedule checked "still booked", then wrote separately, so a
+   simultaneous cancel + complete, or two reschedules, could both succeed. The
+   writes now re-check `status = 'booked'`, and a losing reschedule gives its
+   new slot back (`booking.ts`).
+2. A doctor could open another doctor's patient by typing their number on the
+   walk-in form. The booking page now reaches only his own patients, or ones
+   with no appointments yet.
+3. Quick find missed partial numbers typed with a `0` or `+91` prefix
+   ("098765", "+91 98765").
+4. `completeTask` ignored doctor scope.
+5. The task badge counted tasks of withdrawn patients.
+6. `/patients/<not-a-uuid>` returned 500; now 404.
+7. The calendar export link exported only the day on screen; it is now a
+   from/to range, and a refused range returns to the calendar with the message.
+
+**Testing note.** From an administrator shell on Windows the local test
+Postgres refuses to start; this pass ran against Neon `neondb_test` via the
+local runner script. Two test runs at once against the same database collide
+(seed duplicate key) — run one at a time.
+
+**Still owed:** a browser walk-through of every new screen (not done in this
+pass — no browser available); the UI/UX phase is next; and WORK_TO_DO.md,
+"Pending / owed".
