@@ -2,11 +2,11 @@
 
 /**
  * Lightswind UI "tabs" (lightswind.com), recoloured to our tokens, with the
- * sliding indicator kept and arrow-key movement added. Server-rendered
- * children can be passed straight into <TabsContent>.
+ * sliding indicator kept (a CSS transition, so the global reduced-motion rule
+ * covers it) and arrow-key movement added. Server-rendered children can be
+ * passed straight into <TabsContent>.
  */
 import * as React from "react";
-import { motion } from "framer-motion";
 import { cn } from "@/components/lib/utils";
 
 type Ctx = {
@@ -14,7 +14,8 @@ type Ctx = {
   register: (v: string, el: HTMLButtonElement | null) => void;
   indicator: Indicator; listRef: React.RefObject<HTMLDivElement | null>;
 };
-type Indicator = { left: number; width: number };
+/** `slide`: false for the first placement, so the pill does not fly in from 0. */
+type Indicator = { left: number; width: number; slide: boolean };
 const TabsContext = React.createContext<Ctx | null>(null);
 const useTabs = () => {
   const c = React.useContext(TabsContext);
@@ -26,7 +27,7 @@ export function Tabs({
   defaultValue, className, children,
 }: { defaultValue: string; className?: string; children: React.ReactNode }) {
   const [value, setValue] = React.useState(defaultValue);
-  const [indicator, setIndicator] = React.useState<Indicator>({ left: 0, width: 0 });
+  const [indicator, setIndicator] = React.useState<Indicator>({ left: 0, width: 0, slide: false });
   const listRef = React.useRef<HTMLDivElement | null>(null);
   const triggers = React.useRef(new Map<string, HTMLButtonElement>());
   const base = React.useId();
@@ -35,7 +36,7 @@ export function Tabs({
     const el = triggers.current.get(value), list = listRef.current;
     if (!el || !list) return;
     const a = el.getBoundingClientRect(), b = list.getBoundingClientRect();
-    if (a.width > 0) setIndicator({ left: a.left - b.left + list.scrollLeft, width: a.width });
+    if (a.width > 0) setIndicator(p => ({ left: a.left - b.left + list.scrollLeft, width: a.width, slide: p.width > 0 }));
   }, [value]);
 
   React.useEffect(() => {
@@ -77,12 +78,13 @@ export function TabsList({ className, children, label }: { className?: string; c
         className,
       )}
     >
-      <motion.div
+      <div
         aria-hidden="true"
-        className="absolute top-1 bottom-1 rounded-lg bg-surface shadow-card ring-1 ring-line"
-        animate={{ left: indicator.left, width: indicator.width }}
-        initial={false}
-        transition={{ type: "spring", stiffness: 380, damping: 34 }}
+        className={cn(
+          "absolute top-1 bottom-1 rounded-lg bg-surface shadow-card ring-1 ring-line",
+          indicator.slide && "transition-[left,width] duration-300 ease-[cubic-bezier(0.2,0.9,0.3,1.1)]",
+        )}
+        style={{ left: indicator.left, width: indicator.width }}
       />
       {children}
     </div>

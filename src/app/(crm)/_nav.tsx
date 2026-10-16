@@ -2,8 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useId } from "react";
-import { motion } from "framer-motion";
 
 const ICONS = {
   queue:
@@ -55,8 +53,6 @@ export function Nav({
   sections, variant,
 }: { sections: NavSection[]; variant: "rail" | "tabs" }) {
   const path = usePathname();
-  // Two rails mount (desktop, phone menu); each glides its own highlight.
-  const uid = useId();
   const isActive = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
   // Inside the phone menu (<details>), a tap should also close the menu: the
   // layout, and so the open disclosure, survives client-side navigation.
@@ -120,13 +116,11 @@ export function Nav({
                       active ? "text-accent-ink" : "text-rail-ink hover:bg-subtle hover:text-ink"
                     }`}
                   >
-                    {/* One highlight that glides between items (framer layoutId). */}
+                    {/* The active highlight fades in (CSS), no animation library in the shell. */}
                     {active && (
-                      <motion.span
-                        layoutId={`rail-active-${uid}`}
+                      <span
                         aria-hidden="true"
-                        className="absolute inset-0 rounded-xl bg-rail-active shadow-[inset_3px_0_0_var(--color-accent)] ring-1 ring-accent-line/50"
-                        transition={{ type: "spring", stiffness: 500, damping: 38 }}
+                        className="absolute inset-0 animate-fade-in rounded-xl bg-rail-active shadow-[inset_3px_0_0_var(--color-accent)] ring-1 ring-accent-line/50"
                       />
                     )}
                     <span className="relative flex flex-1 items-center gap-2.5">

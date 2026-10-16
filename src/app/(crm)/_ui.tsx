@@ -72,7 +72,7 @@ export function Skel({ className = "" }: { className?: string }) {
 const btnBase =
   "inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition-all active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50";
 export const btnPrimary =
-  `${btnBase} shine bg-brand text-white shadow-glow hover:brightness-110 hover:shadow-[0_10px_28px_-8px_rgb(13_110_107/0.65)]`;
+  `${btnBase} shine bg-brand text-white shadow-glow hover:brightness-110 hover:shadow-[0_10px_28px_-8px_color-mix(in_srgb,var(--color-accent)_65%,transparent)]`;
 export const btnSecondary =
   `${btnBase} border border-line-strong bg-surface text-ink-2 shadow-card hover:-translate-y-px hover:border-accent-line hover:text-accent-ink hover:shadow-lift`;
 export const btnGhost =
@@ -84,7 +84,7 @@ export const btnSm = "!px-2.5 !py-1.5 !text-xs";
 
 /** Form fields. Use with a <label htmlFor>; `fieldLabel` sits above the input. */
 export const field =
-  "mt-1.5 block w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink shadow-[inset_0_1px_1px_rgb(13_27_42/0.04)] transition-colors hover:border-ink-3 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20";
+  "mt-1.5 block w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink shadow-[inset_0_1px_1px_color-mix(in_srgb,var(--color-ink)_4%,transparent)] transition-colors hover:border-ink-3 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20";
 export const fieldLabel = "block text-sm font-medium text-ink-2";
 export const fieldHint = "mt-1 text-xs text-ink-3";
 
@@ -101,7 +101,7 @@ function HeaderIcon({ icon: Icon }: { icon: LucideIcon }) {
   return (
     <span aria-hidden="true" className="group/icon hidden shrink-0 [perspective:400px] sm:block">
       <span className="bg-brand grid size-12 place-items-center rounded-2xl text-white shadow-glow ring-1 ring-white/30 transition-transform duration-500 [transform-style:preserve-3d] group-hover/icon:[transform:rotateX(18deg)_rotateY(-22deg)]">
-        <Icon className="size-6 drop-shadow-[0_2px_4px_rgb(0_0_0/0.25)] [transform:translateZ(14px)]" strokeWidth={1.8} />
+        <Icon className="size-6 drop-shadow-[0_2px_4px_color-mix(in_srgb,var(--color-black)_25%,transparent)] [transform:translateZ(14px)]" strokeWidth={1.8} />
       </span>
     </span>
   );
@@ -191,7 +191,7 @@ export function EmptyState({ title, children, action }: { title: ReactNode; chil
     <div className="relative overflow-hidden rounded-2xl border border-dashed border-line-strong bg-surface/70 px-6 py-12 text-center">
       <div aria-hidden="true" className="relative mx-auto mb-4 grid size-16 place-items-center">
         <span className="absolute inset-0 rounded-full bg-accent-soft" />
-        <span className="absolute inset-2 animate-[spin_18s_linear_infinite] rounded-full border border-dashed border-accent-line" />
+        <span className="absolute inset-2 animate-spin-slow rounded-full border border-dashed border-accent-line" />
         <svg viewBox="0 0 24 24" className="relative size-7 animate-float text-accent" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
           <path d="M9 4h6M9 4a1 1 0 0 0-1 1v1h8V5a1 1 0 0 0-1-1M8 6H6.5A1.5 1.5 0 0 0 5 7.5v11A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5v-11A1.5 1.5 0 0 0 17.5 6H16M9 13l2 2 4-4" />
         </svg>

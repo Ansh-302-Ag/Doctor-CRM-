@@ -3,9 +3,8 @@ import {
   ArrowRight, CalendarDays, KeyRound, LockKeyhole, Mail, MessageCircle, MessageSquareOff,
   ScrollText, ShieldCheck, Stethoscope,
 } from "lucide-react";
-import { Scene3D } from "@/components/three/scene";
+import { LazyOrbits, LazyScene } from "@/components/motion/decor";
 import { ShinyText } from "@/components/lightswind/shiny-text";
-import { OrbitRings } from "@/components/lightswind/orbit";
 import { BorderBeam } from "@/components/lightswind/border-beam";
 import { authenticate } from "@/lib/auth";
 import { sql } from "@/lib/db";
@@ -66,8 +65,8 @@ export default async function LoginPage({
           <div className="absolute -left-1/4 -top-1/3 h-[90%] w-[90%] animate-aurora rounded-full bg-accent-2/45 blur-3xl" />
           <div className="absolute -bottom-1/3 right-[-20%] h-[80%] w-[80%] animate-aurora rounded-full bg-sky/40 blur-3xl [animation-delay:-7s]" />
           <div className="absolute bottom-1/4 left-1/4 h-1/2 w-1/2 animate-aurora rounded-full bg-iris/30 blur-3xl [animation-delay:-13s]" />
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,rgb(255_255_255/0.08)_1px,transparent_0)] bg-[length:22px_22px]" />
-          <div className="absolute inset-y-0 right-0 w-1/2 opacity-70"><Scene3D variant="helix" /></div>
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_1px_1px,color-mix(in_srgb,var(--color-white)_8%,transparent)_1px,transparent_0)] bg-[length:22px_22px]" />
+          <div className="absolute inset-y-0 right-0 w-1/2 opacity-70"><LazyScene variant="helix" /></div>
         </div>
 
         <div className="relative flex items-center gap-2.5">
@@ -99,10 +98,11 @@ export default async function LoginPage({
               ))}
             </ul>
           </div>
-          <div className="hidden xl:block">
-            <OrbitRings
+          {/* Sized here, so the panel keeps its shape whether or not the orbits load. */}
+          <div className="hidden size-[300px] xl:block">
+            <LazyOrbits
               size={300}
-              center={<Mark className="size-16 rounded-2xl shadow-[0_0_40px_rgb(20_163_157/0.6)] ring-1 ring-white/30" />}
+              center={<Mark className="size-16 rounded-2xl shadow-[0_0_40px_color-mix(in_srgb,var(--color-accent-2)_60%,transparent)] ring-1 ring-white/30" />}
               orbits={[
                 { radius: 70, seconds: 14, icon: <CalendarDays className="size-5" /> },
                 { radius: 110, seconds: 22, icon: <MessageCircle className="size-5" />, start: 120 },

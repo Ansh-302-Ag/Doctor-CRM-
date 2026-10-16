@@ -9,8 +9,10 @@
  *   sphere — a network globe: points on a sphere joined to their neighbours
  *            (the doctor's day, the board)
  *
- * The pointer tilts the scene. It pauses off screen and in a background tab,
- * and reduced-motion users get one still frame. Purely decorative: the canvas
+ * The pointer tilts the scene. It draws at most ~20 frames a second, pauses
+ * off screen and in a background tab, and reduced-motion users get one still
+ * frame (LazyScene does not mount it for them at all). Colours are the
+ * --color-white and --color-accent-glow tokens. Purely decorative: the canvas
  * is aria-hidden and takes no clicks.
  */
 import { useEffect, useRef } from "react";
@@ -50,8 +52,8 @@ function sphere(): { pts: P[]; links: [number, number][] } {
 }
 
 export function Scene3D({
-  variant = "helix", className, color = "255 255 255", accent = "94 234 212", speed = 1,
-}: { variant?: "helix" | "sphere"; className?: string; color?: string; accent?: string; speed?: number }) {
+  variant = "helix", className, speed = 1,
+}: { variant?: "helix" | "sphere"; className?: string; speed?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -60,6 +62,8 @@ export function Scene3D({
     if (!canvas || !ctx) return;
     const { pts, links } = variant === "helix" ? helix() : sphere();
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const token = (name: string) => getComputedStyle(canvas).getPropertyValue(name).trim();
+    const color = token("--color-white"), accent = token("--color-accent-glow");
     let w = 0, h = 0, raf = 0, visible = true, angle = 0.6, last = performance.now();
     const tilt = { x: 0, y: 0, tx: 0, ty: 0 };
 
@@ -71,9 +75,14 @@ export function Scene3D({
     };
 
     const frame = (now: number) => {
-      const dt = Math.min(64, now - last); last = now;
+      // ~20fps is plenty for a slow turn, and a third of the work at 60.
+      if (!reduce && now - last < 48) {
+        if (visible && !document.hidden) raf = requestAnimationFrame(frame);
+        return;
+      }
+      const dt = Math.min(100, now - last); last = now;
       angle += dt * 0.00035 * speed;
-      tilt.x += (tilt.tx - tilt.x) * 0.06; tilt.y += (tilt.ty - tilt.y) * 0.06;
+      tilt.x += (tilt.tx - tilt.x) * 0.16; tilt.y += (tilt.ty - tilt.y) * 0.16;
       const ay = angle + tilt.y * 0.6, ax = (variant === "helix" ? 0.35 : 0.25) + tilt.x * 0.4;
       const [sy, cy, sx, cx] = [Math.sin(ay), Math.cos(ay), Math.sin(ax), Math.cos(ax)];
       const scale = Math.min(w, h) * (variant === "helix" ? 0.42 : 0.4);
@@ -90,7 +99,7 @@ export function Scene3D({
       for (const [a, b] of links) {
         const p = proj[a], q = proj[b];
         const depth = 1 - ((p.z + q.z) / 2 + 1) / 2; // 1 near, 0 far
-        ctx.strokeStyle = `rgb(${color} / ${0.06 + depth * 0.32})`;
+        ctx.strokeStyle = color; ctx.globalAlpha = 0.06 + depth * 0.32;
         ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
       }
       const order = proj.map((p, i) => i).sort((i, j) => proj[j].z - proj[i].z);
@@ -99,10 +108,10 @@ export function Scene3D({
         const depth = 1 - (p.z + 1) / 2;
         const r = (variant === "helix" ? 2.6 : 2) * p.k * (0.6 + depth);
         const tint = i % 7 === 0 ? accent : color;
-        ctx.fillStyle = `rgb(${tint} / ${0.25 + depth * 0.75})`;
+        ctx.fillStyle = tint; ctx.globalAlpha = 0.25 + depth * 0.75;
         ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, Math.PI * 2); ctx.fill();
         if (depth > 0.8 && i % 7 === 0) {
-          ctx.fillStyle = `rgb(${accent} / 0.18)`;
+          ctx.fillStyle = accent; ctx.globalAlpha = 0.18;
           ctx.beginPath(); ctx.arc(p.x, p.y, r * 3.2, 0, Math.PI * 2); ctx.fill();
         }
       }
@@ -132,7 +141,7 @@ export function Scene3D({
       window.removeEventListener("pointermove", onMove);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [variant, color, accent, speed]);
+  }, [variant, speed]);
 
   return <canvas ref={ref} aria-hidden="true" className={cn("pointer-events-none block h-full w-full", className)} />;
 }

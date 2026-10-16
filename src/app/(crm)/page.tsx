@@ -9,6 +9,7 @@ import { sql } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { requirePermission } from "@/lib/rbac";
 import { isId } from "@/lib/desk";
+import { CLOSE_HOUR, OPEN_HOUR } from "@/lib/booking";
 import { Hero, HeroStat, greeting } from "@/components/ui/hero";
 import { StatTile } from "@/components/ui/stat-tile";
 import { Ring } from "@/components/motion/ring";
@@ -130,7 +131,8 @@ export default async function CalendarPage({
   const live = all.filter(r => r.status !== "cancelled");
   const hours = live.map(r => hourOf(r.starts_at));
   const nowHour = day === today ? hourOf(now) : -1;
-  const from = Math.min(9, ...hours), to = Math.max(from + 7, ...hours);
+  // Clinic hours (booking.ts), stretched to any appointment outside them.
+  const from = Math.min(OPEN_HOUR, ...hours), to = Math.max(CLOSE_HOUR - 1, ...hours);
   const perHour = Array.from({ length: to - from + 1 }, (_, i) => from + i).map(h => ({
     label: String(h).padStart(2, "0"), value: hours.filter(x => x === h).length, highlight: h === nowHour,
   }));

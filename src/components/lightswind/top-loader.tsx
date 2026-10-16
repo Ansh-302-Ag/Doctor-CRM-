@@ -6,8 +6,9 @@
  * The database is a continent away, so a click deserves visible feedback.
  *
  * Starts on a click on an internal link or a GET form submit (the day and
- * doctor filters); finishes when the URL changes. A safety timer finishes it
- * anyway, so it can never hang on screen.
+ * doctor filters); finishes when the URL changes, or on pageshow/popstate. A
+ * form re-sent with unchanged values never changes the URL, so that one
+ * finishes after ~3s; a safety timer finishes any other after 12s.
  */
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -29,13 +30,18 @@ export function TopLoader() {
   }, [path, search]);
 
   useEffect(() => {
-    const start = () => {
+    const finish = () => {
+      clear();
+      setProgress(p => (p > 0 ? 1 : 0));
+      timers.current.push(window.setTimeout(() => setProgress(0), 320));
+    };
+    const start = (sameUrl = false) => {
       clear();
       setProgress(0.15);
       // Trickle toward, never reaching, the end.
       [0.35, 0.55, 0.7, 0.8, 0.88].forEach((p, i) =>
         timers.current.push(window.setTimeout(() => setProgress(q => Math.max(q, p)), 250 + i * 450)));
-      timers.current.push(window.setTimeout(() => setProgress(0), 12_000));
+      timers.current.push(window.setTimeout(finish, sameUrl ? 3_000 : 12_000));
     };
     const onClick = (e: MouseEvent) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -48,13 +54,20 @@ export function TopLoader() {
     };
     const onSubmit = (e: SubmitEvent) => {
       const f = e.target as HTMLFormElement;
-      if (!e.defaultPrevented && f.method.toLowerCase() === "get" && !f.action.includes("/export/")) start();
+      if (e.defaultPrevented || f.method.toLowerCase() !== "get" || f.action.includes("/export/")) return;
+      const to = new URL(f.action, location.href);
+      to.search = new URLSearchParams([...new FormData(f, e.submitter)].map(([k, v]) => [k, String(v)])).toString();
+      start(to.pathname === location.pathname && to.search === location.search);
     };
     document.addEventListener("click", onClick);
     document.addEventListener("submit", onSubmit);
+    window.addEventListener("pageshow", finish);
+    window.addEventListener("popstate", finish);
     return () => {
       document.removeEventListener("click", onClick);
       document.removeEventListener("submit", onSubmit);
+      window.removeEventListener("pageshow", finish);
+      window.removeEventListener("popstate", finish);
       clear();
     };
   }, []);

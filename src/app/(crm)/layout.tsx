@@ -6,7 +6,6 @@ import { can } from "@/lib/rbac";
 import { Nav, type NavSection } from "./_nav";
 import { QuickFind } from "./_quickfind";
 import { Suspense } from "react";
-import { Magnetic } from "@/components/lightswind/magnetic";
 import { TopLoader } from "@/components/lightswind/top-loader";
 import { Avatar, btnPrimary } from "./_ui";
 
@@ -88,12 +87,10 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
   // the pages re-check, these are shortcuts.
   const quick = (
     <div className="flex flex-col gap-1.5">
-      <Magnetic className="w-full" strength={0.12}>
-        <Link href="/appointments/new" className={`${btnPrimary} w-full`}>
-          <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
-          New appointment
-        </Link>
-      </Magnetic>
+      <Link href="/appointments/new" className={`${btnPrimary} w-full`}>
+        <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 5v14M5 12h14" /></svg>
+        New appointment
+      </Link>
       <Link href="/patients/new" className="rounded-lg px-3 py-1.5 text-center text-sm font-medium text-accent transition-colors hover:bg-accent-soft">
         Register walk-in
       </Link>

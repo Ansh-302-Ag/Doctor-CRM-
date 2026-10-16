@@ -140,7 +140,7 @@ export default async function EscalationsPage() {
 
           <Reveal as="ul" className="mt-3 space-y-4">
             {emergencies.map(r => (
-              <li key={r.id} className="relative overflow-hidden rounded-2xl border-2 border-danger bg-surface shadow-[0_0_0_4px_var(--color-danger-soft),0_18px_40px_-18px_rgb(179_38_30/0.55)]">
+              <li key={r.id} className="relative overflow-hidden rounded-2xl border-2 border-danger bg-surface shadow-[0_0_0_4px_var(--color-danger-soft),0_18px_40px_-18px_color-mix(in_srgb,var(--color-danger)_55%,transparent)]">
                 <p className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-gradient-to-r from-danger to-danger-hover px-4 py-2 text-xs font-bold uppercase tracking-widest text-white">
                   <span aria-hidden="true" className="relative flex size-2.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex size-2.5 rounded-full bg-white" /></span>
                   Emergency

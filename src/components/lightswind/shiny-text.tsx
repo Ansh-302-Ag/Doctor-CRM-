@@ -13,7 +13,7 @@ export function ShinyText({
     <span
       className={cn(
         "animate-[shimmer_var(--shiny-speed)_linear_infinite] bg-[length:250%_100%] bg-clip-text text-transparent",
-        "bg-[linear-gradient(110deg,var(--shiny-base)_35%,rgb(255_255_255/0.95)_50%,var(--shiny-base)_65%)]",
+        "bg-[linear-gradient(110deg,var(--shiny-base)_35%,color-mix(in_srgb,var(--color-white)_95%,transparent)_50%,var(--shiny-base)_65%)]",
         className,
       )}
       style={{ ["--shiny-speed" as string]: `${speed}s`, ["--shiny-base" as string]: base }}

@@ -52,6 +52,8 @@
   --color-iris: #5b5fc7;
   --color-iris-soft: #eeeefb;
   --color-deep: #062b2a;
+  /* The bright teal the 3D scenes light their accent points with, on deep. */
+  --color-accent-glow: #5eead4;
 
   /* Semantic. Emergency escalations and no-shows read off these. */
   --color-danger: #b3261e;
@@ -92,6 +94,10 @@
   --animate-pulse-ring: pulse-ring 2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
   --animate-spin-slow: spin 14s linear infinite;
   --animate-gradient: gradient-pan 8s ease infinite;
+  /* `backwards`: the first frame applies from the first paint, and nothing is
+   * left on the element afterwards. Opacity and translate only. */
+  --animate-page-in: page-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  --animate-fade-in: fade-in 0.25s ease-out backwards;
 }
 
 /* Keyframes live outside @theme so they are always emitted, whichever
@@ -125,6 +131,28 @@
 }
 @keyframes grow-x {
   from { transform: scaleX(0); }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes page-in {
+  from { opacity: 0; translate: 0 14px; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+/* The sign-in orbits: an arm turning from --from, its icon turning back. */
+@keyframes orbit {
+  from { rotate: var(--from); }
+  to { rotate: calc(var(--from) + 360deg); }
+}
+@keyframes orbit-back {
+  from { rotate: calc(-1 * var(--from)); }
+  to { rotate: calc(-1 * var(--from) - 360deg); }
+}
+/* A progress ring drawing itself in from empty (--ring-empty: its full dash offset). */
+@keyframes ring-draw {
+  from { stroke-dashoffset: var(--ring-empty); }
 }
 @keyframes shine-sweep {
   from { transform: translateX(-120%) skewX(-20deg); }
