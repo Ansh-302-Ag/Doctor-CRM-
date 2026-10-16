@@ -323,6 +323,9 @@ export default async function PatientRecordPage({
             </span>
           </Alert>
         )}
+        {sent === "consent_withdrawn" && (
+          <Alert tone="warn">Saved. The patient has withdrawn consent, so they were not messaged.</Alert>
+        )}
         {sent === "send_failed" && (
           <Alert tone="warn">
             <span className="font-semibold">Saved, but not delivered.</span>{" "}
