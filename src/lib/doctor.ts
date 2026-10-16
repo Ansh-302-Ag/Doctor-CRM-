@@ -71,8 +71,9 @@ export class NotYourPatient extends Error {
 
 export type Delivery = {
   delivered: boolean;
-  /** Why it was not delivered, for the doctor's screen. */
-  reason?: "outside_window" | "send_failed";
+  /** Why it was not delivered, for the doctor's screen
+   *  (`consent_withdrawn`: "patient has withdrawn consent — not messaged"). */
+  reason?: "outside_window" | "send_failed" | "consent_withdrawn";
   /** Outside the window: whether the `prescription_ready` template (with the link) went out. */
   nudged?: boolean;
 };
@@ -198,12 +199,19 @@ async function deliver(
 
   let open = false;
   try {
-    const [row] = await db<{ phone: string; clinic_name: string; doctor_name: string }[]>`
-      select p.phone, c.name as clinic_name, d.name as doctor_name
+    const [row] = await db<{
+      phone: string; clinic_name: string; doctor_name: string; consent_status: string;
+    }[]>`
+      select p.phone, c.name as clinic_name, d.name as doctor_name, p.consent_status
         from patients p
         join clinics c on c.id = p.clinic_id
         join doctors d on d.id = ${doctorId}
        where p.id = ${patientId}`;
+    // Withdrawn consent means no more messages (docs/02) — and no link either.
+    if (row.consent_status === "withdrawn") {
+      await auditAll("prescription_message_skipped");
+      return { delivered: false, reason: "consent_withdrawn", nudged: false };
+    }
     open = await inWindow(db, patientId, now);
     const { url } = await createRecordLink(db, patientId, now);
     const note = renderTemplate("prescription_ready", {
@@ -227,6 +235,7 @@ async function deliver(
   } catch (e) {
     // The record stands. The doctor is told on screen, and the audit trail says
     // the patient was not reached — silence here would be the real harm.
+    // channel.ts errors carry only Meta's status and code, never message text.
     console.error("prescription message failed", (e as Error).message);
     await auditAll("prescription_message_failed").catch(() => {});
     return { delivered: false, reason: open ? "send_failed" : "outside_window", nudged: false };

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { notifyStaff, sendTemplate } from "../src/lib/channel";
+import { notifyStaff, sendMessage, sendTemplate } from "../src/lib/channel";
 
 const alert = { clinicName: "Sunrise Clinic", urgent: true, note: "Escalation from ******01." };
 
@@ -64,3 +64,31 @@ test("a utility template sends only the body component", () =>
     assert.equal(calls[0].template.components.length, 1);
     assert.equal(calls[0].template.components[0].type, "body");
   }));
+
+test("a Meta rejection error carries the status and code, never the response body", async () => {
+  const keys = ["WHATSAPP_TOKEN", "WHATSAPP_PHONE_NUMBER_ID"] as const;
+  const saved = keys.map(k => process.env[k]);
+  const realFetch = globalThis.fetch;
+  process.env.WHATSAPP_TOKEN = "t";
+  process.env.WHATSAPP_PHONE_NUMBER_ID = "123";
+  // Meta can echo what was sent back in its error details.
+  globalThis.fetch = (async () => new Response(
+    '{"error":{"code":131047,"message":"Re-engagement","error_data":{"details":"https://x/r/SECRETTOKEN"}}}',
+    { status: 400 })) as never;
+  try {
+    for (const send of [
+      () => sendMessage({ to: "919000000001", text: "https://x/r/SECRETTOKEN" }),
+      () => sendTemplate({ to: "919000000001", name: "record_code", parameters: ["482913"] }),
+    ]) {
+      await assert.rejects(send, (e: Error) => {
+        assert.match(e.message, /400/);
+        assert.match(e.message, /131047/);
+        assert.doesNotMatch(e.message, /SECRETTOKEN|Re-engagement|482913/);
+        return true;
+      });
+    }
+  } finally {
+    globalThis.fetch = realFetch;
+    keys.forEach((k, i) => saved[i] === undefined ? delete process.env[k] : (process.env[k] = saved[i]));
+  }
+});

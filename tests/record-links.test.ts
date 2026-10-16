@@ -61,7 +61,8 @@ test("a code is issued for a live link, stored only as a hash, and verifies once
   assert.ok(ok.ok);
   assert.equal(ok.patientId, f.patientId);
   assert.equal((await verifyCode(db, token, c)).ok, false, "single use");
-  assert.equal(((await verifyCode(db, token, c)) as { reason: string }).reason, "wrong_code");
+  assert.equal(((await verifyCode(db, token, c)) as { reason: string }).reason, "no_code",
+    "once used, no code is outstanding");
 });
 
 test("a new code replaces the previous one", async () => {
@@ -265,4 +266,28 @@ test("no WhatsApp message — template or free-form — carries the prescription
     }
     assert.doesNotMatch(body, /\b(dosage|tablet|medicine|drug)s?\b/i, body);
   }
+});
+
+test("a double submit of the right code verifies once and is not counted as a wrong code", async () => {
+  const { token } = await createRecordLink(db, f.patientId);
+  const c = await code(token);
+  const results = await Promise.all([verifyCode(db, token, c), verifyCode(db, token, c)]);
+  assert.equal(results.filter(r => r.ok).length, 1, "exactly one verifies");
+  const other = results.find(r => !r.ok) as { reason: string };
+  // Which one depends on timing: it saw the code and lost the consume
+  // (already used), or read the row after the winner consumed it (none out).
+  assert.ok(["expired_code", "no_code"].includes(other.reason), `already used, not wrong: ${other.reason}`);
+  const [row] = await db<{ wrong_codes: number }[]>`select wrong_codes from record_links`;
+  assert.equal(row.wrong_codes, 0);
+});
+
+test("with no code outstanding, guesses are refused but never count toward the lock", async () => {
+  const { token } = await createRecordLink(db, f.patientId);
+  for (let i = 0; i < MAX_WRONG_CODES + 1; i++) {
+    assert.deepEqual(await verifyCode(db, token, "123456"), { ok: false, reason: "no_code" });
+  }
+  const [row] = await db<{ wrong_codes: number; locked_at: Date | null }[]>`
+    select wrong_codes, locked_at from record_links`;
+  assert.deepEqual({ ...row }, { wrong_codes: 0, locked_at: null });
+  assert.ok((await verifyCode(db, token, await code(token))).ok, "the link still works");
 });

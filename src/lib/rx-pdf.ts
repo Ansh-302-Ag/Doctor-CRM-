@@ -15,14 +15,19 @@ export type RxPdfInput = {
 };
 
 const font = (file: string) => fs.readFileSync(path.join(process.cwd(), "assets/fonts", file));
+// Read once per process, not per download.
+let fonts: { regular: Buffer; semibold: Buffer } | undefined;
 const ACCENT = "#0d6e6b";
 const INK = "#1a1a1a";
 const MUTED = "#5f6368";
 const FOOTER_H = 40;
 
 export async function renderPrescriptionPdf(input: RxPdfInput): Promise<Buffer> {
-  const regular = font("IBMPlexSansDevanagari-Regular.ttf");
-  const semibold = font("IBMPlexSansDevanagari-SemiBold.ttf");
+  fonts ??= {
+    regular: font("IBMPlexSansDevanagari-Regular.ttf"),
+    semibold: font("IBMPlexSansDevanagari-SemiBold.ttf"),
+  };
+  const { regular, semibold } = fonts;
   const doc = new PDFDocument({
     size: "A5", margin: 36, bufferPages: true,
     // a default font, or pdfkit's constructor loads Helvetica's AFM
@@ -84,8 +89,12 @@ export async function renderPrescriptionPdf(input: RxPdfInput): Promise<Buffer> 
 
   // ℞ — from the font if it has the glyph, else "Rx"
   doc.font("B").fontSize(20);
-  const hasRx = (doc as unknown as { _font: { font: { hasGlyphForCodePoint(c: number): boolean } } })
-    ._font.font.hasGlyphForCodePoint(0x211e);
+  // `_font` is pdfkit's private field: if it ever changes shape, "Rx" it is.
+  let hasRx = false;
+  try {
+    hasRx = (doc as unknown as { _font: { font: { hasGlyphForCodePoint(c: number): boolean } } })
+      ._font.font.hasGlyphForCodePoint(0x211e);
+  } catch { /* fall back to "Rx" */ }
   doc.fillColor(ACCENT).text(hasRx ? "℞" : "Rx", { width });
   doc.moveDown(0.3);
 

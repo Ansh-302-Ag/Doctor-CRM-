@@ -93,8 +93,8 @@ In **WhatsApp → Configuration → Webhook**, set the callback URL to
 Caveats:
 
 - **Free-form replies only inside 24 hours** of the patient's last message.
-  Everything the clinic starts (reminders, the `record_updated` nudge) is a
-  template and fails until Meta approves it — see
+  Everything the clinic starts (reminders, the `prescription_ready` link, the
+  `record_code` code) is a template and fails until Meta approves it — see
   `docs/10-whatsapp-templates.md`.
 - **A test number only reaches numbers you have added** as recipients in API
   Setup (up to five).

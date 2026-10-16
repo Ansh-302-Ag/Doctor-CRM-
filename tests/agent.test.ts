@@ -204,6 +204,54 @@ test("'my prescription' sends a secure link, never the record", async () => {
   assert.equal((await db`select 1 from record_links where patient_id = ${f.patientId}`).length, 1);
 });
 
+test("the stored copy of the prescription reply never holds the link's token", async () => {
+  await db`insert into prescriptions (patient_id, doctor_id, drug_name, dosage, created_by)
+           values (${f.patientId}, ${f.doctorId}, 'Amoxicillin', '500mg', ${f.doctorUserId})`;
+  const r = await say("what is my prescription");
+  const token = r!.text.match(/\/r\/([A-Za-z0-9_-]{43})/)![1];
+  const bodies = await db<{ body: string }[]>`select body from messages where direction = 'outbound'`;
+  assert.equal(bodies.length, 1);
+  assert.ok(!bodies[0].body.includes(token), "the token is not in messages.body");
+  assert.doesNotMatch(bodies[0].body, /\/r\/[A-Za-z0-9_-]{8,}/);
+  assert.match(bodies[0].body, /\/r\/\[secure link\]/);
+});
+
+test("with no APP_URL in production, 'my prescription' is handed to staff once, not a technical failure", async () => {
+  await db`insert into prescriptions (patient_id, doctor_id, drug_name, dosage, created_by)
+           values (${f.patientId}, ${f.doctorId}, 'Amoxicillin', '500mg', ${f.doctorUserId})`;
+  const env = process.env as Record<string, string | undefined>;
+  const saved = { node: env.NODE_ENV, app: env.APP_URL };
+  env.NODE_ENV = "production"; delete env.APP_URL;
+  const log = console.error; const logged: unknown[] = []; console.error = (...a) => logged.push(a);
+  let r;
+  try {
+    r = await say("what is my prescription");
+  } finally {
+    console.error = log;
+    env.NODE_ENV = saved.node;
+    if (saved.app === undefined) delete env.APP_URL; else env.APP_URL = saved.app;
+  }
+  assert.equal(r!.escalated, true);
+  assert.notEqual(r!.urgent, true);
+  assert.notEqual(r!.text, templates.technicalFailure());
+  assert.match(r!.text, /clinic team/i);
+  assert.doesNotMatch(r!.text, /Amoxicillin|500mg|\/r\//);
+  assert.deepEqual([...await escalations()].map(e => ({ ...e })), [{
+    reason: "prescription link unavailable: APP_URL not configured", priority: "normal", status: "open",
+  }]);
+  assert.equal(logged.length, 0, "nothing on console.error");
+  assert.equal((await db`select 1 from record_links`).length, 0);
+});
+
+test("a patient who has withdrawn consent gets no prescription link", async () => {
+  await db`insert into prescriptions (patient_id, doctor_id, drug_name, dosage, created_by)
+           values (${f.patientId}, ${f.doctorId}, 'Amoxicillin', '500mg', ${f.doctorUserId})`;
+  await db`update patients set consent_status = 'withdrawn' where id = ${f.patientId}`;
+  const r = await say("what is my prescription");
+  assert.doesNotMatch(r!.text, /\/r\//);
+  assert.equal((await db`select 1 from record_links`).length, 0);
+});
+
 test("'my prescription' with nothing active creates no link", async () => {
   const r = await say("what is my prescription");
   assert.match(r!.text, /no active prescriptions/i);

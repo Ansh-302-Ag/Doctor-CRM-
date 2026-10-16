@@ -7,7 +7,9 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { Download } from "lucide-react";
 import { sql } from "@/lib/db";
-import { linkPreview, readRecord, sendRecordCode, verifyCode, CODE_TTL_MINUTES } from "@/lib/record-links";
+import {
+  linkPreview, readRecord, sendRecordCode, verifyCode, CODE_TTL_MINUTES, MAX_WRONG_CODES,
+} from "@/lib/record-links";
 import { markVerified, viewedLinkId } from "@/lib/record-session";
 import { Alert, btnPrimary, btnSecondary, field, fieldLabel } from "../../(crm)/_ui";
 
@@ -36,7 +38,10 @@ export default async function RecordPage({
   searchParams: Promise<{ s?: string; left?: string }>;
 }) {
   const { token } = await params;
-  const { s, left } = await searchParams;
+  const { s, left: leftRaw } = await searchParams;
+  // From the query string: shown only as a small whole number, else not at all.
+  const n = Number.parseInt(leftRaw ?? "", 10);
+  const left = Number.isInteger(n) && n >= 0 && n <= MAX_WRONG_CODES ? n : null;
   const preview = await linkPreview(sql, token);
   if (!preview) return <Shell title="Link not valid"><Alert tone="warn">{DEAD}</Alert></Shell>;
 
@@ -57,6 +62,7 @@ export default async function RecordPage({
     }
     if (r.reason === "wrong_code") redirect(`${here}?s=wrong&left=${r.triesLeft}`);
     if (r.reason === "expired_code") redirect(`${here}?s=expired`);
+    if (r.reason === "no_code") redirect(`${here}?s=nocode`);
     redirect(here); // invalid or locked: the page now shows it as dead
   }
 
@@ -110,8 +116,13 @@ export default async function RecordPage({
         {s === "sent" && <Alert tone="ok">Code sent. It expires in {CODE_TTL_MINUTES} minutes.</Alert>}
         {s === "unsent" && <Alert tone="warn">We could not send the code just now. Try again in a minute, or call the clinic.</Alert>}
         {s === "rate" && <Alert tone="warn">Too many codes. Try again in an hour.</Alert>}
-        {s === "wrong" && <Alert tone="danger">That code isn’t right. {left} {left === "1" ? "try" : "tries"} left.</Alert>}
+        {s === "wrong" && (
+          <Alert tone="danger">
+            That code isn’t right.{left !== null && ` ${left} ${left === 1 ? "try" : "tries"} left.`}
+          </Alert>
+        )}
         {s === "expired" && <Alert tone="warn">That code has expired. Send a new one.</Alert>}
+        {s === "nocode" && <Alert tone="warn">Request a code first, then enter it here.</Alert>}
         {s === "dead" && <Alert tone="warn">{DEAD}</Alert>}
       </div>
 

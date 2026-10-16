@@ -26,6 +26,7 @@ import {
 } from "../consent";
 import { BookingError, OPEN_HOUR, CLOSE_HOUR, OPEN_DAYS, requireTimezone } from "../booking";
 import { setPatientName } from "../patients";
+import { LinksUnavailable } from "../record-links";
 
 /** `urgent` is set when the escalation was an emergency, so the page that
  *  follows can say so; the patient-facing text is the same either way. */
@@ -58,8 +59,6 @@ type ConversationState =
   Partial<BookingState> & Partial<PendingState> & { unclear?: number };
 
 const isBooking = (s: ConversationState): s is BookingState => s.flow === "booking";
-const isPending = (s: ConversationState): s is PendingState =>
-  typeof s.pending === "string";
 
 /** Two messages we cannot read earn another try at the question; the third
  *  earns a person. Pre- and post-consent alike: one counter, one threshold. */
@@ -191,8 +190,11 @@ async function inTransaction(
         msg.attachment === "document" ? "file" : msg.attachment}. I can only read the text you typed.)`
     : reply.text;
 
+  // A record link's token is a bearer secret: the patient gets it, the stored
+  // copy (inbox, backups) does not.
+  const stored = text.replace(/\/r\/[A-Za-z0-9_-]{20,}/g, "/r/[secure link]");
   await db`insert into messages (conversation_id, direction, body, intent_classified)
-           values (${ctx.conversation.id}, 'outbound', ${text}, ${reply.intent ?? null})`;
+           values (${ctx.conversation.id}, 'outbound', ${stored}, ${reply.intent ?? null})`;
   return { text, escalated: reply.escalated, urgent: reply.urgent };
 }
 
@@ -398,7 +400,7 @@ async function route(
 
   switch (c.intent) {
     case "book":
-      return startBooking(db, msg, ctx, c, doctors, now, escalate, reask);
+      return startBooking(db, msg, ctx, c, doctors, now, escalate);
 
     case "check_appointment": {
       const rows = await tools.get_upcoming_appointments(db, ctx.patient.id);
@@ -413,7 +415,16 @@ async function route(
 
     case "check_prescription_record": {
       // Never the record itself in chat — a secure link behind a one-time code.
-      const url = await tools.prescription_link(db, ctx.patient.id);
+      let url: string | null;
+      try {
+        url = await tools.prescription_link(db, ctx.patient.id);
+      } catch (e) {
+        // A deployment gap, not this patient's problem: staff send it instead.
+        if (!(e instanceof LinksUnavailable)) throw e;
+        return escalate("prescription link unavailable: APP_URL not configured", "normal",
+          "I can't send the secure link just now, so I have asked the clinic team " +
+          "to send it to you.", c.intent);
+      }
       if (!url) {
         return { text: "There are no active prescriptions on your record.",
                  escalated: false, intent: c.intent };
@@ -512,7 +523,7 @@ const whichDoctor = (doctors: Doctor[]) =>
 
 async function startBooking(
   db: Db, msg: InboundMessage, ctx: Ctx, c: Classification,
-  doctors: Doctor[], now: Date, escalate: Escalate, reask: Reask,
+  doctors: Doctor[], now: Date, escalate: Escalate,
 ): Promise<Routed> {
   if (doctors.length === 0) {
     return escalate("no doctors configured for this clinic", "normal",

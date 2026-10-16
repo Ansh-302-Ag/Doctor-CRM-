@@ -24,13 +24,16 @@ export const VIEW_MINUTES = 15;
 const MIN = 60_000;
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 
+/** No link can be built: APP_URL is missing in production. */
+export class LinksUnavailable extends Error {}
+
 /** Links are built from APP_URL. In production a missing APP_URL is an error,
  *  never a silent localhost link in a patient's WhatsApp. */
 export function appUrl(): string {
   const url = process.env.APP_URL?.replace(/\/+$/, "");
   if (url) return url;
   if (process.env.NODE_ENV === "production") {
-    throw new Error("APP_URL must be set in production — prescription links are built from it");
+    throw new LinksUnavailable("APP_URL must be set in production — prescription links are built from it");
   }
   return "http://localhost:3000";
 }
@@ -101,34 +104,41 @@ export async function issueCode(db: Db, token: string, now = new Date()): Promis
 }
 
 /** Check a code. Single use; MAX_WRONG_CODES wrong codes (over the link's
- *  life) lock the link for good. */
+ *  life) lock the link for good. Only a guess at an OUTSTANDING code counts —
+ *  otherwise anyone holding the link could lock it without ever asking for one. */
 export async function verifyCode(db: Db, token: string, code: string, now = new Date()): Promise<
   | { ok: true; patientId: string; linkId: string }
-  | { ok: false; reason: "invalid" | "expired_code" | "locked" }
+  | { ok: false; reason: "invalid" | "expired_code" | "locked" | "no_code" }
   | { ok: false; reason: "wrong_code"; triesLeft: number }
 > {
   const l = await findLink(db, token, now);
   if (!l || !l.alive) return { ok: false, reason: "invalid" };
   if (l.locked_at) return { ok: false, reason: "locked" };
-  if (l.code_hash && l.code_expires_at && l.code_expires_at <= now) {
+  if (!l.code_hash) return { ok: false, reason: "no_code" };
+  if (l.code_expires_at && l.code_expires_at <= now) {
     return { ok: false, reason: "expired_code" };
   }
   const given = Buffer.from(sha256(String(code).trim()), "hex");
-  if (l.code_hash && timingSafeEqual(given, Buffer.from(l.code_hash, "hex"))) {
+  if (timingSafeEqual(given, Buffer.from(l.code_hash, "hex"))) {
     // Consume it — only if it is still the current code and the link is not locked.
     const used = await db`
       update record_links set code_hash = null, code_expires_at = null
        where id = ${l.id} and code_hash = ${l.code_hash} and locked_at is null
        returning id`;
     if (used.length === 1) return { ok: true, patientId: l.patient_id, linkId: l.id };
+    // The right code, just used by a double submit (or replaced): not a guess.
+    return { ok: false, reason: "expired_code" };
   }
+  // Counted only against the code that was read — one consumed or replaced
+  // meanwhile is not something this guess was wrong about.
   const [row] = await db<{ wrong_codes: number; locked_at: Date | null }[]>`
     update record_links
        set wrong_codes = wrong_codes + 1,
            locked_at = case when wrong_codes + 1 >= ${MAX_WRONG_CODES} then ${now}::timestamptz
                             else locked_at end
-     where id = ${l.id}
+     where id = ${l.id} and code_hash = ${l.code_hash}
      returning wrong_codes, locked_at`;
+  if (!row) return { ok: false, reason: "expired_code" };
   if (row.locked_at) return { ok: false, reason: "locked" };
   return { ok: false, reason: "wrong_code", triesLeft: MAX_WRONG_CODES - row.wrong_codes };
 }
@@ -208,6 +218,7 @@ export async function sendRecordCode(
       : await sendT({ to: issued.phone, name: "record_code", parameters: [issued.code] });
     return { ok: true, sent: delivered };
   } catch (e) {
+    // channel.ts errors carry only Meta's status and code, never message text.
     console.error("record code send failed", (e as Error).message);
     return { ok: true, sent: false };
   }

@@ -291,6 +291,24 @@ test("a channel that reports nothing was sent is not reported as sent", async ()
   assert.deepEqual(delivery, { delivered: false, reason: "send_failed", nudged: false });
 });
 
+test("a patient who has withdrawn consent is not messaged, and the doctor is told why", async () => {
+  await book(f.doctorId, f.patientId, 9);
+  const now = new Date();
+  await patientMessagedAgo(1, now);
+  await db`update patients set consent_status = 'withdrawn' where id = ${f.patientId}`;
+
+  const io = spy();
+  const { id, delivery } = await prescribeAndNotify(db, doctorStaff(), input(), { ...io, now });
+
+  assert.equal((await db`select id from prescriptions where id = ${id}`).length, 1, "the record stands");
+  assert.deepEqual(delivery, { delivered: false, reason: "consent_withdrawn", nudged: false });
+  assert.equal(io.free.length + io.templates.length, 0, "nothing sent");
+  assert.equal((await db`select 1 from record_links`).length, 0, "no link created");
+  const audits = await db<{ action: string }[]>`select action from audit_log`;
+  assert.ok([...audits].some(a => a.action === "prescription_message_skipped"));
+  assert.ok(![...audits].some(a => /prescription_message_(sent|deferred|failed)/.test(a.action)));
+});
+
 // ------------------------------------------------- several medicines at once
 
 const items = () => [

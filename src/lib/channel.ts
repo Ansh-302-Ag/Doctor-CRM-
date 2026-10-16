@@ -55,8 +55,15 @@ export async function sendMessage(msg: Outbound): Promise<{ delivered: boolean }
       }),
     },
   );
-  if (!res.ok) throw new Error(`whatsapp send failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw await rejected("whatsapp send failed", res);
   return { delivered: true };
+}
+
+/** Meta's error, reduced to its HTTP status and error code. The body can echo
+ *  what was sent — a code, a link token — and errors end up in logs. */
+async function rejected(what: string, res: Response) {
+  const code = await res.json().then(b => b?.error?.code, () => undefined);
+  return new Error(`${what}: ${res.status}${typeof code === "number" ? ` (code ${code})` : ""}`);
 }
 
 /** Keep the last two digits, so a log line can be tied to a conversation
@@ -143,6 +150,6 @@ export async function sendTemplate(msg: {
       }),
     },
   );
-  if (!res.ok) throw new Error(`whatsapp template send failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw await rejected("whatsapp template send failed", res);
   return { delivered: true };
 }

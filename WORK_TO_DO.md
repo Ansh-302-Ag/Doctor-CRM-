@@ -204,6 +204,22 @@ Parked review findings (can wait):
   256-bit token instead); past prescriptions not shown on the record page.
 - Review `ui-overhaul`: behaviour parity, console errors, page weight of the 3D
   scene on slow clinic connections.
+- Prescription-link review (parked 2026-10-16; the IMPORTANT findings are fixed):
+  - No per-patient cap on link/code messages: 3 codes/hour x 7 days is ~500
+    auth messages per link, and every "my prescription" makes a new link.
+  - The purge cron does not prune expired `record_links`.
+  - nginx access logs record `/r/<token>`: consider `access_log off` for `/r/`.
+  - Set `NEXT_SERVER_ACTIONS_ENCRYPTION_KEY`, so an open link page survives a redeploy.
+  - Derive the `record_view` cookie secret from `SESSION_SECRET` with a label.
+  - No route-level test for the record cookie binding, the PDF 404, or the headers.
+  - Meta template approval is a go-live gate: `prescription_ready` and
+    `record_code` are needed for patients outside the window; verify the
+    copy-code button payload on a live test number.
+  - PDF says "Doctor's signature" on a system-generated document.
+  - New staff FKs on `patient_notes`/`tasks` have no ON DELETE rule.
+  - Doctor's patient page (`src/app/(crm)/patients/[id]/page.tsx`) shows nothing
+    for the new delivery reason `consent_withdrawn`: add "Patient has withdrawn
+    consent — not messaged."
 
 Earlier items still owed:
 - Meta template approval (below); nothing clinic-initiated reaches a real
@@ -217,7 +233,8 @@ Earlier items still owed:
 - Refill reminders built but deliberately not wired (clinic picks the lead time).
 - Voice: shorter spoken consent; offer the caller-ID number; Devanagari names;
   reschedule/cancel by phone.
-- Lint: 8 errors predate this work (`db.ts`, `escalations/page.tsx`, two test files).
+- Lint: errors predate this work in `escalations/page.tsx` and two test files
+  (`src/lib` is clean).
 
 ## Open decisions (Ansh to confirm)
 
