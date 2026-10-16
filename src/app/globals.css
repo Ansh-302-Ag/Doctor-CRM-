@@ -314,7 +314,11 @@
     *, ::before, ::after {
       animation-duration: 0.001ms !important;
       animation-iteration-count: 1 !important;
+      /* Entrances use backwards fill with a delay: without this the content
+       * would sit invisible through the delay, then pop in. */
+      animation-delay: 0s !important;
       transition-duration: 0.001ms !important;
+      transition-delay: 0s !important;
     }
   }
 }

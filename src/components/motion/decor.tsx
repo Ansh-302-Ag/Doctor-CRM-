@@ -8,21 +8,19 @@
  * decoration appears once the media query has been read.
  */
 import dynamic from "next/dynamic";
-import { useSyncExternalStore, type ComponentProps } from "react";
+import { useCallback, useSyncExternalStore, type ComponentProps } from "react";
 
 const Scene = dynamic(() => import("@/components/three/scene").then(m => m.Scene3D), { ssr: false });
 const Orbits = dynamic(() => import("@/components/lightswind/orbit").then(m => m.OrbitRings), { ssr: false });
 
 function useMedia(query: string) {
-  return useSyncExternalStore(
-    change => {
-      const m = window.matchMedia(query);
-      m.addEventListener("change", change);
-      return () => m.removeEventListener("change", change);
-    },
-    () => window.matchMedia(query).matches,
-    () => false,
-  );
+  // Stable per query, so React does not resubscribe on every render.
+  const subscribe = useCallback((change: () => void) => {
+    const m = window.matchMedia(query);
+    m.addEventListener("change", change);
+    return () => m.removeEventListener("change", change);
+  }, [query]);
+  return useSyncExternalStore(subscribe, () => window.matchMedia(query).matches, () => false);
 }
 
 const CALM = "(prefers-reduced-motion: no-preference)";
