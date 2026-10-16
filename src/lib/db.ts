@@ -35,7 +35,7 @@ export const agentSql = agentUrl
 
 /** Anything you can run a query on — the pool, or a transaction handle from
  *  `sql.begin`. Business logic takes this so callers choose the transaction. */
-export type Db = Sql<{}> | TransactionSql<{}>;
+export type Db = Sql | TransactionSql;
 
 /** A connection pool — the thing you can open a transaction on. */
-export type Pool = Sql<{}>;
+export type Pool = Sql;

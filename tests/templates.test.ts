@@ -13,8 +13,10 @@ test("every template's parameter list matches its body placeholders", () => {
 });
 
 test("no template body starts or ends with a placeholder", () => {
-  // Meta rejects a template whose body opens or closes on a variable.
-  for (const spec of Object.values(TEMPLATES)) {
+  // Meta rejects a template whose body opens or closes on a variable. An
+  // authentication template's wording is Meta's own ("{{1}} is your
+  // verification code."), fixed by Meta, so the rule does not apply to it.
+  for (const spec of Object.values(TEMPLATES).filter(t => t.category !== "authentication")) {
     assert.doesNotMatch(spec.bodyText, /^\s*\{\{\d+\}\}|\{\{\d+\}\}\s*$/,
       `${spec.name}: body must not start or end with {{n}}`);
   }
@@ -44,10 +46,28 @@ test("no template contains clinical language", () => {
   }
 });
 
-test("the refill template names the drug but says nothing about taking it", () => {
+test("the refill template names no drug — only the clinic and the doctor", () => {
   const r = renderTemplate("refill_followup", {
-    clinic_name: "Sunrise Clinic", drug_name: "Amoxicillin",
+    clinic_name: "Sunrise Clinic", doctor_name: "Dr. Rao",
   });
-  assert.match(r.preview, /Amoxicillin/);
-  assert.match(r.preview, /clinic/i);
+  assert.deepEqual(TEMPLATES.refill_followup.params, ["clinic_name", "doctor_name"]);
+  assert.equal(r.preview,
+    "Hello from Sunrise Clinic. Dr. Rao asked us to check in about your prescription. " +
+    "Reply to this message and we will help.");
+});
+
+test("no template is about health content", () => {
+  // Meta's Business Messaging Policy: no health information on WhatsApp.
+  for (const spec of Object.values(TEMPLATES)) {
+    assert.doesNotMatch(spec.bodyText, /\b(dosage|dose|drug|medicine|tablet)s?\b/i,
+      `${spec.name} talks about health content`);
+  }
+});
+
+test("the code template is an authentication template; the rest are utility", () => {
+  assert.equal(TEMPLATES.record_code.category, "authentication");
+  assert.deepEqual(TEMPLATES.record_code.params, ["code"]);
+  for (const spec of Object.values(TEMPLATES)) {
+    if (spec.name !== "record_code") assert.equal(spec.category, "utility", spec.name);
+  }
 });

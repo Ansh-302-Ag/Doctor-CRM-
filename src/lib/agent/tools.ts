@@ -12,6 +12,7 @@ import {
   cancelAppointment, getUpcomingAppointments,
 } from "../booking";
 import { audit } from "../audit";
+import { createRecordLink } from "../record-links";
 import { requirePermission } from "../rbac";
 
 const AGENT = { kind: "agent" } as const;
@@ -37,18 +38,19 @@ export const tools = {
   get_upcoming_appointments: (db: Db, patientId: string) =>
     getUpcomingAppointments(db, AGENT, ROLE, patientId),
 
-  /** Read-only, verbatim. The agent reads the record back; it never explains it. */
-  get_prescription_summary: async (db: Db, patientId: string) => {
+  /** "My prescription": the agent never reads the record into chat (Meta's
+   *  policy forbids health information on WhatsApp). It only checks there is
+   *  something active and creates a secure, code-protected link to it.
+   *  Null when there is nothing active. */
+  prescription_link: async (db: Db, patientId: string) => {
     requirePermission(ROLE, "prescriptions:read");
-    const rows = await db<{
-      drug_name: string; dosage: string; duration_days: number | null; created_at: Date;
-    }[]>`
-      select drug_name, dosage, duration_days, created_at
-        from prescriptions
-       where patient_id = ${patientId} and status = 'active'
-       order by created_at desc`;
-    await audit(db, AGENT, "read_prescription", "patients", patientId);
-    return rows;
+    const [row] = await db<{ n: number }[]>`
+      select count(*)::int as n from prescriptions
+       where patient_id = ${patientId} and status = 'active'`;
+    if (row.n === 0) return null;
+    const { url } = await createRecordLink(db, patientId);
+    await audit(db, AGENT, "create_record_link", "patients", patientId);
+    return url;
   },
 
   escalate_to_human: async (a: {

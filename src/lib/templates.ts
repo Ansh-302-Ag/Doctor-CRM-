@@ -10,11 +10,15 @@
  * Templates never carry clinical content (docs/01). A reminder says an event is
  * coming up; it does not tell anyone what to do about their health.
  */
-export type TemplateName = "appointment_reminder" | "refill_followup" | "record_updated" | "staff_alert";
+export type TemplateName =
+  "appointment_reminder" | "refill_followup" | "prescription_ready" | "record_code" | "staff_alert";
 
 export type TemplateSpec = {
   name: TemplateName;
   language: string;
+  /** Meta's category. An authentication template is sent with its code twice:
+   *  as the body parameter and as the copy-code button's (src/lib/channel.ts). */
+  category: "utility" | "authentication";
   /** Exactly the body submitted to Meta, with {{1}}-style placeholders. */
   bodyText: string;
   /** Names for those placeholders, in order. */
@@ -25,23 +29,34 @@ export const TEMPLATES: Record<TemplateName, TemplateSpec> = {
   appointment_reminder: {
     name: "appointment_reminder",
     language: "en",
+    category: "utility",
     bodyText:
       "Reminder from {{1}}: you have an appointment with {{2}} on {{3}}. " +
       "Reply CANCEL if you can no longer make it.",
     params: ["clinic_name", "doctor_name", "appointment_time"],
   },
-  /** Sent when a prescription was recorded outside the 24-hour window, so the
-   *  record itself could not be sent (src/lib/doctor.ts). It carries no drug,
-   *  no dosage and no instruction — only that there is something to collect —
-   *  and the patient's reply reopens the window, after which the agent reads
-   *  the record back verbatim. */
-  record_updated: {
-    name: "record_updated",
+  /** A prescription was saved (src/lib/doctor.ts). No health content ever goes
+   *  over WhatsApp (Meta's Business Messaging Policy): this says only that
+   *  something is ready and where to view it, behind a one-time code. Inside
+   *  the 24-hour window the same words go out as free-form text. */
+  prescription_ready: {
+    name: "prescription_ready",
     language: "en",
+    category: "utility",
     bodyText:
-      "A note from {{1}}: {{2}} added a new entry to your record today. " +
-      "Reply to this message to have it read back to you, or call the clinic.",
-    params: ["clinic_name", "doctor_name"],
+      "Hello from {{1}}. {{2}} has added a prescription to your record. " +
+      "View it securely here: {{3}} — the page will send a code to this number.",
+    params: ["clinic_name", "doctor_name", "link"],
+  },
+  /** The one-time code for a record link. Meta fixes authentication-template
+   *  wording ("{{1}} is your verification code.") and adds the copy-code
+   *  button; this text is what Meta renders. */
+  record_code: {
+    name: "record_code",
+    language: "en",
+    category: "authentication",
+    bodyText: "{{1}} is your verification code.",
+    params: ["code"],
   },
   /** Pages the on-duty staff phone, which is outside the 24-hour window unless
    *  it messaged the number today. Carries no patient detail at all. Opens on
@@ -49,18 +64,22 @@ export const TEMPLATES: Record<TemplateName, TemplateSpec> = {
   staff_alert: {
     name: "staff_alert",
     language: "en",
+    category: "utility",
     bodyText:
       "Clinic alert for {{1}}: a patient conversation needs a person ({{2}}). " +
       "Please open the escalation inbox in the clinic dashboard.",
     params: ["clinic_name", "priority"],
   },
+  /** Not wired to send yet (src/lib/reminders.ts). Content-free: no drug, no
+   *  dose, nothing medical — the patient replies and a person helps. */
   refill_followup: {
     name: "refill_followup",
     language: "en",
+    category: "utility",
     bodyText:
-      "A note from {{1}}: the course of {{2}} on your record is ending. " +
-      "Reply BOOK to arrange a follow-up, or call the clinic.",
-    params: ["clinic_name", "drug_name"],
+      "Hello from {{1}}. {{2}} asked us to check in about your prescription. " +
+      "Reply to this message and we will help.",
+    params: ["clinic_name", "doctor_name"],
   },
 };
 

@@ -25,7 +25,7 @@ export type DueReminder = {
   id: string; patient_id: string; type: "appointment" | "refill_followup";
   related_id: string; attempts: number; phone: string;
   clinic_name: string; doctor_name: string | null;
-  starts_at: Date | null; drug_name: string | null; timezone: string;
+  starts_at: Date | null; timezone: string;
 };
 
 export async function scheduleAppointmentReminder(
@@ -62,13 +62,13 @@ export async function claimDue(db: Db, now = new Date(), limit = 50): Promise<Du
   const rows = await db<DueReminder[]>`
     select r.id, r.patient_id, r.type, r.related_id, r.attempts,
            p.phone, c.name as clinic_name, c.timezone,
-           d.name as doctor_name, a.starts_at, pr.drug_name
+           d.name as doctor_name, a.starts_at
       from reminders r
       join patients p on p.id = r.patient_id
       join clinics  c on c.id = p.clinic_id
       left join appointments a   on a.id = r.related_id and r.type = 'appointment'
-      left join doctors d        on d.id = a.doctor_id
       left join prescriptions pr on pr.id = r.related_id and r.type = 'refill_followup'
+      left join doctors d        on d.id = coalesce(a.doctor_id, pr.doctor_id)
      where r.status = 'scheduled' and r.send_at <= ${now}
      order by r.send_at
      limit ${limit}`;
@@ -112,7 +112,8 @@ function parametersFor(r: DueReminder) {
     });
   }
   return renderTemplate("refill_followup", {
-    clinic_name: r.clinic_name, drug_name: r.drug_name ?? "your prescription",
+    // Content-free: no drug name ever goes in a template (Meta policy).
+    clinic_name: r.clinic_name, doctor_name: r.doctor_name ?? "the clinic",
   });
 }
 
@@ -132,7 +133,10 @@ async function sendDue(
     }
     try {
       const rendered = parametersFor(r);
-      await send({ to: r.phone, name: rendered.name, parameters: rendered.parameters });
+      const res = await send({ to: r.phone, name: rendered.name, parameters: rendered.parameters });
+      // sendTemplate reports "not delivered" (no WhatsApp creds) instead of throwing;
+      // treat it as a failed attempt so it backs off and escalates, never "sent".
+      if (!res.delivered) throw new Error("not delivered: WhatsApp is not configured");
       await db`update reminders set status = 'sent', sent_at = now(),
                                     attempts = attempts + 1, last_error = null
                 where id = ${r.id}`;

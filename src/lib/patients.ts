@@ -16,13 +16,49 @@ import { requirePermission, type Role } from "./rbac";
 export const patientScope = (staff: { role: Role; doctorId: string | null }) =>
   staff.role === "doctor" ? staff.doctorId : null;
 
-/** The doctor-scope filter, as a SQL fragment so both queries below stay one
+/** The doctor-scope filter on alias `p`, as a SQL fragment so each query stays one
  *  statement. Empty when the caller sees the whole clinic. */
-const ownedBy = (db: Db, doctorId: string | null | undefined) =>
+export const ownedBy = (db: Db, doctorId: string | null | undefined) =>
   doctorId
     ? db`and exists (select 1 from appointments a
                       where a.patient_id = p.id and a.doctor_id = ${doctorId})`
     : db``;
+
+/** Saved lists ("views") over the patient table. Unknown names are ignored. */
+export const PATIENT_LISTS = ["consent-pending", "upcoming", "recall", "on-medication", "ai-booked"] as const;
+export type PatientList = (typeof PATIENT_LISTS)[number];
+export const isPatientList = (s: unknown): s is PatientList =>
+  (PATIENT_LISTS as readonly unknown[]).includes(s);
+
+/** A patient is due for recall once his last visit is this many days old. */
+export const RECALL_AFTER_DAYS = 180;
+
+/** The saved-list filter on alias `p`, as a SQL fragment like `ownedBy`.
+ *  Empty for no list or a name we do not know. */
+export const inList = (db: Db, list: string | null | undefined) => {
+  switch (isPatientList(list) ? list : null) {
+    case "consent-pending":
+      return db`and p.consent_status = 'pending'`;
+    case "upcoming":
+      return db`and exists (select 1 from appointments a
+                             where a.patient_id = p.id and a.status = 'booked' and a.starts_at > now())`;
+    case "recall":
+      // The latest appointment of any kind being that old also rules out
+      // anything booked in the future.
+      return db`and exists (select 1 from appointments a
+                             where a.patient_id = p.id and a.status = 'completed')
+                and (select max(a.starts_at) from appointments a where a.patient_id = p.id)
+                    < now() - make_interval(days => ${RECALL_AFTER_DAYS})`;
+    case "on-medication":
+      return db`and exists (select 1 from prescriptions r
+                             where r.patient_id = p.id and r.status = 'active')`;
+    case "ai-booked":
+      return db`and exists (select 1 from appointments a
+                             where a.patient_id = p.id and a.created_by = 'agent')`;
+    default:
+      return db``;
+  }
+};
 
 export type PatientSummary = {
   id: string; name: string | null; phone: string;
@@ -32,11 +68,23 @@ export type PatientSummary = {
 
 export async function searchPatients(
   db: Db, actor: Actor, role: Role, clinicId: string, query: string,
-  doctorId?: string | null,
+  doctorId?: string | null, list?: string | null,
 ): Promise<PatientSummary[]> {
   requirePermission(role, "patients:read");
   const q = query.trim();
   const like = `%${q}%`;
+  // Phones are typed as "+91 90000-00001", "090000 00001" or bare: compare the
+  // last 10 digits only. Fewer than 4 digits would match half the clinic.
+  // A partial number keeps its prefix ("098765", "+91 98765"), which the last-10
+  // rule cannot drop, so also try it without a trunk 0 or a 91 country code.
+  // "91…" can also start a real mobile, so that is an extra try, not a rewrite.
+  const digits = q.replace(/\D/g, "");
+  const byDigits = digits.length >= 4;
+  const bare = digits.replace(/^0+/, "");
+  const tails = [...new Set([digits, bare, bare.replace(/^91/, "")])]
+    .filter(t => t.length >= 4).map(t => t.slice(-10));
+  // Digits only, so safe inside a regex.
+  const tailPattern = `(${tails.join("|") || "$^"})`;
 
   // The audit row does not depend on what the search returns, so it goes out
   // with the read instead of after it — one round trip to Neon rather than two.
@@ -53,8 +101,10 @@ export async function searchPatients(
              )::int as active_prescriptions
         from patients p
        where p.clinic_id = ${clinicId} and p.deleted_at is null
-         and (${q === ""} or p.name ilike ${like} or p.phone ilike ${like})
+         and (${q === ""} or p.name ilike ${like} or p.phone ilike ${like}
+              or (${byDigits} and right(regexp_replace(p.phone, '[^0-9]', '', 'g'), 10) ~ ${tailPattern}))
          ${ownedBy(db, doctorId)}
+         ${inList(db, list)}
        order by p.name nulls last, p.created_at desc
        limit 100`,
     audit(db, actor, "search_patients", "patients", null),

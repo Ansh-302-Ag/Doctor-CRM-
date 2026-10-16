@@ -22,6 +22,8 @@
   --color-subtle: #f6f8fa;
   --color-line: #e0e5ea;
   --color-line-strong: #c6ced7;
+  /* Frosted panels: white at 78%, over the ambient canvas below. */
+  --color-glass: rgb(255 255 255 / 0.78);
 
   /* Text: primary / secondary / muted. Measured against --color-surface
    * (white): 16.6:1, 7.5:1 and 5.0:1 — the muted one is still AA (4.7:1) on
@@ -30,11 +32,12 @@
   --color-ink-2: #45566a;
   --color-ink-3: #5f7288;
 
-  /* Navigation rail */
-  --color-rail: #0d1b2a;
-  --color-rail-line: #1e3149;
-  --color-rail-active: #1b2f45;
-  --color-rail-ink: #a9b8ca;
+  /* Navigation rail: light, like the rest of the app. The active item is
+   * the accent's soft wash, so the rail never competes with the content. */
+  --color-rail: rgb(255 255 255 / 0.82);
+  --color-rail-line: #e6eaee;
+  --color-rail-active: #e6f2f1;
+  --color-rail-ink: #45566a;
 
   /* Accent: the clinic's own colour. Actions, links, "booked". */
   --color-accent: #0d6e6b;
@@ -42,6 +45,15 @@
   --color-accent-soft: #e6f2f1;
   --color-accent-line: #9ecac6;
   --color-accent-ink: #08423f;
+  /* Decoration only — gradients, 3D scenes, avatars. Never carries meaning. */
+  --color-accent-2: #14a39d;
+  --color-sky: #1f7fb8;
+  --color-sky-soft: #e8f3fa;
+  --color-iris: #5b5fc7;
+  --color-iris-soft: #eeeefb;
+  --color-deep: #062b2a;
+  /* The bright teal the 3D scenes light their accent points with, on deep. */
+  --color-accent-glow: #5eead4;
 
   /* Semantic. Emergency escalations and no-shows read off these. */
   --color-danger: #b3261e;
@@ -63,11 +75,178 @@
   /* Visible on the white content area and on the dark rail alike. */
   --color-focus: #1a8f89;
 
-  /* No webfont: see the note in layout.tsx. */
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+  /* Depth: a resting card, a lifted card (hover), a floating layer, and the
+   * accent's own glow under primary buttons and the hero. */
+  --shadow-card: 0 1px 2px rgb(13 27 42 / 0.04), 0 2px 8px -2px rgb(13 27 42 / 0.06);
+  --shadow-lift: 0 2px 4px rgb(13 27 42 / 0.04), 0 14px 32px -12px rgb(13 27 42 / 0.18);
+  --shadow-pop: 0 12px 32px -8px rgb(13 27 42 / 0.18), 0 2px 6px rgb(13 27 42 / 0.06);
+  --shadow-glow: 0 8px 24px -8px rgb(13 110 107 / 0.55);
+
+  /* IBM Plex, self-hosted by next/font (see layout.tsx); system fonts behind it. */
+  --font-sans: var(--font-plex), var(--font-plex-deva), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, "Noto Sans", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
     "Liberation Mono", monospace;
+
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-aurora: aurora 18s ease-in-out infinite alternate;
+  --animate-pulse-ring: pulse-ring 2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+  --animate-spin-slow: spin 14s linear infinite;
+  --animate-gradient: gradient-pan 8s ease infinite;
+  /* `backwards`: the first frame applies from the first paint, and nothing is
+   * left on the element afterwards. Opacity and translate only. */
+  --animate-page-in: page-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  --animate-fade-in: fade-in 0.25s ease-out backwards;
+}
+
+/* Keyframes live outside @theme so they are always emitted, whichever
+ * utility or inline style uses them. */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes shimmer {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+@keyframes aurora {
+  0% { transform: translate3d(-6%, -4%, 0) rotate(0deg) scale(1); }
+  50% { transform: translate3d(4%, 3%, 0) rotate(8deg) scale(1.08); }
+  100% { transform: translate3d(-2%, 6%, 0) rotate(-6deg) scale(1.04); }
+}
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 currentColor; opacity: 0.7; }
+  100% { box-shadow: 0 0 0 10px currentColor; opacity: 0; }
+}
+@keyframes gradient-pan {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+@keyframes type-in {
+  from { opacity: 0; transform: translateY(6px); filter: blur(4px); }
+}
+@keyframes grow-y {
+  from { transform: scaleY(0); }
+}
+@keyframes grow-x {
+  from { transform: scaleX(0); }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes page-in {
+  from { opacity: 0; translate: 0 14px; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+}
+/* The sign-in orbits: an arm turning from --from, its icon turning back. */
+@keyframes orbit {
+  from { rotate: var(--from); }
+  to { rotate: calc(var(--from) + 360deg); }
+}
+@keyframes orbit-back {
+  from { rotate: calc(-1 * var(--from)); }
+  to { rotate: calc(-1 * var(--from) - 360deg); }
+}
+/* A progress ring drawing itself in from empty (--ring-empty: its full dash offset). */
+@keyframes ring-draw {
+  from { stroke-dashoffset: var(--ring-empty); }
+}
+@keyframes reveal-in {
+  from { opacity: 0; translate: 0 8px; }
+}
+/* <Reveal>: children rise in one after another; the first 30 are staggered
+ * (--i), the rest arrive with the 30th. */
+.reveal > * {
+  animation: reveal-in 0.42s ease-out backwards;
+  animation-delay: calc(var(--reveal-delay, 0ms) + var(--reveal-step, 45ms) * var(--i, 0));
+}
+.reveal > :nth-child(n + 30) { --i: 29; }
+.reveal > :nth-child(2) { --i: 1; }
+.reveal > :nth-child(3) { --i: 2; }
+.reveal > :nth-child(4) { --i: 3; }
+.reveal > :nth-child(5) { --i: 4; }
+.reveal > :nth-child(6) { --i: 5; }
+.reveal > :nth-child(7) { --i: 6; }
+.reveal > :nth-child(8) { --i: 7; }
+.reveal > :nth-child(9) { --i: 8; }
+.reveal > :nth-child(10) { --i: 9; }
+.reveal > :nth-child(11) { --i: 10; }
+.reveal > :nth-child(12) { --i: 11; }
+.reveal > :nth-child(13) { --i: 12; }
+.reveal > :nth-child(14) { --i: 13; }
+.reveal > :nth-child(15) { --i: 14; }
+.reveal > :nth-child(16) { --i: 15; }
+.reveal > :nth-child(17) { --i: 16; }
+.reveal > :nth-child(18) { --i: 17; }
+.reveal > :nth-child(19) { --i: 18; }
+.reveal > :nth-child(20) { --i: 19; }
+.reveal > :nth-child(21) { --i: 20; }
+.reveal > :nth-child(22) { --i: 21; }
+.reveal > :nth-child(23) { --i: 22; }
+.reveal > :nth-child(24) { --i: 23; }
+.reveal > :nth-child(25) { --i: 24; }
+.reveal > :nth-child(26) { --i: 25; }
+.reveal > :nth-child(27) { --i: 26; }
+.reveal > :nth-child(28) { --i: 27; }
+.reveal > :nth-child(29) { --i: 28; }
+.reveal > :nth-child(30) { --i: 29; }
+@keyframes shine-sweep {
+  from { transform: translateX(-120%) skewX(-20deg); }
+  to { transform: translateX(220%) skewX(-20deg); }
+}
+
+/* Frosted panel: cards, rail, popovers. Falls back to plain white where
+ * backdrop-filter is unsupported (the colour is nearly opaque anyway). */
+@utility glass {
+  background-color: var(--color-glass);
+  backdrop-filter: blur(14px) saturate(1.4);
+}
+
+/* Teal-to-sky ink for headings and hero numbers. */
+@utility text-gradient {
+  background-image: linear-gradient(100deg, var(--color-ink) 0%, var(--color-accent) 55%, var(--color-sky) 100%);
+  background-clip: text;
+  color: transparent;
+}
+
+/* The primary button's gradient, also used by the brand mark and chips. */
+@utility bg-brand {
+  background-image: linear-gradient(135deg, var(--color-accent-2) 0%, var(--color-accent) 48%, var(--color-accent-ink) 100%);
+}
+
+/* A light sweep across a button on hover (Lightswind "shine-button", in CSS:
+ * these buttons live inside server-action forms, so they stay plain <button>). */
+@utility shine {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    width: 40%;
+    background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.35), transparent);
+    transform: translateX(-120%) skewX(-20deg);
+    pointer-events: none;
+  }
+  &:hover::after {
+    animation: shine-sweep 0.75s ease-out;
+  }
+}
+
+/* A card that rises a little under the pointer. Used on lists of things you
+ * click into, never on the big content panels (they would bob as you read). */
+@utility lift {
+  transition: transform 0.25s cubic-bezier(0.2, 0.7, 0.3, 1), box-shadow 0.25s, border-color 0.25s;
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lift);
+    border-color: var(--color-line-strong);
+  }
 }
 
 @layer base {
@@ -80,6 +259,21 @@
     color: var(--color-ink);
   }
 
+  /* The ambient canvas: two soft colour fields and a faint dot grid
+   * (Lightswind "grid-dot-backgrounds"), fixed behind everything. Pure CSS,
+   * painted once. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(60rem 40rem at 105% -10%, rgb(20 163 157 / 0.10), transparent 60%),
+      radial-gradient(50rem 36rem at -10% 110%, rgb(31 127 184 / 0.08), transparent 60%),
+      radial-gradient(circle at 1px 1px, rgb(13 27 42 / 0.07) 1px, transparent 0) 0 0 / 22px 22px;
+  }
+
   /* One focus style for every interactive element, so no screen has to
    * remember to add it. */
   :focus-visible {
@@ -89,5 +283,42 @@
 
   ::placeholder {
     color: var(--color-ink-3);
+  }
+
+  ::selection {
+    background: var(--color-accent-soft);
+    color: var(--color-accent-ink);
+  }
+
+  /* Native <dialog> backdrop for Ctrl+K and confirmations. */
+  dialog::backdrop {
+    background: rgb(6 43 42 / 0.35);
+    backdrop-filter: blur(4px);
+  }
+  dialog[open] {
+    animation: dialog-in 0.22s cubic-bezier(0.2, 0.7, 0.3, 1);
+  }
+  @keyframes dialog-in {
+    from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  }
+
+  /* Thin, quiet scrollbars for the rail and the board's sideways scroll. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+
+  /* Everything decorative stops for reduced-motion users; content never
+   * depends on an animation finishing. */
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      /* Entrances use backwards fill with a delay: without this the content
+       * would sit invisible through the delay, then pop in. */
+      animation-delay: 0s !important;
+      transition-duration: 0.001ms !important;
+      transition-delay: 0s !important;
+    }
   }
 }

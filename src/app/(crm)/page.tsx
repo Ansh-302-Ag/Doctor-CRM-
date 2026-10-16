@@ -1,10 +1,25 @@
 import Link from "next/link";
+import {
+  Ban, CalendarCheck2, CalendarDays, CheckCheck, ChevronDown, ChevronLeft, ChevronRight, Download, Plus,
+  Stethoscope, UserPlus, UserX,
+} from "lucide-react";
 import { validDay } from "@/lib/valid-day";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { audit } from "@/lib/audit";
 import { requirePermission } from "@/lib/rbac";
-import { Badge, appointmentStatus } from "./_ui";
+import { isId } from "@/lib/desk";
+import { CLOSE_HOUR, OPEN_HOUR } from "@/lib/booking";
+import { Hero, HeroStat, greeting } from "@/components/ui/hero";
+import { StatTile } from "@/components/ui/stat-tile";
+import { Ring } from "@/components/motion/ring";
+import { Bars } from "@/components/motion/bars";
+import { Reveal } from "@/components/motion/reveal";
+import {
+  Alert, Avatar, Badge, Card, EmptyState, PageHeader, appointmentStatus,
+  btnPrimary, btnSecondary, btnSm, field, fieldLabel,
+} from "./_ui";
+import { VisitActions } from "./appointments/_visit";
 
 const iconProps = {
   viewBox: "0 0 24 24", "aria-hidden": true as const, className: "size-4 shrink-0",
@@ -21,40 +36,43 @@ const StaffIcon = () => (
   <svg {...iconProps}><path d="M19 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-7A3.5 3.5 0 0 0 5 18.5V20M12 4a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7Z" /></svg>
 );
 
-/** Shared by the table cell and the phone card. */
 const BookedBy = ({ by }: { by: string }) =>
   by === "agent" ? (
     <span className="inline-flex items-center gap-1.5 font-medium text-accent">
       <AgentIcon />AI assistant
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1.5 text-ink-2">
+    <span className="inline-flex items-center gap-1.5 text-ink-3">
       <StaffIcon />Staff
     </span>
   );
 
-/** Read-only day view of the clinic's booked appointments (Phase 1, docs/07):
- *  it does not need to be pretty, it needs to be accurate. */
+/** Day view of the clinic's appointments, where the desk books, moves and
+ *  closes them. Accuracy first; the time stays the anchor of every row. */
 export default async function CalendarPage({
   searchParams,
-}: { searchParams: Promise<{ day?: string }> }) {
+}: { searchParams: Promise<{ day?: string; doctor?: string; error?: string }> }) {
   const staff = await currentStaff();
   requirePermission(staff.role, "appointments:read");
 
   // The clinic's timezone rides along on currentStaff() — see src/lib/session.ts.
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: staff.timezone }).format(new Date());
-  const day = validDay((await searchParams).day, today);
+  const params = await searchParams;
+  const day = validDay(params.day, today);
+  const doctor = params.doctor && isId(params.doctor) ? params.doctor : null;
+  // The desk acts from here; a doctor acts on his own patients from My day.
+  const isDesk = staff.role !== "doctor";
 
   // The audit write doesn't depend on the appointments query (or vice versa) —
   // running them concurrently instead of one after the other saves a full
   // Neon round trip on every page load.
-  const [all] = await Promise.all([
+  const [all, doctors] = await Promise.all([
     sql<{
-      id: string; starts_at: Date; ends_at: Date; status: string;
+      id: string; starts_at: Date; ends_at: Date; status: string; arrived_at: Date | null;
       doctor_name: string; patient_name: string | null; patient_phone: string;
       reason_text: string | null; created_by: string;
     }[]>`
-      select a.id, a.starts_at, a.ends_at, a.status,
+      select a.id, a.starts_at, a.ends_at, a.status, a.arrived_at,
              d.name as doctor_name, p.name as patient_name, p.phone as patient_phone,
              a.reason_text, a.created_by
         from appointments a
@@ -62,6 +80,7 @@ export default async function CalendarPage({
         join patients p on p.id = a.patient_id
        where a.clinic_id = ${staff.clinicId} and p.deleted_at is null
          and a.status in ('booked','completed','no_show','cancelled')
+         ${doctor ? sql`and a.doctor_id = ${doctor}` : sql``}
          -- Half-open range on the raw column. The old form,
          -- (a.starts_at at time zone tz)::date = day, applied a function to the
          -- column, so no index on starts_at could ever be used. Adding the day
@@ -71,22 +90,32 @@ export default async function CalendarPage({
          and a.starts_at <  ((${day} || ' 00:00')::timestamp + interval '1 day')
                             at time zone ${staff.timezone}
        order by a.starts_at`,
+    sql<{ id: string; name: string }[]>`
+      select id, name from doctors where clinic_id = ${staff.clinicId} order by name`,
     audit(sql, { kind: "staff", id: staff.id }, "read_calendar", "appointments", null),
   ]);
 
-  // Cancelled rows are fetched only to be counted; the list shows what is
+  // Cancelled rows stay in the list, greyed; the headline counts what is
   // still on the book.
-  const rows = all.filter(r => r.status !== "cancelled");
+  const rows = all;
+  const onBook = all.filter(r => r.status !== "cancelled").length;
   const stats = [
-    { label: "Booked", status: "booked" }, { label: "Completed", status: "completed" },
-    { label: "Cancelled", status: "cancelled" }, { label: "No-show", status: "no_show" },
-  ].map(x => ({ label: x.label, n: all.filter(r => r.status === x.status).length }));
+    { label: "Booked", status: "booked", tone: "accent", icon: CalendarCheck2 },
+    { label: "Completed", status: "completed", tone: "ok", icon: CheckCheck },
+    { label: "Cancelled", status: "cancelled", tone: "neutral", icon: Ban },
+    { label: "No-show", status: "no_show", tone: "warn", icon: UserX },
+  ] as const;
+  const count = (status: string) => all.filter(r => r.status === status).length;
 
   const time = (at: Date) => new Intl.DateTimeFormat("en-GB", {
     timeZone: staff.timezone, hour: "2-digit", minute: "2-digit", hour12: false,
   }).format(at);
+  const minutes = (r: { starts_at: Date; ends_at: Date }) =>
+    Math.round((r.ends_at.getTime() - r.starts_at.getTime()) / 60_000);
   const shift = (days: number) =>
     new Date(Date.parse(`${day}T12:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+  const withDoctor = doctor ? `&doctor=${doctor}` : "";
+  const now = new Date();
 
   // The chosen day is a plain calendar date; format it at UTC noon so no
   // timezone can nudge the label onto the day before or after.
@@ -94,182 +123,225 @@ export default async function CalendarPage({
     timeZone: "UTC", weekday: "long", day: "numeric", month: "long", year: "numeric",
   }).format(new Date(`${day}T12:00:00Z`));
 
-  const step = "grid size-9 place-items-center rounded-md border border-line bg-surface text-ink-2 transition-colors hover:border-line-strong hover:text-ink";
+  // The hero's numbers: how far through the day the book is, and how the
+  // appointments spread across the hours (same rows as the list below).
+  const hourOf = (at: Date) => Number(new Intl.DateTimeFormat("en-GB", {
+    timeZone: staff.timezone, hour: "2-digit", hour12: false,
+  }).format(at));
+  const live = all.filter(r => r.status !== "cancelled");
+  const hours = live.map(r => hourOf(r.starts_at));
+  const nowHour = day === today ? hourOf(now) : -1;
+  // Clinic hours (booking.ts), stretched to any appointment outside them.
+  const from = Math.min(OPEN_HOUR, ...hours), to = Math.max(CLOSE_HOUR - 1, ...hours);
+  const perHour = Array.from({ length: to - from + 1 }, (_, i) => from + i).map(h => ({
+    label: String(h).padStart(2, "0"), value: hours.filter(x => x === h).length, highlight: h === nowHour,
+  }));
+  const toCome = all.filter(r => r.status === "booked" && r.starts_at > now).length;
+  // Where "now" falls in today's list, for the marker between rows.
+  const nowIndex = day === today ? rows.findIndex(r => r.starts_at > now) : -1;
+
+  const step = "grid size-9 shrink-0 place-items-center rounded-lg border border-line-strong bg-surface text-ink-2 transition-colors hover:border-ink-3 hover:text-ink";
+  const control = "h-9 rounded-lg border border-line-strong bg-surface px-2.5 text-sm text-ink transition-colors hover:border-ink-3 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20";
 
   return (
-    <section>
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-ink">
-            {staff.role === "doctor" ? "Clinic day" : "Appointments"}
-          </h1>
-          <p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-ink-2">
-            <span className="font-medium text-ink">{dayLabel}</span>
-            {day === today && <Badge tone="accent">Today</Badge>}
-            <span className="text-ink-3">
-              {rows.length} {rows.length === 1 ? "appointment" : "appointments"}
-            </span>
-          </p>
+    <section className="space-y-6">
+      <Hero
+        eyebrow={staff.clinicName}
+        // The full account name: desk accounts are often shared ("Front Desk").
+        title={`${greeting(staff.timezone, now)}, ${staff.name}`}
+        timeZone={staff.timezone}
+        subtitle={day === today
+          ? <>{onBook} on the book today · {toCome} still to come{nowIndex === -1 && onBook > 0 ? " · that's everyone" : ""}</>
+          : <>{dayLabel} · {onBook} on the book</>}
+      >
+        <Ring value={count("completed")} total={onBook} label="completed" />
+        <div className="w-36 min-w-0 sm:w-56">
+          <p className="mb-6 text-[11px] font-medium uppercase tracking-wider text-white/70">By hour</p>
+          <Bars data={perHour} label="Appointments per hour" />
         </div>
+        <div className="hidden xl:block"><HeroStat label="Still to come" value={toCome} /></div>
+      </Hero>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1">
-            <Link href={`/?day=${shift(-1)}`} aria-label="Previous day" className={step}>
-              <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14.5 5.5 8 12l6.5 6.5" />
-              </svg>
-            </Link>
-            <Link
-              href="/"
-              className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:border-line-strong"
-            >
-              Today
-            </Link>
-            <Link href={`/?day=${shift(1)}`} aria-label="Next day" className={step}>
-              <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m9.5 5.5 6.5 6.5-6.5 6.5" />
-              </svg>
-            </Link>
-          </div>
+      <PageHeader
+        icon={CalendarDays}
+        title={staff.role === "doctor" ? "Clinic day" : "Appointments"}
+        subtitle={<>
+          <span className="font-medium text-ink">{dayLabel}</span>
+          {day === today && <Badge tone="accent">Today</Badge>}
+          <span className="text-ink-3">
+            {onBook} {onBook === 1 ? "appointment" : "appointments"}
+          </span>
+        </>}
+        actions={<>
+          <Link href={`/appointments/new?day=${day}${withDoctor}`} className={btnPrimary}>
+            <Plus aria-hidden className="size-4" />Book appointment
+          </Link>
+          <Link href="/patients/new" className={btnSecondary}>
+            <UserPlus aria-hidden className="size-4" />Register walk-in
+          </Link>
+        </>}
+      />
 
-          {/* Native date field: jumping to a day next month should not be
-              twenty clicks on "next". No picker library involved. */}
-          <form method="GET" action="/" className="flex items-center gap-1">
-            <label htmlFor="day" className="sr-only">Go to date</label>
-            <input
-              id="day"
-              type="date"
-              name="day"
-              required
-              defaultValue={day}
-              className="rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm text-ink"
-            />
-            <button className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-2 transition-colors hover:border-line-strong hover:text-ink">
-              Go
-            </button>
+      <Card bodyClassName="flex flex-wrap items-center gap-x-4 gap-y-3 p-3 sm:px-4">
+        <nav aria-label="Day" className="flex items-center gap-1">
+          <Link href={`/?day=${shift(-1)}${withDoctor}`} aria-label="Previous day" className={step}>
+            <ChevronLeft aria-hidden className="size-4" />
+          </Link>
+          <Link href={doctor ? `/?doctor=${doctor}` : "/"} className={`${btnSecondary} h-9 !shadow-none`}>
+            Today
+          </Link>
+          <Link href={`/?day=${shift(1)}${withDoctor}`} aria-label="Next day" className={step}>
+            <ChevronRight aria-hidden className="size-4" />
+          </Link>
+        </nav>
+
+        {/* Native date field: jumping to a day next month should not be
+            twenty clicks on "next". No picker library involved. */}
+        <form method="GET" action="/" className="flex items-center gap-1">
+          {doctor && <input type="hidden" name="doctor" value={doctor} />}
+          <label htmlFor="day" className="sr-only">Go to date</label>
+          <input id="day" type="date" name="day" required defaultValue={day} className={control} />
+          <button className={`${btnSecondary} h-9 !shadow-none`}>Go</button>
+        </form>
+
+        <form method="GET" action="/" className="flex items-center gap-1">
+          <input type="hidden" name="day" value={day} />
+          <label htmlFor="doctor" className="sr-only">Doctor</label>
+          <select id="doctor" name="doctor" defaultValue={doctor ?? ""} className={`${control} max-w-48`}>
+            <option value="">All doctors</option>
+            {doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+          <button className={`${btnSecondary} h-9 !shadow-none`}>Show</button>
+        </form>
+
+        {/* A native disclosure, no JS. Inside, a plain GET form: a download,
+            not a page to navigate to. Defaults to the day on screen; widen the
+            range for a month's report. */}
+        <details className="group relative ml-auto">
+          <summary className={`${btnSecondary} h-9 cursor-pointer list-none !shadow-none [&::-webkit-details-marker]:hidden`}>
+            <Download aria-hidden className="size-4" />Export
+            <ChevronDown aria-hidden className="size-4 transition-transform group-open:rotate-180" />
+          </summary>
+          <form
+            method="GET"
+            action="/export/appointments"
+            className="absolute right-0 z-20 mt-2 w-72 space-y-3 rounded-xl border border-line bg-surface p-4 shadow-pop"
+          >
+            {doctor && <input type="hidden" name="doctor" value={doctor} />}
+            <p className="text-sm font-semibold text-ink">Appointments as CSV</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label htmlFor="export-from" className={fieldLabel}>From</label>
+                <input id="export-from" type="date" name="from" required defaultValue={day} className={field} />
+              </div>
+              <div>
+                <label htmlFor="export-to" className={fieldLabel}>To</label>
+                <input id="export-to" type="date" name="to" required defaultValue={day} className={field} />
+              </div>
+            </div>
+            <button className={`${btnPrimary} w-full`}>Download CSV</button>
           </form>
-        </div>
-      </header>
+        </details>
+      </Card>
+
+      {params.error && <Alert>{params.error}</Alert>}
 
       {staff.role === "doctor" && (
-        <p className="mt-3 rounded-md border border-line bg-subtle px-3 py-2 text-sm text-ink-2">
+        <Alert tone="info" className="!font-normal">
           Everyone&rsquo;s appointments, for context only — you can open and prescribe for your own
           patients from{" "}
-          <Link
-            href={`/queue?day=${day}`}
-            className="font-medium text-accent underline underline-offset-2 hover:text-accent-hover"
-          >
+          <Link href={`/queue?day=${day}`} className="font-semibold underline underline-offset-2 hover:text-accent-hover">
             My day
           </Link>.
-        </p>
+        </Alert>
       )}
 
-      <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <Reveal className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {stats.map(x => (
-          <div key={x.label} className="rounded-lg border border-line bg-surface px-3 py-3 sm:px-4">
-            <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">{x.label}</dt>
-            <dd className="mt-1 text-2xl font-semibold tabular-nums leading-none text-ink">{x.n}</dd>
-          </div>
+          <StatTile key={x.label} label={x.label} value={count(x.status)} tone={x.tone} icon={x.icon} />
         ))}
-      </dl>
+      </Reveal>
 
       {rows.length === 0 ? (
-        <div className="mt-5 rounded-lg border border-dashed border-line-strong bg-surface p-10 text-center text-sm text-ink-3">
-          <p className="font-medium text-ink-2">No appointments on this day.</p>
-          {day === today && <p className="mt-1">Patients can book on WhatsApp at any time.</p>}
-        </div>
+        <EmptyState
+          title="No appointments on this day."
+          action={isDesk ? (
+            <Link href={`/appointments/new?day=${day}${withDoctor}`} className={btnSecondary}>
+              <Plus aria-hidden className="size-4" />Book appointment
+            </Link>
+          ) : undefined}
+        >
+          {day === today ? "Patients can book on WhatsApp at any time." : undefined}
+        </EmptyState>
       ) : (
-        <>
-        {/* Below md the same rows render as cards: a 740px table would scroll
-            sideways on a phone. */}
-        <ul className="mt-5 space-y-3 md:hidden">
-          {rows.map(r => {
-            const status = appointmentStatus(r.status);
-            return (
-              <li key={r.id} className="rounded-lg border border-line bg-surface p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <span className="block text-lg font-semibold tabular-nums leading-tight text-ink">
+        <Card title="Schedule" icon={CalendarDays} description="Cancelled appointments stay listed, greyed out." bodyClassName="" className="overflow-hidden">
+          <Reveal as="ul" className="divide-y divide-line">
+            {rows.map((r, i) => {
+              const status = appointmentStatus(r.status);
+              const cancelled = r.status === "cancelled";
+              return (
+                <li
+                  key={r.id}
+                  className={`relative flex gap-3 px-4 py-4 transition-colors hover:bg-accent-soft/30 sm:gap-5 sm:px-5 ${cancelled ? "opacity-60" : ""}`}
+                >
+                  {i === nowIndex && (
+                    <span aria-hidden="true" className="pointer-events-none absolute inset-x-0 -top-px z-10 flex items-center">
+                      <span className="ml-3 rounded-full bg-danger px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-card">Now</span>
+                      <span className="h-0.5 flex-1 bg-gradient-to-r from-danger to-transparent" />
+                    </span>
+                  )}
+                  {/* The time is the anchor of the row: it is the first thing
+                      the receptionist looks for. */}
+                  <div className="w-14 shrink-0 border-r-2 border-accent-line/60 pr-3 sm:w-16">
+                    <span className="block text-base font-semibold tabular-nums leading-tight text-ink">
                       {time(r.starts_at)}
                     </span>
-                    <span className="block text-xs tabular-nums text-ink-3">to {time(r.ends_at)}</span>
+                    <span className="mt-0.5 block text-xs tabular-nums text-ink-3">{minutes(r)} min</span>
+                    <span className="sr-only">until {time(r.ends_at)}</span>
                   </div>
-                  <Badge tone={status.tone}>{status.label}</Badge>
-                </div>
-                <p className="mt-3 font-medium break-words text-ink">{r.patient_name ?? "Unnamed"}</p>
-                <a
-                  href={`tel:${r.patient_phone}`}
-                  className="text-sm tabular-nums text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-accent"
-                >
-                  {r.patient_phone}
-                </a>
-                <dl className="mt-3 space-y-2 text-sm">
-                  <div>
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">Doctor</dt>
-                    <dd className="mt-0.5 text-ink-2">{r.doctor_name}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs font-semibold uppercase tracking-wide text-ink-3">Reason (as given)</dt>
-                    <dd className="mt-0.5 break-words text-ink-2">{r.reason_text ?? "—"}</dd>
-                  </div>
-                </dl>
-                <p className="mt-2 text-xs"><BookedBy by={r.created_by} /></p>
-              </li>
-            );
-          })}
-        </ul>
 
-        <div className="mt-5 hidden overflow-x-auto rounded-lg border border-line bg-surface md:block">
-          <table className="w-full min-w-[740px] border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-line bg-subtle text-left text-xs uppercase tracking-wide whitespace-nowrap text-ink-3">
-                <th scope="col" className="px-4 py-2.5 font-semibold">Time</th>
-                <th scope="col" className="px-4 py-2.5 font-semibold">Patient</th>
-                <th scope="col" className="px-4 py-2.5 font-semibold">Doctor</th>
-                <th scope="col" className="px-4 py-2.5 font-semibold">Reason (as given)</th>
-                <th scope="col" className="px-4 py-2.5 font-semibold">Status</th>
-                <th scope="col" className="px-4 py-2.5 font-semibold">Booked by</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {rows.map(r => {
-                const status = appointmentStatus(r.status);
-                return (
-                  <tr key={r.id} className="align-top transition-colors hover:bg-subtle">
-                    <td className="whitespace-nowrap py-3 pl-4 pr-4">
-                      {/* The time is the anchor of the row: it is the first
-                          thing the receptionist looks for. */}
-                      <span className="block text-base font-semibold tabular-nums leading-tight text-ink">
-                        {time(r.starts_at)}
+                  <div className="min-w-0 flex-1">
+                    <div className="grid gap-3 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] md:items-start">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <Avatar name={r.patient_name} />
+                        <div className="min-w-0">
+                          <p className="font-medium break-words text-ink">{r.patient_name ?? "Unnamed"}</p>
+                          <a
+                            href={`tel:${r.patient_phone}`}
+                            className="text-xs tabular-nums text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-accent"
+                          >
+                            {r.patient_phone}
+                          </a>
+                          <p className="mt-1 break-words text-sm text-ink-2">
+                            <span className="text-ink-3">Reason (as given):</span> {r.reason_text ?? "—"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-sm">
+                        <p className="flex items-center gap-1.5 text-ink-2">
+                          <Stethoscope aria-hidden className="size-4 shrink-0 text-ink-3" />
+                          <span className="sr-only">Doctor:</span>{r.doctor_name}
+                        </p>
+                        <p className="mt-1 text-xs"><span className="sr-only">Booked by:</span><BookedBy by={r.created_by} /></p>
+                      </div>
+                      <span className="flex flex-wrap gap-1 md:justify-end">
+                        {r.arrived_at && r.status === "booked" && <Badge tone="ok">Arrived</Badge>}
+                        <Badge tone={status.tone}>{status.label}</Badge>
                       </span>
-                      <span className="block text-xs tabular-nums text-ink-3">
-                        to {time(r.ends_at)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="block font-medium break-words text-ink">{r.patient_name ?? "Unnamed"}</span>
-                      <a
-                        href={`tel:${r.patient_phone}`}
-                        className="text-xs tabular-nums text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-accent"
-                      >
-                        {r.patient_phone}
-                      </a>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-ink-2">{r.doctor_name}</td>
-                    <td className="px-4 py-3 break-words text-ink-2">{r.reason_text ?? "—"}</td>
-                    <td className="px-4 py-3">
-                      <Badge tone={status.tone}>{status.label}</Badge>
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3">
-                      <BookedBy by={r.created_by} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        </>
+                    </div>
+
+                    {isDesk && r.status === "booked" && (
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        <VisitActions a={r} from="calendar" day={day} doctor={doctor} now={now} />
+                        <Link href={`/appointments/${r.id}`} className={`${btnSecondary} ${btnSm}`}>Move / cancel</Link>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </Reveal>
+        </Card>
       )}
     </section>
   );

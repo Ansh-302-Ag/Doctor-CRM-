@@ -1,18 +1,14 @@
 import Link from "next/link";
 import { revalidatePath } from "next/cache";
+import { Phone, TriangleAlert, Clock, CircleCheck, ChevronDown, Siren } from "lucide-react";
 import { currentStaff } from "@/lib/session";
 import { sql } from "@/lib/db";
 import { can } from "@/lib/rbac";
 import { listEscalations, acknowledgeEscalation, resolveEscalation, describeReason } from "@/lib/escalations";
-import { Badge, btnPrimary, btnSecondary } from "../_ui";
+import { Reveal } from "@/components/motion/reveal";
+import { Avatar, Badge, Card, EmptyState, PageHeader, btnPrimary, btnSecondary, btnSm } from "../_ui";
 
 type Row = Awaited<ReturnType<typeof listEscalations>>[number];
-
-const PhoneIcon = () => (
-  <svg viewBox="0 0 24 24" aria-hidden="true" className="size-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M6.2 3.5h2.6l1.3 3.4-1.7 1.3a11 11 0 0 0 5.4 5.4l1.3-1.7 3.4 1.3v2.6a2 2 0 0 1-2.2 2A15.6 15.6 0 0 1 4.2 5.7a2 2 0 0 1 2-2.2Z" />
-  </svg>
-);
 
 export default async function EscalationsPage() {
   const staff = await currentStaff();
@@ -23,13 +19,13 @@ export default async function EscalationsPage() {
   if (!can(staff.role, "escalations:read")) {
     return (
       <section>
-        <h1 className="text-xl font-semibold tracking-tight text-ink">Escalations</h1>
-        <p className="mt-6 rounded-lg border border-dashed border-line-strong bg-surface p-10 text-center text-sm text-ink-3">
-          Not available for your role. The front desk handles escalations; your day is under{" "}
+        <PageHeader icon={Siren} title="Escalations" />
+        <EmptyState title="Not available for your role">
+          The front desk handles escalations; your day is under{" "}
           <Link href="/queue" className="font-medium text-accent underline underline-offset-2 hover:text-accent-hover">
             My day
           </Link>.
-        </p>
+        </EmptyState>
       </section>
     );
   }
@@ -59,8 +55,10 @@ export default async function EscalationsPage() {
 
   /** How long it has been sitting. On this screen that is the number the
    *  receptionist actually acts on; the clock time is the supporting detail. */
+  // One clock reading per request (a server render), as the calendar does.
+  const now = new Date();
   const ago = (at: Date) => {
-    const mins = Math.max(0, Math.round((Date.now() - at.getTime()) / 60_000));
+    const mins = Math.max(0, Math.round((now.getTime() - at.getTime()) / 60_000));
     if (mins < 60) return `${mins} min`;
     const hours = Math.round(mins / 60);
     return hours < 48 ? `${hours} h` : `${Math.round(hours / 24)} days`;
@@ -70,18 +68,22 @@ export default async function EscalationsPage() {
   const emergencies = rows.filter(r => r.priority === "emergency" && r.status !== "resolved");
   const waiting = rows.filter(r => r.priority !== "emergency" && r.status !== "resolved");
   const resolved = rows.filter(r => r.status === "resolved");
+  const open = emergencies.length + waiting.length;
 
   const actions = (r: Row) => (
-    <div className="mt-4 flex flex-wrap gap-2">
+    <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-3">
       {r.status === "open" && (
         <form action={acknowledge}>
           <input type="hidden" name="id" value={r.id} />
-          <button className={btnPrimary}>I&rsquo;m handling this</button>
+          <button className={`${btnPrimary} ${btnSm}`}>I&rsquo;m handling this</button>
         </form>
       )}
       <form action={resolve}>
         <input type="hidden" name="id" value={r.id} />
-        <button className={r.status === "open" ? btnSecondary : btnPrimary}>Mark resolved</button>
+        <button className={`${r.status === "open" ? btnSecondary : btnPrimary} ${btnSm}`}>
+          <CircleCheck aria-hidden="true" className="size-3.5" />
+          Mark resolved
+        </button>
       </form>
     </div>
   );
@@ -91,14 +93,17 @@ export default async function EscalationsPage() {
     return (
       <>
         {r.trigger_message && (
-          <blockquote className="mt-3 max-w-3xl break-words border-l-2 border-line-strong pl-3 text-sm text-ink">
+          <blockquote className="mt-4 max-w-3xl break-words rounded-r-lg border-l-2 border-line-strong bg-subtle px-3 py-2 text-sm text-ink">
             {r.trigger_message}
           </blockquote>
         )}
         <div className="mt-3 max-w-3xl text-xs text-ink-2">
           <Badge tone={why.tone}>{why.label}</Badge>
-          <details className="mt-2">
-            <summary className="cursor-pointer text-ink-3 hover:text-ink">Details</summary>
+          <details className="group mt-2">
+            <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-ink-3 hover:text-ink">
+              <ChevronDown aria-hidden="true" className="size-3.5 transition-transform group-open:rotate-180" />
+              Details
+            </summary>
             <p className="mt-1 break-words">{why.detail}</p>
           </details>
         </div>
@@ -107,36 +112,37 @@ export default async function EscalationsPage() {
   };
 
   return (
-    <section>
-      <header>
-        <h1 className="text-xl font-semibold tracking-tight text-ink">Escalations</h1>
-        <p className="mt-1 max-w-2xl text-sm text-ink-2">
-          Messages the assistant handed to a person. Contact the patient directly, then close it here.
-        </p>
-        <p className="mt-1 text-sm font-medium text-ink-2">
-          {emergencies.length + waiting.length} waiting · {emergencies.length} emergency
-        </p>
-      </header>
+    <section className="space-y-6">
+      <PageHeader
+        icon={Siren}
+        title="Escalations"
+        subtitle="Messages the assistant handed to a person. Contact the patient directly, then close it here."
+        actions={
+          <>
+            <Badge tone={open > 0 ? "warn" : "ok"}>{open} waiting</Badge>
+            <Badge tone={emergencies.length > 0 ? "danger" : "neutral"}>{emergencies.length} emergency</Badge>
+          </>
+        }
+      />
 
-      {rows.length === 0 && (
-        <p className="mt-6 rounded-lg border border-dashed border-line-strong bg-surface p-10 text-center text-sm text-ink-3">
-          Nothing waiting.
-        </p>
+      {open === 0 && (
+        <EmptyState title="All caught up">
+          Nothing waiting. When the assistant hands a conversation to a person, it appears here.
+        </EmptyState>
       )}
 
       {emergencies.length > 0 && (
-        <div className="mt-6">
-          <h2 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide text-danger">
-            <svg viewBox="0 0 24 24" aria-hidden="true" className="size-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M10.6 4.1 2.9 17.4A1.6 1.6 0 0 0 4.3 19.8h15.4a1.6 1.6 0 0 0 1.4-2.4L13.4 4.1a1.6 1.6 0 0 0-2.8 0ZM12 9.2v4.1M12 16.6h.01" />
-            </svg>
+        <div>
+          <h2 className="flex items-center gap-2 text-sm font-bold tracking-wide text-danger">
+            <TriangleAlert aria-hidden="true" className="size-5" />
             Medical emergency — call now ({emergencies.length})
           </h2>
 
-          <ul className="mt-3 space-y-4">
+          <Reveal as="ul" className="mt-3 space-y-4">
             {emergencies.map(r => (
-              <li key={r.id} className="overflow-hidden rounded-lg border-2 border-danger bg-surface shadow-sm">
-                <p className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-danger px-4 py-2 text-xs font-bold uppercase tracking-widest text-white">
+              <li key={r.id} className="relative overflow-hidden rounded-2xl border-2 border-danger bg-surface shadow-[0_0_0_4px_var(--color-danger-soft),0_18px_40px_-18px_color-mix(in_srgb,var(--color-danger)_55%,transparent)]">
+                <p className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-gradient-to-r from-danger to-danger-hover px-4 py-2 text-xs font-bold uppercase tracking-widest text-white">
+                  <span aria-hidden="true" className="relative flex size-2.5"><span className="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75" /><span className="relative inline-flex size-2.5 rounded-full bg-white" /></span>
                   Emergency
                   <span className="font-semibold normal-case tracking-normal">
                     waiting {ago(r.created_at)}
@@ -151,17 +157,24 @@ export default async function EscalationsPage() {
                   </span>
                 </p>
 
-                <div className="p-4">
+                <div className="p-4 sm:p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="flex min-w-0 flex-wrap items-center gap-2 break-words text-lg font-semibold text-ink">
-                      {r.patient_name ?? "Unknown patient"}
-                      {r.consentWithdrawn && <Badge tone="warn">Consent withdrawn</Badge>}
-                    </p>
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Avatar name={r.patient_name} size="lg" />
+                      <p className="flex min-w-0 flex-wrap items-center gap-2 break-words text-lg font-semibold text-ink">
+                        {r.consentWithdrawn ? (r.patient_name ?? "Unknown patient") : (
+  <Link href={`/patients/${r.patient_id}`} className="underline-offset-2 hover:text-accent hover:underline">
+    {r.patient_name ?? "Unknown patient"}
+  </Link>
+)}
+                        {r.consentWithdrawn && <Badge tone="warn">Consent withdrawn</Badge>}
+                      </p>
+                    </div>
                     <a
                       href={`tel:${r.patient_phone}`}
-                      className="inline-flex items-center gap-2 rounded-md bg-danger px-4 py-2.5 text-base font-semibold tabular-nums text-white transition-colors hover:bg-danger-hover"
+                      className="shine inline-flex items-center gap-2 rounded-xl bg-danger px-4 py-2.5 text-base font-semibold tabular-nums text-white shadow-card transition-all hover:-translate-y-px hover:bg-danger-hover"
                     >
-                      <PhoneIcon />
+                      <Phone aria-hidden="true" className="size-4 shrink-0" />
                       Call {r.patient_phone}
                     </a>
                   </div>
@@ -170,58 +183,77 @@ export default async function EscalationsPage() {
                 </div>
               </li>
             ))}
-          </ul>
+          </Reveal>
         </div>
       )}
 
       {waiting.length > 0 && (
-        <div className="mt-8">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-3">
+        <div>
+          <h2 className="text-xs font-semibold tracking-wide text-ink-3">
             Waiting ({waiting.length})
           </h2>
-          <ul className="mt-3 space-y-3">
+          <Reveal as="ul" className="mt-3 space-y-3">
             {waiting.map(r => (
-              <li key={r.id} className="rounded-lg border border-line bg-surface p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="min-w-0 break-words font-semibold text-ink">{r.patient_name ?? "Unknown patient"}</span>
-                    {r.consentWithdrawn && <Badge tone="warn">Consent withdrawn</Badge>}
-                    <Badge tone={r.status === "open" ? "warn" : "neutral"}>
-                      {r.status === "open"
-                        ? "Open"
-                        : `${r.assigned_to_name ?? "Staff"} is handling this`}
-                    </Badge>
-                    <span className="text-xs text-ink-3">
-                      waiting {ago(r.created_at)} · {when(r.created_at)}
-                    </span>
+              <li key={r.id}>
+                <Card className="lift">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Avatar name={r.patient_name} />
+                      <div className="min-w-0">
+                        <p className="flex flex-wrap items-center gap-2 break-words font-semibold text-ink">
+                          {r.consentWithdrawn ? (r.patient_name ?? "Unknown patient") : (
+  <Link href={`/patients/${r.patient_id}`} className="underline-offset-2 hover:text-accent hover:underline">
+    {r.patient_name ?? "Unknown patient"}
+  </Link>
+)}
+                          {r.consentWithdrawn && <Badge tone="warn">Consent withdrawn</Badge>}
+                          <Badge tone={r.status === "open" ? "warn" : "neutral"}>
+                            {r.status === "open"
+                              ? "Open"
+                              : `${r.assigned_to_name ?? "Staff"} is handling this`}
+                          </Badge>
+                        </p>
+                        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-3">
+                          <Clock aria-hidden="true" className="size-3.5" />
+                          waiting {ago(r.created_at)} · {when(r.created_at)}
+                        </p>
+                      </div>
+                    </div>
+                    <a
+                      href={`tel:${r.patient_phone}`}
+                      className="inline-flex items-center gap-2 rounded-lg border border-accent-line bg-accent-soft px-3 py-1.5 text-sm font-semibold tabular-nums text-accent-ink transition-colors hover:bg-accent hover:text-white"
+                    >
+                      <Phone aria-hidden="true" className="size-4 shrink-0" />
+                      Call {r.patient_phone}
+                    </a>
                   </div>
-                  <a
-                    href={`tel:${r.patient_phone}`}
-                    className="inline-flex items-center gap-2 rounded-md border border-accent-line bg-accent-soft px-3 py-1.5 text-sm font-semibold tabular-nums text-accent-ink transition-colors hover:bg-accent hover:text-white"
-                  >
-                    <PhoneIcon />
-                    Call {r.patient_phone}
-                  </a>
-                </div>
-                {body(r)}
-                {actions(r)}
+                  {body(r)}
+                  {actions(r)}
+                </Card>
               </li>
             ))}
-          </ul>
+          </Reveal>
         </div>
       )}
 
       {resolved.length > 0 && (
         // Closed items stay reachable but out of the way — native <details>,
         // no script.
-        <details className="mt-8 rounded-lg border border-line bg-surface">
-          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-ink-2 hover:text-ink">
+        <details className="group rounded-2xl border border-line bg-surface shadow-card">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold text-ink-2 hover:text-ink sm:px-5">
+            <CircleCheck aria-hidden="true" className="size-4 text-ok" />
             Resolved ({resolved.length})
+            <ChevronDown aria-hidden="true" className="ml-auto size-4 transition-transform group-open:rotate-180" />
           </summary>
           <ul className="divide-y divide-line border-t border-line">
             {resolved.map(r => (
-              <li key={r.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-3 text-sm">
-                <span className="font-medium text-ink-2">{r.patient_name ?? "Unknown patient"}</span>
+              <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm sm:px-5">
+                <Avatar name={r.patient_name} size="sm" />
+                <span className="font-medium text-ink-2">{r.consentWithdrawn ? (r.patient_name ?? "Unknown patient") : (
+  <Link href={`/patients/${r.patient_id}`} className="underline-offset-2 hover:text-accent hover:underline">
+    {r.patient_name ?? "Unknown patient"}
+  </Link>
+)}</span>
                 <a href={`tel:${r.patient_phone}`} className="tabular-nums text-ink-3 underline decoration-line-strong underline-offset-2 hover:text-accent">
                   {r.patient_phone}
                 </a>

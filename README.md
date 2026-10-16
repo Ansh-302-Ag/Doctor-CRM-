@@ -93,12 +93,41 @@ In **WhatsApp → Configuration → Webhook**, set the callback URL to
 Caveats:
 
 - **Free-form replies only inside 24 hours** of the patient's last message.
-  Everything the clinic starts (reminders, the `record_updated` nudge) is a
-  template and fails until Meta approves it — see
+  Everything the clinic starts (reminders, the `prescription_ready` link, the
+  `record_code` code) is a template and fails until Meta approves it — see
   `docs/10-whatsapp-templates.md`.
 - **A test number only reaches numbers you have added** as recipients in API
   Setup (up to five).
 - **The temporary token expires in 24 hours.** Sends then fail with 401.
+
+## The front desk (CRM)
+
+Staff run the whole day from the CRM, through the same `src/lib/booking.ts`
+rules the bots use (clinic hours, consent, no double-booking):
+
+- **Calendar** (`/`): day view, filter by doctor, book / reschedule / cancel,
+  mark arrived / completed / no-show, download a date range as CSV.
+- **Walk-ins** (`/patients/new`): register with consent taken at the desk
+  (recorded with channel `desk`); a number already on file opens that patient.
+- **Patient record** (`/patients/<id>`): one timeline — appointments, WhatsApp
+  messages, escalations, prescriptions, consent, notes, tasks — read from the
+  existing tables (`src/lib/timeline.ts`), plus notes and follow-up tasks.
+- **Tasks** (`/tasks`): follow-ups with a due date and an assignee.
+- **Quick find**: Ctrl+K anywhere; a name or a phone in any form (98…, +91 98…, 098…).
+- **Merge duplicates** (`/patients/<id>/merge`, receptionist/admin): preview, then
+  everything moves to the kept record in one transaction.
+- **Export**: patients and appointments as CSV, doctor-scoped and audited.
+
+- **Today's board** (`/board`), **insights** (`/insights`) and **saved lists**
+  on Patients (consent pending, upcoming visit, due for recall, active
+  prescriptions, booked by AI).
+- **Prescriptions**: several medicines in one sitting, a printable sheet, and a
+  secure link. WhatsApp never carries the contents; the link (`/r/<token>`)
+  asks for a code sent to the patient's number, then shows the prescription and
+  a PDF (`APP_URL` required).
+
+Doctors see only their own patients everywhere (`patientScope` in
+`src/lib/patients.ts`). Design: `docs/superpowers/specs/2026-10-15-front-desk-and-patient-record-design.md`.
 
 ## Inbound phone calls (Sarvam voice agent)
 
@@ -191,6 +220,11 @@ npx tsx scripts/migrate.ts "<your TEST_DATABASE_URL>"
 
 The local path migrates itself.
 
+On Windows the local Postgres refuses to start from an **administrator** shell
+(the run then fails with a bare `undefined`); use a normal terminal. A run
+killed half-way can leave `%TEMP%\doctor-crm-test-pg` half-initialised —
+delete it and run again.
+
 The suite is the docs/08 bar, not a smoke test: concurrent bookings of one
 slot, the agent's role being refused a prescription write, a duplicate webhook
 delivery, a clinical question mid-booking, consent not yet granted.
@@ -222,6 +256,7 @@ approval.
 
 | Path | What |
 |---|---|
+| `WORK_TO_DO.md` | Handoff for the next agent: workflow, do / don't, done, pending |
 | `docs/` | The design. `00-README.md` first; `09-implementation-log.md` for current state |
 | `docs/runbooks/` | Operational runbooks — `breach.md` for a suspected DPDP breach |
 | `docs/10-whatsapp-templates.md` | The WhatsApp template text used for reminders |
@@ -239,6 +274,8 @@ approval.
 - `AGENT_DATABASE_URL` — the agent connects as the restricted `clinic_agent`
   role so its grants bind at runtime. Set it; without it the agent falls back
   to the application role and only the app-layer checks apply.
+- `APP_URL` — the public base URL (https://clinic.concilio.solutions on the dev
+  server). Prescription links are built from it; required in production.
 - `WHATSAPP_*` — unset means outbound messages are logged instead of sent,
   which is what makes the simulator work. Setting them switches to the real
   Cloud API with no code change.

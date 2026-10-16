@@ -12,9 +12,21 @@ const ICONS = {
     "M15.5 20v-1.5a3.5 3.5 0 0 0-3.5-3.5H7a3.5 3.5 0 0 0-3.5 3.5V20M9.5 4.5a3.25 3.25 0 1 1 0 6.5 3.25 3.25 0 0 1 0-6.5ZM20.5 20v-1.5a3.5 3.5 0 0 0-2.6-3.38M15.5 4.7a3.25 3.25 0 0 1 0 6.1",
   escalations:
     "M10.6 4.1 2.9 17.4A1.6 1.6 0 0 0 4.3 19.8h15.4a1.6 1.6 0 0 0 1.4-2.4L13.4 4.1a1.6 1.6 0 0 0-2.8 0ZM12 9.2v4.1M12 16.6h.01",
+  tasks:
+    "M9 6.5h11M9 12h11M9 17.5h11M3.5 6.5l1.2 1.2 2.3-2.4M3.5 12l1.2 1.2 2.3-2.4M3.5 17.5l1.2 1.2 2.3-2.4",
+  board:
+    "M4.5 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1ZM10.5 4h4a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1ZM16.5 4h3a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z",
+  insights:
+    "M4 20h16M7 16.5V11M12 16.5V6.5M17 16.5v-8",
 } as const;
 
-export type NavItem = { href: string; label: string; icon: keyof typeof ICONS };
+/** `count` draws a badge when above zero; `countLabel` is what a screen reader
+ *  hears. `primary` items make the phone's bottom bar (at most five). */
+export type NavItem = {
+  href: string; label: string; icon: keyof typeof ICONS;
+  count?: number; countLabel?: string; primary?: boolean;
+};
+export type NavSection = { title: string; items: NavItem[] };
 
 const Icon = ({ name, className }: { name: NavItem["icon"]; className: string }) => (
   <svg
@@ -35,25 +47,30 @@ const Icon = ({ name, className }: { name: NavItem["icon"]; className: string })
  *  navigation between its children — so this one small piece is a client
  *  component. Which items exist is decided on the server.
  *
- *  Two presentations of the same items: "rail" is the md+ sidebar list, "tabs"
- *  is the fixed bottom bar on a phone (hidden from md up). */
+ *  "rail": the grouped sidebar list (also used inside the phone menu).
+ *  "tabs": the fixed bottom bar on a phone, primary items only (hidden md+). */
 export function Nav({
-  items, openEscalations, variant,
-}: { items: NavItem[]; openEscalations: number; variant: "rail" | "tabs" }) {
+  sections, variant,
+}: { sections: NavSection[]; variant: "rail" | "tabs" }) {
   const path = usePathname();
   const isActive = (href: string) => (href === "/" ? path === "/" : path.startsWith(href));
-  const badge = (cls: string) => (
-    <span className={`rounded-full bg-danger px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-white ${cls}`}>
-      {openEscalations}
-      <span className="sr-only"> open escalations</span>
+  // Inside the phone menu (<details>), a tap should also close the menu: the
+  // layout, and so the open disclosure, survives client-side navigation.
+  const closeMenu = (e: React.MouseEvent<HTMLElement>) =>
+    e.currentTarget.closest("details")?.removeAttribute("open");
+  const badge = (item: NavItem, cls: string) => !!item.count && (
+    <span className={`rounded-full bg-danger px-1.5 py-0.5 text-[11px] font-semibold tabular-nums text-white shadow-[0_0_0_3px_var(--color-danger-soft)] ${cls}`}>
+      {item.count}
+      <span className="sr-only"> {item.countLabel}</span>
     </span>
   );
 
   if (variant === "tabs") {
+    const items = sections.flatMap(s => s.items).filter(i => i.primary).slice(0, 5);
     return (
       <nav
         aria-label="Main"
-        className="fixed inset-x-0 bottom-0 z-20 border-t border-rail-line bg-rail pb-[env(safe-area-inset-bottom)] md:hidden"
+        className="glass fixed inset-x-0 bottom-0 z-20 border-t border-rail-line pb-[env(safe-area-inset-bottom)] shadow-pop md:hidden"
       >
         <ul className="flex">
           {items.map((item) => {
@@ -64,13 +81,12 @@ export function Nav({
                   href={item.href}
                   aria-current={active ? "page" : undefined}
                   className={`relative flex flex-col items-center gap-0.5 px-1 py-2 text-[11px] font-medium transition-colors ${
-                    active ? "bg-rail-active text-white" : "text-rail-ink hover:text-white"
+                    active ? "text-accent-ink" : "text-rail-ink hover:text-ink"
                   }`}
                 >
                   <span className="relative">
-                    <Icon name={item.icon} className="size-5" />
-                    {item.href === "/escalations" && openEscalations > 0 &&
-                      badge("absolute -right-3 -top-1.5 min-w-4 text-center leading-none")}
+                    <Icon name={item.icon} className={`size-5 ${active ? "text-accent" : ""}`} />
+                    {badge(item, "absolute -right-3 -top-1.5 min-w-4 text-center leading-none")}
                   </span>
                   <span className="max-w-full truncate">{item.label}</span>
                 </Link>
@@ -83,29 +99,42 @@ export function Nav({
   }
 
   return (
-    <nav aria-label="Main" className="flex-1 p-3">
-      <ul className="flex flex-col gap-1">
-        {items.map((item) => {
-          const active = isActive(item.href);
-          return (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={`flex items-center gap-2.5 whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                  active
-                    ? "bg-rail-active text-white shadow-[inset_3px_0_0_0_var(--color-accent)]"
-                    : "text-rail-ink hover:bg-rail-active hover:text-white"
-                }`}
-              >
-                <Icon name={item.icon} className="size-[18px] shrink-0" />
-                {item.label}
-                {item.href === "/escalations" && openEscalations > 0 && badge("ml-auto")}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
+    <nav aria-label="Main" className="mt-4 flex flex-col gap-4">
+      {sections.map(section => (
+        <div key={section.title}>
+          <p className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-3">{section.title}</p>
+          <ul className="flex flex-col gap-0.5">
+            {section.items.map((item) => {
+              const active = isActive(item.href);
+              return (
+                <li key={item.href}>
+                  <Link
+                    href={item.href}
+                    onClick={closeMenu}
+                    aria-current={active ? "page" : undefined}
+                    className={`group relative flex items-center gap-2.5 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                      active ? "text-accent-ink" : "text-rail-ink hover:bg-subtle hover:text-ink"
+                    }`}
+                  >
+                    {/* The active highlight fades in (CSS), no animation library in the shell. */}
+                    {active && (
+                      <span
+                        aria-hidden="true"
+                        className="absolute inset-0 animate-fade-in rounded-xl bg-rail-active shadow-[inset_3px_0_0_var(--color-accent)] ring-1 ring-accent-line/50"
+                      />
+                    )}
+                    <span className="relative flex flex-1 items-center gap-2.5">
+                      <Icon name={item.icon} className={`size-[18px] shrink-0 transition-transform duration-300 group-hover:scale-110 ${active ? "text-accent" : "text-ink-3"}`} />
+                      {item.label}
+                      {badge(item, "ml-auto")}
+                    </span>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
     </nav>
   );
 }

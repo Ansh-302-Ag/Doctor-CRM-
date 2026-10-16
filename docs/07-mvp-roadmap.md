@@ -45,6 +45,17 @@ See `docs/09-implementation-log.md` for the session this was built in.
   (`docs/runbooks/breach.md`); its contact table still needs filling in and
   the tabletop rehearsal still needs to happen before launch
 
+## Front desk and patient record — **Done** (2026-10-15)
+- Staff book, reschedule, cancel, register walk-ins and mark arrived /
+  completed / no-show from the CRM (the Phase 1 calendar is no longer read-only)
+- Patient timeline, notes, follow-up tasks, Ctrl+K quick find, merge
+  duplicates, CSV export — ideas from twentyhq/twenty, in clinic form
+- Also done: Today's board, saved patient lists, multi-medicine prescriptions
+  with a printable sheet, secure prescription links (OTP + PDF)
+- Insights dashboard (`/insights`): chosen by Ansh, so it moved out of
+  "deferred"
+- Spec and plan in `docs/superpowers/`; status in `WORK_TO_DO.md`
+
 ## Phase 4 (not before the above is solid) — Voice
 - Add voice as a second input channel into the same agent layer
 - Expect 3-5x cost per interaction vs WhatsApp — validate demand first
@@ -56,7 +67,6 @@ See `docs/09-implementation-log.md` for the session this was built in.
 - Multi-language support beyond the pilot clinic's needs
 - Insurance/billing
 - Lab report interpretation
-- Analytics dashboards beyond basic appointment counts
 - Anything "an investor might ask about" that doesn't serve the
   booking/CRM loop directly — resist scope creep here specifically,
   since this is the phase where it's tempting to over-build for a demo

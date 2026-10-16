@@ -188,16 +188,26 @@ A web app; staff sign in with email and password.
 
 | Screen | Who | What it does | Status |
 |---|---|---|---|
-| Clinic calendar | All staff | The day's appointments across every doctor | Available |
+| Clinic calendar | All staff | The day's appointments across every doctor; filter by doctor | Available |
 | Doctor's queue | Doctor | Their own day in time order, with the next patient highlighted | Available |
 | Patients | All staff (doctors: own patients only) | Search patients, open a patient's record | Available |
-| Patient record | All staff | Appointment history and prescriptions | Available |
+| Patient record | All staff | One timeline: appointments, WhatsApp messages, escalations (not for doctors), prescriptions, consent, notes, tasks | Available |
+| Notes on a patient | All staff | Front-desk notes, append-only | Available |
+| Follow-up tasks | All staff | "Call back about the lab report": due date, assignee, My tasks list | Available |
+| Quick find (Ctrl+K) | All staff | Jump to a patient by name or phone typed any way (98…, +91…, 098…) | Available |
+| Register a walk-in | Staff | Name, phone, consent taken at the desk; an existing number opens that patient | Available |
+| Merge duplicate patients | Receptionist, admin | Pick the record to keep, see what moves, confirm; history moves over | Available |
+| CSV export | All staff (doctors: own patients) | Patients, and appointments for a date range | Available |
 | Prescription entry | Doctor, admin | Record drug, dosage, duration and notes; the patient is notified it is ready | Available (notification changing — see below) |
 | Discontinue a prescription | Doctor, admin | Marks it stopped; any pending reminder for it will not send | Available |
+| Today's board | All staff | Kanban of the day: booked, arrived, completed, no-show | Available |
+| Insights | All staff | Clinic numbers over time | Available |
+| Saved patient lists | All staff (doctors: own patients) | Consent pending, upcoming visit, due for recall (180+ days), active prescriptions, booked by AI | Available |
+| Printable prescription | Doctor, admin | Several medicines per prescription, one print sheet | Available |
 | Escalation inbox | Receptionist, admin | Every conversation that needs a human; acknowledge and resolve | Available |
-| Book / reschedule / cancel from the dashboard | Staff | For walk-ins and phone bookings | Planned |
+| Book / reschedule / cancel from the dashboard | Staff | For walk-ins and phone bookings, same rules as the assistant | Available |
 | Confirm booking requests | Receptionist | Approve patient requests (Mode B) | Planned |
-| Mark completed / no-show | Staff | Close out the day | Planned |
+| Mark arrived / completed / no-show | Staff; doctors for their own patients | Close out the day; the doctor's queue counts who was seen | Available |
 | Reply to a patient from the inbox | Receptionist | Answer escalations without leaving the dashboard | Planned |
 | "Now serving" control | Doctor | Advance the token queue | Planned |
 | Staff management | Admin | Add and remove staff accounts | Planned |
@@ -208,12 +218,12 @@ A web app; staff sign in with email and password.
 - Only doctors and admins can write them; receptionists can read them; the
   assistant can only read them back, never write.
 - A doctor's prescription is always recorded in their own name.
-- **Changing (docs/02, 2026-10-12):** today the record is sent on WhatsApp
-  exactly as stored. WhatsApp's Business Messaging Policy forbids sending
-  health information in chat, so this is being replaced: the patient gets a
-  "your prescription from Dr. Rao is ready" notice (an approved template,
-  naming no drug or dose) with a secure, OTP-gated link to the record. Until
-  then, prescribe-and-send is not used with real patients.
+- **Secure link (docs/02):** WhatsApp's Business Messaging Policy forbids
+  sending health information in chat, so the patient gets a "your prescription
+  is ready" notice (naming no drug or dose) with a secure link. The page sends
+  a one-time code to the patient's own number, then shows the active
+  prescriptions and a PDF download. Sends outside the 24-hour window need the
+  Meta templates approved (docs/10).
 - What the patient sees is always exactly what was stored — drug, dosage,
   duration, notes, who prescribed it, and the clinic's number. It states; it
   never advises.

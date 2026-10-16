@@ -36,13 +36,13 @@ export async function listEscalations(db: Db, actor: Actor, role: Role, clinicId
   // down the one connection, so both still land inside that transaction.
   const [rows] = await Promise.all([
     db<{
-      id: string; reason: string; priority: string; status: string;
+      id: string; patient_id: string; reason: string; priority: string; status: string;
       created_at: Date; resolved_at: Date | null;
       patient_name: string | null; patient_phone: string;
       assigned_to_name: string | null; trigger_message: string | null;
       consentWithdrawn: boolean;
     }[]>`
-      select e.id, e.reason, e.priority, e.status, e.created_at, e.resolved_at,
+      select e.id, e.patient_id, e.reason, e.priority, e.status, e.created_at, e.resolved_at,
              p.name as patient_name, p.phone as patient_phone,
              p.deleted_at is not null as "consentWithdrawn",
              s.name as assigned_to_name,

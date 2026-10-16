@@ -90,7 +90,9 @@ must return **403** (the app), not 302; an unsigned POST there returns **401**.
 
 - Demo staff logins still use `password123` (decision 2026-10-14: keep for now;
   Cloudflare Access is the outer wall). Change before anyone outside the team uses it.
-- `APP_URL=https://clinic.concilio.solutions` to be added to `.env.local` when
-  the prescription-links work ships.
+- **Before merging `front-desk`:** add `APP_URL=https://clinic.concilio.solutions`
+  to `.env.local` (prescription links; in production a missing `APP_URL` throws
+  when a link is created) and restart the service. Migrations 011 (already on
+  `neondb`) and 012 (`record_links`) are applied by `scripts/deploy.sh`.
 - Rollback proof (a deliberately broken commit on a throwaway branch) not yet run.
 - Server on Wi-Fi; Ethernet planned. journald has no size cap (optional).

@@ -157,6 +157,31 @@ test("a patient cannot cancel or reschedule someone else's appointment", async (
   );
 });
 
+test("cancel and reschedule refuse an appointment that is not booked", async () => {
+  const appt = await bookAppointment(db, AGENT, "agent",
+    { patientId: f.patientId, doctorId: f.doctorId, startsAt: futureSlot(15) });
+  await cancelAppointment(db, AGENT, "agent", { appointmentId: appt.id, patientId: f.patientId });
+
+  await assert.rejects(
+    cancelAppointment(db, AGENT, "agent", { appointmentId: appt.id, patientId: f.patientId }),
+    (e: BookingError) => e.code === "not_active",
+  );
+  await assert.rejects(
+    rescheduleAppointment(db, AGENT, "agent", {
+      appointmentId: appt.id, patientId: f.patientId, startsAt: futureSlot(16),
+    }),
+    (e: BookingError) => e.code === "not_active",
+  );
+});
+
+test("a patient cannot be booked with another clinic's doctor", async () => {
+  await assert.rejects(
+    bookAppointment(db, AGENT, "agent",
+      { patientId: f.patientId, doctorId: f.otherDoctorId, startsAt: futureSlot(10) }),
+    (e: BookingError) => e.code === "wrong_clinic",
+  );
+});
+
 test("rescheduling moves the appointment and leaves one booked row", async () => {
   const from = futureSlot(10), to = futureSlot(16);
   const appt = await bookAppointment(db, AGENT, "agent",
@@ -186,6 +211,30 @@ test("rescheduling into a taken slot keeps the original appointment", async () =
 
   const [still] = await db`select status from appointments where id = ${appt.id}`;
   assert.equal(still.status, "booked", "a failed reschedule must not lose the appointment");
+});
+
+test("simultaneous moves and cancels of one appointment leave at most one booked visit", async () => {
+  const appt = await bookAppointment(db, AGENT, "agent",
+    { patientId: f.patientId, doctorId: f.doctorId, startsAt: futureSlot(10) });
+  const input = { appointmentId: appt.id, patientId: f.patientId };
+  const results = await Promise.allSettled([
+    rescheduleAppointment(db, AGENT, "agent", { ...input, startsAt: futureSlot(12) }),
+    rescheduleAppointment(db, AGENT, "agent", { ...input, startsAt: futureSlot(14) }),
+    cancelAppointment(db, AGENT, "agent", input),
+  ]);
+  // Whichever wins, the losers are refused as not_active and nothing is doubled.
+  assert.equal(results.filter(r => r.status === "fulfilled").length, 1);
+  for (const r of results) {
+    if (r.status === "rejected") assert.equal((r.reason as BookingError).code, "not_active");
+  }
+  const booked = await db`select 1 from appointments where status = 'booked'`;
+  assert.ok(booked.length <= 1, `${booked.length} booked visits`);
+  // A reschedule that loses and cancels its own new booking leaves an audit trail too.
+  const cancelled = await db<{ id: string }[]>`select id from appointments where status = 'cancelled'`;
+  for (const { id } of cancelled) {
+    const rows = await db`select 1 from audit_log where action = 'cancel_appointment' and target_id = ${id}`;
+    assert.equal(rows.length, 1, `cancelled appointment ${id} has no audit row`);
+  }
 });
 
 test("upcoming appointments exclude cancelled and past ones", async () => {

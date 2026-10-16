@@ -1,3 +1,4 @@
+import type { Db } from "./db";
 import { TEMPLATES, type TemplateName } from "./templates";
 
 /**
@@ -8,6 +9,20 @@ import { TEMPLATES, type TemplateName } from "./templates";
  * Swapping in real credentials is an env change, not a code change.
  */
 export type Outbound = { to: string; text: string };
+
+/** WhatsApp allows free-form text only within 24 hours of the patient's own
+ *  last message (docs/10); outside it, only an approved template. */
+export const WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** Whether the patient's last inbound message is inside the 24-hour window. */
+export async function inWindow(db: Db, patientId: string, now = new Date()): Promise<boolean> {
+  const [row] = await db<{ last: Date | null }[]>`
+    select max(m.created_at) as last
+      from messages m
+      join conversations cv on cv.id = m.conversation_id
+     where cv.patient_id = ${patientId} and m.direction = 'inbound'`;
+  return row.last !== null && now.getTime() - row.last.getTime() < WINDOW_MS;
+}
 
 const configured = () =>
   Boolean(process.env.WHATSAPP_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID);
@@ -40,8 +55,15 @@ export async function sendMessage(msg: Outbound): Promise<{ delivered: boolean }
       }),
     },
   );
-  if (!res.ok) throw new Error(`whatsapp send failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw await rejected("whatsapp send failed", res);
   return { delivered: true };
+}
+
+/** Meta's error, reduced to its HTTP status and error code. The body can echo
+ *  what was sent — a code, a link token — and errors end up in logs. */
+async function rejected(what: string, res: Response) {
+  const code = await res.json().then(b => b?.error?.code, () => undefined);
+  return new Error(`${what}: ${res.status}${typeof code === "number" ? ` (code ${code})` : ""}`);
 }
 
 /** Keep the last two digits, so a log line can be tied to a conversation
@@ -111,14 +133,23 @@ export async function sendTemplate(msg: {
         template: {
           name: msg.name,
           language: { code: spec.language },
-          components: [{
-            type: "body",
-            parameters: msg.parameters.map(text => ({ type: "text", text })),
-          }],
+          components: [
+            {
+              type: "body",
+              parameters: msg.parameters.map(text => ({ type: "text", text })),
+            },
+            // Meta's copy-code authentication template: the code goes in the
+            // body AND as the button's parameter (verified against Meta's
+            // "copy code button authentication templates" docs, 2026-10-16).
+            ...(spec.category === "authentication" ? [{
+              type: "button", sub_type: "url", index: "0",
+              parameters: [{ type: "text", text: msg.parameters[0] }],
+            }] : []),
+          ],
         },
       }),
     },
   );
-  if (!res.ok) throw new Error(`whatsapp template send failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw await rejected("whatsapp template send failed", res);
   return { delivered: true };
 }

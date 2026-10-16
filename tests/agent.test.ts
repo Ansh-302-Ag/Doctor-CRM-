@@ -188,16 +188,74 @@ test("cancelling works and frees the slot", async () => {
   assert.equal((await db`select id from appointments where status = 'booked'`).length, 0);
 });
 
-test("reading the prescription record repeats it verbatim and offers no advice", async () => {
-  await db`insert into prescriptions (patient_id, doctor_id, drug_name, dosage, duration_days, created_by)
+test("'my prescription' sends a secure link, never the record", async () => {
+  await db`insert into prescriptions (patient_id, doctor_id, drug_name, dosage, duration_days, notes, created_by)
            values (${f.patientId}, ${f.doctorId}, 'Amoxicillin', '500mg twice daily', 5,
-                   ${f.doctorUserId})`;
+                   'after food', ${f.doctorUserId})`;
 
   const r = await say("what is my prescription");
-  assert.match(r!.text, /Amoxicillin/);
-  assert.match(r!.text, /500mg twice daily/);
+  assert.match(r!.text, /\/r\/[A-Za-z0-9_-]{43}(?![\w-])/);
+  for (const s of ["Amoxicillin", "500mg", "twice daily", "5 days", "after food"]) {
+    assert.ok(!r!.text.includes(s), `the reply must not carry "${s}"`);
+  }
+  assert.doesNotMatch(r!.text, /\b(dosage|tablet|medicine|drug)\b/i);
   assert.match(r!.text, /speak to the clinic team/i);
   assert.equal(r!.escalated, false);
+  assert.equal((await db`select 1 from record_links where patient_id = ${f.patientId}`).length, 1);
+});
+
+test("the stored copy of the prescription reply never holds the link's token", async () => {
+  await db`insert into prescriptions (patient_id, doctor_id, drug_name, dosage, created_by)
+           values (${f.patientId}, ${f.doctorId}, 'Amoxicillin', '500mg', ${f.doctorUserId})`;
+  const r = await say("what is my prescription");
+  const token = r!.text.match(/\/r\/([A-Za-z0-9_-]{43})/)![1];
+  const bodies = await db<{ body: string }[]>`select body from messages where direction = 'outbound'`;
+  assert.equal(bodies.length, 1);
+  assert.ok(!bodies[0].body.includes(token), "the token is not in messages.body");
+  assert.doesNotMatch(bodies[0].body, /\/r\/[A-Za-z0-9_-]{8,}/);
+  assert.match(bodies[0].body, /\/r\/\[secure link\]/);
+});
+
+test("with no APP_URL in production, 'my prescription' is handed to staff once, not a technical failure", async () => {
+  await db`insert into prescriptions (patient_id, doctor_id, drug_name, dosage, created_by)
+           values (${f.patientId}, ${f.doctorId}, 'Amoxicillin', '500mg', ${f.doctorUserId})`;
+  const env = process.env as Record<string, string | undefined>;
+  const saved = { node: env.NODE_ENV, app: env.APP_URL };
+  env.NODE_ENV = "production"; delete env.APP_URL;
+  const log = console.error; const logged: unknown[] = []; console.error = (...a) => logged.push(a);
+  let r;
+  try {
+    r = await say("what is my prescription");
+  } finally {
+    console.error = log;
+    env.NODE_ENV = saved.node;
+    if (saved.app === undefined) delete env.APP_URL; else env.APP_URL = saved.app;
+  }
+  assert.equal(r!.escalated, true);
+  assert.notEqual(r!.urgent, true);
+  assert.notEqual(r!.text, templates.technicalFailure());
+  assert.match(r!.text, /clinic team/i);
+  assert.doesNotMatch(r!.text, /Amoxicillin|500mg|\/r\//);
+  assert.deepEqual([...await escalations()].map(e => ({ ...e })), [{
+    reason: "prescription link unavailable: APP_URL not configured", priority: "normal", status: "open",
+  }]);
+  assert.equal(logged.length, 0, "nothing on console.error");
+  assert.equal((await db`select 1 from record_links`).length, 0);
+});
+
+test("a patient who has withdrawn consent gets no prescription link", async () => {
+  await db`insert into prescriptions (patient_id, doctor_id, drug_name, dosage, created_by)
+           values (${f.patientId}, ${f.doctorId}, 'Amoxicillin', '500mg', ${f.doctorUserId})`;
+  await db`update patients set consent_status = 'withdrawn' where id = ${f.patientId}`;
+  const r = await say("what is my prescription");
+  assert.doesNotMatch(r!.text, /\/r\//);
+  assert.equal((await db`select 1 from record_links`).length, 0);
+});
+
+test("'my prescription' with nothing active creates no link", async () => {
+  const r = await say("what is my prescription");
+  assert.match(r!.text, /no active prescriptions/i);
+  assert.equal((await db`select 1 from record_links`).length, 0);
 });
 
 test("'when is my appointment' reads back, it does not start a booking", async () => {
@@ -864,4 +922,50 @@ test("a model-classified yes in answer to the notice is consent", async () => {
   const [p] = await db<{ consent_status: string }[]>`
     select consent_status from patients where phone = ${phone}`;
   assert.equal(p.consent_status, "granted");
+});
+
+test("moving an appointment staff already cancelled gets a plain reply, not an escalation", async () => {
+  const appt = await db<{ id: string }[]>`
+    insert into appointments (clinic_id, doctor_id, patient_id, starts_at, ends_at, created_by)
+    values (${f.clinicId}, ${f.doctorId}, ${f.patientId}, ${futureSlot(10, 3)},
+            ${new Date(futureSlot(10, 3).getTime() + 30 * 60_000)}, 'agent')
+    returning id`;
+  const offer = await say(`please move my appointment to ${localDay(futureSlot(12, 4))}`);
+  const first = offer!.text.match(/^1\. .*?(\d{1,2}:\d{2})/m)![1];
+
+  // The front desk cancels it from the CRM while the patient is choosing a time.
+  await db`update appointments set status = 'cancelled' where id = ${appt[0].id}`;
+  const r = await say(`${first} works`);
+
+  assert.equal(r!.escalated, false);
+  assert.match(r!.text, /no longer booked/i);
+  assert.equal((await escalations()).length, 0);
+  const [c] = await db`select state from conversations where id = ${f.conversationId}`;
+  assert.deepEqual(c.state, {});
+  assert.equal((await db`select 1 from appointments where status = 'booked'`).length, 0);
+});
+
+test("cancelling an appointment staff just moved gets a plain reply, not an escalation", async () => {
+  await db`insert into appointments (clinic_id, doctor_id, patient_id, starts_at, ends_at, created_by)
+           values (${f.clinicId}, ${f.doctorId}, ${f.patientId}, ${futureSlot(10, 3)},
+                   ${new Date(futureSlot(10, 3).getTime() + 30 * 60_000)}, 'agent')`;
+  // Losing the race = the guarded update matching no row. A trigger that swallows
+  // the update reproduces that deterministically, between the agent's read and write.
+  await db.unsafe(`drop trigger if exists test_swallow_cancel on appointments`);
+  await db.unsafe(`drop function if exists test_swallow_cancel()`);
+  try {
+    await db.unsafe(`create or replace function test_swallow_cancel() returns trigger language plpgsql as
+      $$ begin if new.status = 'cancelled' then return null; end if; return new; end $$`);
+    await db.unsafe(`create trigger test_swallow_cancel before update on appointments
+      for each row execute function test_swallow_cancel()`);
+    const r = await say("cancel");
+    assert.equal(r!.escalated, false);
+    assert.match(r!.text, /no longer booked/i);
+    assert.equal((await escalations()).length, 0);
+    const [c] = await db`select state from conversations where id = ${f.conversationId}`;
+    assert.deepEqual(c.state, {});
+  } finally {
+    await db.unsafe(`drop trigger if exists test_swallow_cancel on appointments`);
+    await db.unsafe(`drop function if exists test_swallow_cancel()`);
+  }
 });

@@ -17,14 +17,16 @@ an earlier entry — add a new one saying what changed and why.
 | Phase 1 — WhatsApp booking loop | **Done**, verified end to end via a local simulator |
 | Phase 2 — prescriptions + refill reminders | Prescriptions **done**; refill reminders **built, not wired** (deliberate — see "Not built yet, on purpose") |
 | Phase 3 — second clinic + hardening | **Partly done** — load test and tenant isolation covered; tabletop rehearsal outstanding |
-| Phase 4 — voice | Not started, and deliberately so |
+| Phase 4 — voice | Voice booking **live** via Sarvam (inbound calls; see "2026-10-15 — Inbound calls book through the CRM") |
+| Front desk + patient record | **Done** (2026-10-15) |
 
-**204 tests: 197 passing, 7 skipped** against a real Postgres. The 7 skipped
+**312 tests: 305 passing, 7 skipped** against a real Postgres. The 7 skipped
 are the live Anthropic API tests in `tests/intent.live.test.ts`, which skip
 without `ANTHROPIC_API_KEY` and have still never been run, so the default
 `ANTHROPIC_MODEL` value remains unverified. All six items on the docs/08
 testing bar are now covered, including the last one (a reminder for a
 discontinued prescription must not send — `tests/reminders.test.ts`).
+See WORK_TO_DO.md for the current suite status.
 
 ---
 
@@ -1112,3 +1114,191 @@ moved to a new version only while paused (pause, switch, resume — ~10 s).
 instead of asking for ten digits; names are stored as transcribed (Devanagari);
 reschedule and cancel by phone (the prompt takes a message for staff instead).
 
+---
+
+## 2026-10-15 — The front desk, the patient record, and bugs fixed at the root
+
+**Why.** Staff could not run the desk inside the CRM: walk-ins, arrivals,
+booking on someone's behalf, a note about a patient all happened elsewhere.
+Spec `docs/superpowers/specs/2026-10-15-front-desk-and-patient-record-design.md`,
+plan `docs/superpowers/plans/2026-10-15-front-desk-and-patient-record.md`.
+Ideas were borrowed from twentyhq/twenty (timeline, notes, tasks, quick find,
+merge, export) and translated to a clinic. Twenty's separate events table was
+*not* copied: the timeline is a read-time UNION over the existing tables, so
+no bot write path changed.
+
+**Bugs fixed first (`29fc88a`, `20c2e38`, `7f60d95`).** A reminder that was not
+delivered (WhatsApp unconfigured, `delivered: false`) is now a failed attempt
+with back-off, not "sent". A deleted staff account no longer loops at login.
+Cancel and reschedule refuse an appointment that is not booked; booking refuses
+a patient from another clinic. Voice booking is one transaction and never
+overwrites an existing name. Permission errors show a CRM error page or an
+on-page message instead of a 500.
+
+**Front desk (`1378020`, `8159bc0`).** Migration 011: `appointments.arrived_at`
+(arrival is a timestamp; status stays `booked`, so every bot query is
+unchanged), `patient_notes`, `tasks` — none granted to `clinic_agent`. Walk-in
+registration records consent with channel `desk`; arrived / completed / no-show
+from the queue, which now counts who has been seen; a doctor filter on the
+calendar; staff book, reschedule and cancel through the same `booking.ts` the
+bots use.
+
+**Patient record (`5aa50d9`, `ef31356`, `5b5da20`, `0f76303`, `357d2c1`,
+`ceec676`, `623d12b`).** One timeline per patient; append-only notes; follow-up
+tasks (`/tasks`, a badge in the nav); Ctrl+K quick find with phone
+normalisation; merging duplicates in one transaction — conversations locked
+before patients, as the agent does; the messages of both WhatsApp
+conversations kept in one; consent follows the latest decision; the duplicate
+hard-deleted.
+
+**CSV export** (`0e256ab`). Patients, and appointments for a
+date range of at most 92 days from the calendar; doctor-scoped, audited,
+formula-injection safe, UTF-8 BOM so Excel reads it.
+
+**A verification pass (`2477ee0`).** The previous agent stopped mid-export; this session
+finished it and ran two read-only reviews against the brief. Found and fixed,
+each with a test where there is logic:
+1. Cancel/reschedule checked "still booked", then wrote separately, so a
+   simultaneous cancel + complete, or two reschedules, could both succeed. The
+   writes now re-check `status = 'booked'`, and a losing reschedule gives its
+   new slot back (`booking.ts`).
+2. A doctor could open another doctor's patient by typing their number on the
+   walk-in form. The booking page now reaches only his own patients, or ones
+   with no appointments yet.
+3. Quick find missed partial numbers typed with a `0` or `+91` prefix
+   ("098765", "+91 98765").
+4. `completeTask` ignored doctor scope.
+5. The task badge counted tasks of withdrawn patients.
+6. `/patients/<not-a-uuid>` returned 500; now 404.
+7. The calendar export link exported only the day on screen; it is now a
+   from/to range, and a refused range returns to the calendar with the message.
+
+**Testing note.** From an administrator shell on Windows the local test
+Postgres refuses to start; this pass ran against Neon `neondb_test` via the
+local runner script. Two test runs at once against the same database collide
+(seed duplicate key) — run one at a time.
+
+**Still owed:** a browser walk-through of every new screen (not done in this
+pass — no browser available); the UI/UX phase is next; and WORK_TO_DO.md,
+"Pending / owed".
+
+## 2026-10-15 — UI redesign, and review fixes on the front desk work
+
+A parallel session redesigned the CRM UI: light theme tokens and the `_ui.tsx`
+kit (`77b203c`), then every page and login (`22ec808`). New dependencies:
+framer-motion, clsx, tailwind-merge, animejs, lucide-react. Lightswind
+components (count-up, border-beam, tabs) are copied source under
+`src/components/lightswind`, recoloured to design tokens; the Lightswind CLI
+was not used because it phones home. anime.js entrances live in
+`src/components/motion/reveal.tsx`; both respect reduced motion. Rule for UI
+work: the default Tailwind palette is disabled, use tokens, compose `_ui.tsx`.
+Prescription entry gained past-drug suggestions, dose/timing and duration
+chips, Repeat, and a "will be saved as" line (no lib change). Behaviour:
+patients export 403 for a refused role, plain refusal when a doctor opens
+merge, "Book appointment" and "Register walk-in" links. Migration 011 was
+applied to `neondb` with Ansh's OK.
+
+Review fixes: a reschedule that loses a race now audits the cancel of its own
+new booking; a WhatsApp cancel that loses a race replies plainly instead of
+escalating; the CSV BOM is written as `﻿`; `listEscalations` returns
+`patient_id`. Full suite: 312 tests: 305 passing, 7 skipped. `next build` after the redesign is still
+to verify.
+
+## 2026-10-16 — UI/UX pass (branch `ui-overhaul`, fast-forwarded onto `front-desk`)
+
+Built in a separate clone so the session working on `front-desk` was never
+interrupted; no `src/lib`, test or migration changes — restyle only, apart
+from "Open record & prescribe" on My day now landing on the Rx pad
+(`#prescribe`).
+
+Tokens gain decoration-only colours (accent-2, sky, iris, deep), lift/glow
+shadows, `glass`, `bg-brand`, `shine`, `lift` utilities, an ambient dot-grid
+canvas, and a global reduced-motion stop. Lightswind components copied from
+its public registry and recoloured: interactive-card → `TiltCard`,
+top-loader (route progress bar), typing-text (as CSS), magnetic-button,
+beam-circle → `OrbitRings`, shiny-text. anime.js: page entrance
+(`(crm)/template.tsx`), progress ring, bar chart, split bar. A canvas 3D scene
+(`src/components/three/scene.tsx`: helix / network sphere; no WebGL library,
+pauses off screen and in background tabs) in the heroes and sign-in. Shared
+pieces: `components/ui/hero.tsx`, `components/ui/stat-tile.tsx`; `PageHeader`
+and `Card` take an `icon`; avatars get a stable gradient per name; skeletons
+shimmer; styled not-found pages. Every page restyled: sign-in, calendar,
+My day, board, patients, patient record and Rx pad, print sheet,
+appointments, walk-in, merge, escalations, tasks, Insights, error, loading.
+No new dependency.
+
+Checks: suite 334 (327 pass, 7 skipped), typecheck, lint clean on every UI
+file, `next build`. A scripted click-through of every route as desk, admin and
+doctor, at 1440 px, 390 px and with reduced motion: no console errors (only
+the deliberate 404), no 5xx, no horizontal overflow, Ctrl+K and the record's
+tabs work. An independent review of the diff found no behaviour change; its
+accessibility/hydration findings were fixed.
+
+## 2026-10-15/16 — front desk plan, review fixes, prescription links (branch `front-desk`)
+
+**Front-desk plan (Tasks 1–10)**, spec and plan in `docs/superpowers/`:
+bug fixes `29fc88a`, `20c2e38`, `7f60d95`; migration 011 + walk-ins + visit
+outcomes `1378020`; book/reschedule/cancel from the desk `8159bc0`; timeline
+`5aa50d9`; notes and tasks `ef31356`; phone-aware search and Ctrl+K `5b5da20`,
+`0f76303`; merge `357d2c1`, `ceec676`, `623d12b`; CSV export `0e256ab`;
+verification-pass fixes `2477ee0`; docs `8fbac07`.
+
+**Bugs fixed, and why.** An undelivered reminder was marked sent: it now counts
+as a failed attempt. A deleted staff account looped on login: the session is
+dropped. Voice booking could overwrite a patient's name and was not atomic.
+Booking now refuses a second active appointment and cross-clinic ids. A
+cancel/reschedule that lost a race wrote over the winner: the write re-checks.
+Doctor scope was missing on the walk-in path and on completing tasks.
+`prescribe` read the patient before checking permission. Quick find mishandled
+partial prefixed numbers.
+
+**Rulings made during execution.**
+- Arrived is a timestamp (`arrived_at`), not a status: `status = 'booked'`
+  readers are unchanged.
+- Consent on merge follows the latest decision across both records (a later
+  withdrawal wins).
+- Lock order is conversations, then patients, the same as the agent, so a merge
+  and an inbound message cannot deadlock.
+- Error copy is honest and plain (no "something went wrong" for a permission
+  error; a stale reschedule gets a plain reply, not an escalation).
+- Doctor scope applies to every new read, including search, export and merge.
+
+**Parallel redesign.** A second session restyled the CRM (`77b203c`, `22ec808`,
+`2d2417b`, `61032e6`, `098ee7f`); the current UI is Ansh's `ui-overhaul`
+(merged `472681e`; reverted `c16ab07` and restored `b5e32a9` on his
+instruction; `f5304a7` fixed two bugs). It has not had this project's review.
+Rule: design tokens only, compose `_ui.tsx`.
+
+**Extra features (Ansh-approved).** Today's board `/board`; insights dashboard
+`/insights` (`src/lib/insights.ts`); saved patient lists (consent pending,
+upcoming visit, due for recall 180+ days, active prescriptions, booked by AI);
+multi-medicine prescriptions (`prescribeManyAndNotify`, all-or-nothing, one
+message) and a printable sheet `/print/prescription/[patientId]`.
+
+**Prescription links.** Root cause of the complaint: `deliver()` in
+`src/lib/doctor.ts` sent drug, dosage, duration and notes as free-form WhatsApp
+text; the agent's `check_prescription_record` read them back in chat; the
+`record_updated` and `refill_followup` templates carried or implied health
+information. All replaced. The patient gets a content-free message with
+`${APP_URL}/r/<token>` (32-byte token, only its SHA-256 stored, 7 days). The
+page shows the clinic name and the last two digits of the number; "Send code"
+issues a 6-digit code (hash only, 10 min, single use, constant-time compare, 3
+codes per hour per link, 5 wrong codes lock the link). A verified browser
+(cookie `record_view`, path `/r`, 15 min) sees the active prescriptions
+verbatim and can download a PDF (`pdfkit`, IBM Plex Sans Devanagari, Hindi
+shaping verified; no patient name in the file). Headers on `/r/*`: no-store,
+no-referrer, noindex. Patient views are audited as `patient:<uuid>`. A test
+scans every WhatsApp body for health content. `APP_URL` is required in
+production. Migration `db/012_record_links.sql`, applied to `neondb_test` only.
+This lands in the next commit on `front-desk` and supersedes the 2026-10-14
+prescription-links plan.
+
+**Verification.** Full suite on `fa7385f`: 334 tests, 327 pass, 0 fail, 7
+skipped (`intent.live`, needs `ANTHROPIC_API_KEY`). Final combined run with
+links: see CI on the pushed branch. Browser e2e on a production build against
+`neondb_test`: 19/19 flows, 0 console errors. Whole-branch review at `afede4d`
+(two halves): logic ready; fixes in `61032e6`, `6f1544c`, `7c991c1`.
+
+**Owed.** Meta submission of `prescription_ready`, `record_code`, changed
+`refill_followup` (docs/10); `APP_URL` on the server; review of `ui-overhaul`;
+the parked findings and earlier items in `WORK_TO_DO.md`.

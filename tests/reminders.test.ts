@@ -162,6 +162,24 @@ test("a failing send is retried, then surfaced to staff", async () => {
     "staff must be told a reminder could not be delivered");
 });
 
+test("an undelivered reminder (WhatsApp unconfigured) is retried, not marked sent", async () => {
+  await bookAppointment(db, STAFF(), "receptionist",
+    { patientId: f.patientId, doctorId: f.doctorId, startsAt: futureSlot(10, 5) });
+  await due();
+
+  const undelivered = async () => ({ delivered: false });
+  const { notify } = recorder();
+  const res = await runDueReminders(db, { send: undelivered as never, notify });
+  assert.equal(res.sent, 0);
+
+  const [r] = await db<{ status: string; attempts: number; last_error: string; later: boolean }[]>`
+    select status, attempts, last_error, send_at > now() as later from reminders`;
+  assert.equal(r.status, "scheduled");
+  assert.equal(r.attempts, 1);
+  assert.match(r.last_error, /not delivered/);
+  assert.ok(r.later, "the retry is backed off into the future");
+});
+
 test("an exhausted reminder still escalates for a patient with no conversation", async () => {
   // A front-desk booking never texts the clinic, so it has no conversation row.
   // The escalation on exhausted retries must not depend on one existing.

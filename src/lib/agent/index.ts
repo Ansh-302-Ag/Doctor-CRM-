@@ -26,6 +26,7 @@ import {
 } from "../consent";
 import { BookingError, OPEN_HOUR, CLOSE_HOUR, OPEN_DAYS, requireTimezone } from "../booking";
 import { setPatientName } from "../patients";
+import { LinksUnavailable } from "../record-links";
 
 /** `urgent` is set when the escalation was an emergency, so the page that
  *  follows can say so; the patient-facing text is the same either way. */
@@ -58,8 +59,6 @@ type ConversationState =
   Partial<BookingState> & Partial<PendingState> & { unclear?: number };
 
 const isBooking = (s: ConversationState): s is BookingState => s.flow === "booking";
-const isPending = (s: ConversationState): s is PendingState =>
-  typeof s.pending === "string";
 
 /** Two messages we cannot read earn another try at the question; the third
  *  earns a person. Pre- and post-consent alike: one counter, one threshold. */
@@ -191,8 +190,11 @@ async function inTransaction(
         msg.attachment === "document" ? "file" : msg.attachment}. I can only read the text you typed.)`
     : reply.text;
 
+  // A record link's token is a bearer secret: the patient gets it, the stored
+  // copy (inbox, backups) does not.
+  const stored = text.replace(/\/r\/[A-Za-z0-9_-]{20,}/g, "/r/[secure link]");
   await db`insert into messages (conversation_id, direction, body, intent_classified)
-           values (${ctx.conversation.id}, 'outbound', ${text}, ${reply.intent ?? null})`;
+           values (${ctx.conversation.id}, 'outbound', ${stored}, ${reply.intent ?? null})`;
   return { text, escalated: reply.escalated, urgent: reply.urgent };
 }
 
@@ -398,7 +400,7 @@ async function route(
 
   switch (c.intent) {
     case "book":
-      return startBooking(db, msg, ctx, c, doctors, now, escalate, reask);
+      return startBooking(db, msg, ctx, c, doctors, now, escalate);
 
     case "check_appointment": {
       const rows = await tools.get_upcoming_appointments(db, ctx.patient.id);
@@ -412,19 +414,24 @@ async function route(
     }
 
     case "check_prescription_record": {
-      const rows = await tools.get_prescription_summary(db, ctx.patient.id);
-      if (rows.length === 0) {
+      // Never the record itself in chat — a secure link behind a one-time code.
+      let url: string | null;
+      try {
+        url = await tools.prescription_link(db, ctx.patient.id);
+      } catch (e) {
+        // A deployment gap, not this patient's problem: staff send it instead.
+        if (!(e instanceof LinksUnavailable)) throw e;
+        return escalate("prescription link unavailable: APP_URL not configured", "normal",
+          "I can't send the secure link just now, so I have asked the clinic team " +
+          "to send it to you.", c.intent);
+      }
+      if (!url) {
         return { text: "There are no active prescriptions on your record.",
                  escalated: false, intent: c.intent };
       }
-      // Read back verbatim. No interpretation, no advice (docs/01).
-      const list = rows.map(r =>
-        `• ${r.drug_name} — ${r.dosage}` +
-        (r.duration_days ? `, ${r.duration_days} days` : "") +
-        `, recorded ${dayIn(r.created_at, ctx.clinic.timezone)}`);
       return {
-        text: `Your record shows:\n${list.join("\n")}\n\nFor any question about these, ` +
-              `please speak to the clinic team.`,
+        text: `You can view your prescriptions securely here: ${url} — the page will send ` +
+              `a code to this number. For any question about them, please speak to the clinic team.`,
         escalated: false, intent: c.intent,
       };
     }
@@ -441,7 +448,15 @@ async function route(
           "You have more than one upcoming appointment, so I have asked the clinic team " +
           "to help you cancel the right one.", c.intent);
       }
-      await tools.cancel_appointment(db, { appointmentId: rows[0].id, patientId: ctx.patient.id });
+      try {
+        await tools.cancel_appointment(db, { appointmentId: rows[0].id, patientId: ctx.patient.id });
+      } catch (e) {
+        // Staff cancelled or moved it between our read and this write.
+        if (!(e instanceof BookingError && e.code === "not_active")) throw e;
+        await clearState(db, ctx.conversation.id);
+        return { text: "That appointment is no longer booked, so there is nothing to cancel.",
+                 escalated: false, intent: c.intent };
+      }
       await clearState(db, ctx.conversation.id);
       return {
         text: `Cancelled: ${rows[0].doctor_name} on ${fmtTime(rows[0].starts_at, ctx.clinic.timezone)}.`,
@@ -508,7 +523,7 @@ const whichDoctor = (doctors: Doctor[]) =>
 
 async function startBooking(
   db: Db, msg: InboundMessage, ctx: Ctx, c: Classification,
-  doctors: Doctor[], now: Date, escalate: Escalate, reask: Reask,
+  doctors: Doctor[], now: Date, escalate: Escalate,
 ): Promise<Routed> {
   if (doctors.length === 0) {
     return escalate("no doctors configured for this clinic", "normal",
@@ -605,6 +620,12 @@ async function continueBooking(
         // Someone took it between offering and confirming. Re-offer, don't fail.
         return offerSlots(db, ctx, state, dayIn(picked, ctx.clinic.timezone), now,
           "Sorry, that slot was just taken.");
+      }
+      if (e instanceof BookingError && e.code === "not_active") {
+        // The clinic cancelled or moved it while the patient was choosing a time.
+        await clearState(db, ctx.conversation.id);
+        return { text: "That appointment is no longer booked, so there is nothing to move. " +
+                       "Would you like to book a new one?", escalated: false, intent: "book" };
       }
       if (e instanceof ConsentRequired) throw e;
       console.error("[agent] booking failed", e);
